@@ -108,4 +108,22 @@ mod tests {
         let cfg = WindowConfig::new("Zero", 100, 0);
         assert_eq!(cfg.aspect_ratio(), 1.0);
     }
+
+    #[test]
+    fn window_config_fullscreen_resizable() {
+        let mut cfg = WindowConfig::default();
+        assert!(!cfg.fullscreen);
+        assert!(cfg.resizable);
+        cfg.fullscreen = true;
+        cfg.resizable = false;
+        assert!(cfg.fullscreen);
+        assert!(!cfg.resizable);
+    }
+
+    #[test]
+    fn window_config_clone_eq() {
+        let a = WindowConfig::new("Test", 800, 600);
+        let b = a.clone();
+        assert_eq!(a, b);
+    }
 }

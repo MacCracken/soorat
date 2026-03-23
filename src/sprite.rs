@@ -90,6 +90,12 @@ impl SpriteBatch {
         Self::default()
     }
 
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            sprites: Vec::with_capacity(capacity),
+        }
+    }
+
     pub fn push(&mut self, sprite: Sprite) {
         self.sprites.push(sprite);
     }
@@ -199,6 +205,13 @@ mod tests {
         assert_eq!(batch.sprites[0].x, 1.0);
         assert_eq!(batch.sprites[1].x, 2.0);
         assert_eq!(batch.sprites[2].x, 3.0);
+    }
+
+    #[test]
+    fn batch_with_capacity() {
+        let batch = SpriteBatch::with_capacity(100);
+        assert!(batch.is_empty());
+        assert!(batch.sprites.capacity() >= 100);
     }
 
     #[test]

@@ -62,4 +62,19 @@ mod tests {
             assert!(!err.to_string().is_empty());
         }
     }
+
+    #[test]
+    fn error_other_variant() {
+        let inner: Box<dyn std::error::Error + Send + Sync> = "custom error".into();
+        let err = RenderError::Other(inner);
+        assert!(err.to_string().contains("custom error"));
+    }
+
+    #[test]
+    fn error_is_send_sync() {
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+        assert_send::<RenderError>();
+        assert_sync::<RenderError>();
+    }
 }

@@ -47,3 +47,86 @@ fn window_config_integration() {
     assert!((cfg.aspect_ratio() - 800.0 / 600.0).abs() < 0.01);
     assert_eq!(cfg.present_mode(), wgpu::PresentMode::AutoVsync);
 }
+
+#[test]
+fn vertex_color_interop() {
+    let color = Color::from_hex(0xFF8040FF);
+    let v = Vertex2D {
+        position: [10.0, 20.0],
+        tex_coords: [0.0, 0.0],
+        color: color.to_array(),
+    };
+    assert_eq!(v.color[0], color.r);
+    assert_eq!(v.color[1], color.g);
+    assert_eq!(v.color[2], color.b);
+    assert_eq!(v.color[3], color.a);
+}
+
+#[test]
+fn sprite_batch_serde_roundtrip() {
+    let sprite = Sprite::new(10.0, 20.0, 64.0, 64.0)
+        .with_color(Color::from_hex(0x336699FF))
+        .with_rotation(1.57)
+        .with_texture(42)
+        .with_z_order(3);
+    let json = serde_json::to_string(&sprite).unwrap();
+    let decoded: Sprite = serde_json::from_str(&json).unwrap();
+    assert_eq!(sprite, decoded);
+}
+
+#[test]
+fn sprite_to_vertex_quad() {
+    let sprite = Sprite::new(100.0, 200.0, 50.0, 30.0).with_color(Color::RED);
+    let color_arr = sprite.color.to_array();
+
+    // Generate quad vertices from sprite
+    let verts = [
+        Vertex2D {
+            position: [sprite.x, sprite.y],
+            tex_coords: [0.0, 0.0],
+            color: color_arr,
+        },
+        Vertex2D {
+            position: [sprite.x + sprite.width, sprite.y],
+            tex_coords: [1.0, 0.0],
+            color: color_arr,
+        },
+        Vertex2D {
+            position: [sprite.x + sprite.width, sprite.y + sprite.height],
+            tex_coords: [1.0, 1.0],
+            color: color_arr,
+        },
+        Vertex2D {
+            position: [sprite.x, sprite.y + sprite.height],
+            tex_coords: [0.0, 1.0],
+            color: color_arr,
+        },
+    ];
+
+    // Verify quad covers sprite bounds
+    let (min_x, min_y, max_x, max_y) = sprite.bounds();
+    assert_eq!(verts[0].position, [min_x, min_y]);
+    assert_eq!(verts[2].position, [max_x, max_y]);
+
+    // Verify bytemuck cast works for GPU upload
+    let bytes: &[u8] = bytemuck::cast_slice(&verts);
+    assert_eq!(bytes.len(), 32 * 4);
+}
+
+#[test]
+fn batch_sort_preserves_all_sprites() {
+    let mut batch = SpriteBatch::new();
+    for i in 0..50 {
+        batch.push(
+            Sprite::new(i as f32, 0.0, 10.0, 10.0)
+                .with_z_order(50 - i)
+                .with_texture(i as u64),
+        );
+    }
+    batch.sort_by_z();
+    assert_eq!(batch.len(), 50);
+    // All texture IDs should still be present
+    let mut ids: Vec<u64> = batch.sprites.iter().map(|s| s.texture_id).collect();
+    ids.sort();
+    assert_eq!(ids, (0..50).collect::<Vec<u64>>());
+}

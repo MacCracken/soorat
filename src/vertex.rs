@@ -32,9 +32,9 @@ impl Vertex2D {
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x2,
                 },
-                // color
+                // color (after position [f32; 2] + tex_coords [f32; 2])
                 wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+                    offset: (std::mem::size_of::<[f32; 2]>() * 2) as wgpu::BufferAddress,
                     shader_location: 2,
                     format: wgpu::VertexFormat::Float32x4,
                 },
@@ -95,6 +95,7 @@ impl Vertex3D {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bytemuck::Zeroable;
 
     #[test]
     fn vertex2d_size() {
@@ -132,5 +133,100 @@ mod tests {
         let json = serde_json::to_string(&v).unwrap();
         let decoded: Vertex2D = serde_json::from_str(&json).unwrap();
         assert_eq!(v, decoded);
+    }
+
+    #[test]
+    fn vertex3d_serde() {
+        let v = Vertex3D {
+            position: [1.0, 2.0, 3.0],
+            normal: [0.0, 1.0, 0.0],
+            tex_coords: [0.5, 0.5],
+            color: [1.0, 0.0, 0.0, 1.0],
+        };
+        let json = serde_json::to_string(&v).unwrap();
+        let decoded: Vertex3D = serde_json::from_str(&json).unwrap();
+        assert_eq!(v, decoded);
+    }
+
+    #[test]
+    fn vertex2d_bytemuck_cast() {
+        let v = Vertex2D {
+            position: [1.0, 2.0],
+            tex_coords: [0.5, 0.5],
+            color: [1.0, 1.0, 1.0, 1.0],
+        };
+        let bytes: &[u8] = bytemuck::bytes_of(&v);
+        assert_eq!(bytes.len(), 32);
+        let back: &Vertex2D = bytemuck::from_bytes(bytes);
+        assert_eq!(*back, v);
+    }
+
+    #[test]
+    fn vertex3d_bytemuck_cast() {
+        let v = Vertex3D {
+            position: [1.0, 2.0, 3.0],
+            normal: [0.0, 1.0, 0.0],
+            tex_coords: [0.5, 0.5],
+            color: [1.0, 0.0, 0.0, 1.0],
+        };
+        let bytes: &[u8] = bytemuck::bytes_of(&v);
+        assert_eq!(bytes.len(), 48);
+        let back: &Vertex3D = bytemuck::from_bytes(bytes);
+        assert_eq!(*back, v);
+    }
+
+    #[test]
+    fn vertex2d_zeroed() {
+        let v = Vertex2D::zeroed();
+        assert_eq!(v.position, [0.0, 0.0]);
+        assert_eq!(v.tex_coords, [0.0, 0.0]);
+        assert_eq!(v.color, [0.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn vertex3d_zeroed() {
+        let v = Vertex3D::zeroed();
+        assert_eq!(v.position, [0.0, 0.0, 0.0]);
+        assert_eq!(v.normal, [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn vertex2d_layout_offsets() {
+        let layout = Vertex2D::layout();
+        assert_eq!(layout.attributes[0].offset, 0); // position
+        assert_eq!(layout.attributes[1].offset, 8); // tex_coords (2 * f32)
+        assert_eq!(layout.attributes[2].offset, 16); // color (4 * f32)
+    }
+
+    #[test]
+    fn vertex3d_layout_offsets() {
+        let layout = Vertex3D::layout();
+        assert_eq!(layout.attributes[0].offset, 0); // position
+        assert_eq!(layout.attributes[1].offset, 12); // normal (3 * f32)
+        assert_eq!(layout.attributes[2].offset, 24); // tex_coords (6 * f32)
+        assert_eq!(layout.attributes[3].offset, 32); // color (8 * f32)
+    }
+
+    #[test]
+    fn vertex2d_batch_bytemuck() {
+        let verts = vec![
+            Vertex2D {
+                position: [0.0, 0.0],
+                tex_coords: [0.0, 0.0],
+                color: [1.0; 4],
+            },
+            Vertex2D {
+                position: [1.0, 0.0],
+                tex_coords: [1.0, 0.0],
+                color: [1.0; 4],
+            },
+            Vertex2D {
+                position: [0.0, 1.0],
+                tex_coords: [0.0, 1.0],
+                color: [1.0; 4],
+            },
+        ];
+        let bytes: &[u8] = bytemuck::cast_slice(&verts);
+        assert_eq!(bytes.len(), 32 * 3);
     }
 }

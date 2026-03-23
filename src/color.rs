@@ -264,6 +264,53 @@ mod tests {
         assert!(Color::RED.luminance() < Color::GREEN.luminance());
     }
 
+    #[test]
+    fn color_rgb_constructor() {
+        let c = Color::rgb(0.1, 0.2, 0.3);
+        assert_eq!(c.r, 0.1);
+        assert_eq!(c.g, 0.2);
+        assert_eq!(c.b, 0.3);
+        assert_eq!(c.a, 1.0);
+    }
+
+    #[test]
+    fn color_from_array_3() {
+        let c: Color = [0.5, 0.6, 0.7].into();
+        assert_eq!(c.r, 0.5);
+        assert_eq!(c.g, 0.6);
+        assert_eq!(c.b, 0.7);
+        assert_eq!(c.a, 1.0);
+    }
+
+    #[test]
+    fn color_lerp_boundaries() {
+        let a = Color::RED;
+        let b = Color::BLUE;
+        // t=0.0 returns self
+        let at_zero = a.lerp(b, 0.0);
+        assert_eq!(at_zero, a);
+        // t=1.0 returns other
+        let at_one = a.lerp(b, 1.0);
+        assert_eq!(at_one, b);
+        // t<0 clamps to 0
+        let below = a.lerp(b, -1.0);
+        assert_eq!(below, a);
+    }
+
+    #[test]
+    fn color_from_hex_zero() {
+        let c = Color::from_hex(0x00000000);
+        assert_eq!(c, Color::TRANSPARENT);
+    }
+
+    #[test]
+    fn color_from_rgba8_boundary() {
+        let zero = Color::from_rgba8(0, 0, 0, 0);
+        assert_eq!(zero, Color::TRANSPARENT);
+        let full = Color::from_rgba8(255, 255, 255, 255);
+        assert_eq!(full, Color::WHITE);
+    }
+
     #[cfg(feature = "optics")]
     #[test]
     fn color_from_prakash() {
