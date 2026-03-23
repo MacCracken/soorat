@@ -13,10 +13,14 @@
 pub mod color;
 pub mod error;
 pub mod gpu;
+pub mod pipeline;
 pub mod sprite;
+pub mod texture;
 pub mod vertex;
 pub mod window;
 
 pub use error::{RenderError, Result};
 pub use gpu::GpuContext;
-pub use window::WindowConfig;
+pub use pipeline::SpritePipeline;
+pub use texture::{Texture, TextureCache};
+pub use window::{Window, WindowConfig};

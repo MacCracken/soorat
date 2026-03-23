@@ -1,6 +1,9 @@
 //! Window management via winit.
 
+use crate::error::{RenderError, Result};
+use crate::gpu::GpuContext;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// Window configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -51,6 +54,226 @@ impl WindowConfig {
             wgpu::PresentMode::AutoVsync
         } else {
             wgpu::PresentMode::AutoNoVsync
+        }
+    }
+}
+
+/// A window with an attached wgpu surface for rendering.
+pub struct Window {
+    pub gpu: GpuContext,
+    pub surface: wgpu::Surface<'static>,
+    pub surface_config: wgpu::SurfaceConfiguration,
+    pub winit_window: Arc<winit::window::Window>,
+}
+
+impl Window {
+    /// Create a new window and GPU context from a winit window.
+    /// The winit window must already be created (within an ApplicationHandler).
+    pub async fn new(
+        winit_window: Arc<winit::window::Window>,
+        config: &WindowConfig,
+    ) -> Result<Self> {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+
+        let surface = instance
+            .create_surface(winit_window.clone())
+            .map_err(|e| RenderError::SurfaceConfig(e.to_string()))?;
+
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .ok_or(RenderError::AdapterNotFound)?;
+
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor::default(), None)
+            .await
+            .map_err(|e| RenderError::DeviceRequest(e.to_string()))?;
+
+        let surface_caps = surface.get_capabilities(&adapter);
+        let surface_format = surface_caps
+            .formats
+            .iter()
+            .find(|f| f.is_srgb())
+            .copied()
+            .unwrap_or(surface_caps.formats[0]);
+
+        let size = winit_window.inner_size();
+        let width = size.width.max(1);
+        let height = size.height.max(1);
+
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            width,
+            height,
+            present_mode: config.present_mode(),
+            alpha_mode: surface_caps.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+        surface.configure(&device, &surface_config);
+
+        tracing::info!(
+            adapter = adapter.get_info().name,
+            backend = ?adapter.get_info().backend,
+            format = ?surface_format,
+            "Window created"
+        );
+
+        let gpu = GpuContext {
+            instance,
+            adapter,
+            device,
+            queue,
+        };
+
+        Ok(Self {
+            gpu,
+            surface,
+            surface_config,
+            winit_window,
+        })
+    }
+
+    /// Reconfigure the surface after a resize.
+    pub fn resize(&mut self, width: u32, height: u32) {
+        if width == 0 || height == 0 {
+            return;
+        }
+        self.surface_config.width = width;
+        self.surface_config.height = height;
+        self.surface
+            .configure(&self.gpu.device, &self.surface_config);
+    }
+
+    /// Get the current surface texture for rendering.
+    pub fn current_texture(&self) -> Result<wgpu::SurfaceTexture> {
+        self.surface
+            .get_current_texture()
+            .map_err(|e| RenderError::SurfaceTexture(e.to_string()))
+    }
+
+    /// Surface format.
+    pub fn format(&self) -> wgpu::TextureFormat {
+        self.surface_config.format
+    }
+
+    /// Current surface dimensions.
+    pub fn size(&self) -> (u32, u32) {
+        (self.surface_config.width, self.surface_config.height)
+    }
+
+    /// Request a redraw from the windowing system.
+    pub fn request_redraw(&self) {
+        self.winit_window.request_redraw();
+    }
+}
+
+/// Run the event loop with a callback-based application handler.
+///
+/// `init` is called once when the window is created, receiving the Window.
+/// `frame` is called each frame with the Window, returning false to exit.
+pub fn run(
+    config: WindowConfig,
+    init: impl FnOnce(&mut Window) + 'static,
+    mut frame: impl FnMut(&mut Window) -> bool + 'static,
+) -> Result<()> {
+    let event_loop =
+        winit::event_loop::EventLoop::new().map_err(|e| RenderError::Window(e.to_string()))?;
+    event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
+
+    let mut app = App {
+        config,
+        window: None,
+        init: Some(Box::new(init)),
+        frame: Box::new(move |w| frame(w)),
+    };
+
+    event_loop
+        .run_app(&mut app)
+        .map_err(|e| RenderError::Window(e.to_string()))
+}
+
+type InitCallback = Box<dyn FnOnce(&mut Window)>;
+type FrameCallback = Box<dyn FnMut(&mut Window) -> bool>;
+
+struct App {
+    config: WindowConfig,
+    window: Option<Window>,
+    init: Option<InitCallback>,
+    frame: FrameCallback,
+}
+
+impl winit::application::ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+
+        let attrs = winit::window::WindowAttributes::default()
+            .with_title(&self.config.title)
+            .with_inner_size(winit::dpi::LogicalSize::new(
+                self.config.width,
+                self.config.height,
+            ))
+            .with_resizable(self.config.resizable);
+
+        let winit_window = match event_loop.create_window(attrs) {
+            Ok(w) => Arc::new(w),
+            Err(e) => {
+                tracing::error!("Failed to create window: {e}");
+                event_loop.exit();
+                return;
+            }
+        };
+
+        let window = match pollster::block_on(Window::new(winit_window, &self.config)) {
+            Ok(w) => w,
+            Err(e) => {
+                tracing::error!("Failed to init GPU: {e}");
+                event_loop.exit();
+                return;
+            }
+        };
+
+        self.window = Some(window);
+
+        if let Some(init) = self.init.take() {
+            init(self.window.as_mut().unwrap());
+        }
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        _window_id: winit::window::WindowId,
+        event: winit::event::WindowEvent,
+    ) {
+        let Some(window) = self.window.as_mut() else {
+            return;
+        };
+
+        match event {
+            winit::event::WindowEvent::CloseRequested => {
+                event_loop.exit();
+            }
+            winit::event::WindowEvent::Resized(size) => {
+                window.resize(size.width, size.height);
+            }
+            winit::event::WindowEvent::RedrawRequested => {
+                if !(self.frame)(window) {
+                    event_loop.exit();
+                }
+                window.request_redraw();
+            }
+            _ => {}
         }
     }
 }

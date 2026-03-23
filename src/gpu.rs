@@ -11,9 +11,19 @@ pub struct GpuContext {
 }
 
 impl GpuContext {
-    /// Request a GPU context (adapter + device + queue).
-    /// This is async because wgpu adapter/device requests are async.
+    /// Request a GPU context (adapter + device + queue) without a surface.
+    /// The adapter may not support presentation — use `new_for_surface` when rendering to a window.
     pub async fn new() -> Result<Self> {
+        Self::new_inner(None).await
+    }
+
+    /// Request a GPU context compatible with the given surface.
+    /// Ensures the adapter can present to this surface.
+    pub async fn new_for_surface(surface: &wgpu::Surface<'_>) -> Result<Self> {
+        Self::new_inner(Some(surface)).await
+    }
+
+    async fn new_inner(compatible_surface: Option<&wgpu::Surface<'_>>) -> Result<Self> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
@@ -22,7 +32,7 @@ impl GpuContext {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: None,
+                compatible_surface,
                 force_fallback_adapter: false,
             })
             .await

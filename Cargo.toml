@@ -27,6 +27,7 @@ glam = "0.29"
 
 # Core
 bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 tracing = "0.1"

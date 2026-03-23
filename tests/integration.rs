@@ -2,7 +2,9 @@
 
 use soorat::WindowConfig;
 use soorat::color::Color;
+use soorat::pipeline::batch_to_vertices;
 use soorat::sprite::{Sprite, SpriteBatch};
+use soorat::texture::TextureCache;
 use soorat::vertex::{Vertex2D, Vertex3D};
 
 #[test]
@@ -129,4 +131,53 @@ fn batch_sort_preserves_all_sprites() {
     let mut ids: Vec<u64> = batch.sprites.iter().map(|s| s.texture_id).collect();
     ids.sort();
     assert_eq!(ids, (0..50).collect::<Vec<u64>>());
+}
+
+#[test]
+fn pipeline_batch_to_vertices_integration() {
+    let mut batch = SpriteBatch::with_capacity(10);
+    for i in 0..10 {
+        batch.push(
+            Sprite::new(i as f32 * 50.0, 100.0, 32.0, 32.0)
+                .with_color(Color::from_rgba8(255, i * 25, 0, 255))
+                .with_z_order(10 - i as i32),
+        );
+    }
+    batch.sort_by_z();
+
+    let (verts, indices) = batch_to_vertices(&batch);
+    assert_eq!(verts.len(), 40); // 10 sprites * 4 verts
+    assert_eq!(indices.len(), 60); // 10 sprites * 6 indices
+
+    // Verify all indices are in range
+    let max_vert = verts.len() as u16;
+    for &idx in &indices {
+        assert!(idx < max_vert, "Index {idx} out of range (max {max_vert})");
+    }
+
+    // Verify bytemuck cast for GPU upload
+    let bytes: &[u8] = bytemuck::cast_slice(&verts);
+    assert_eq!(bytes.len(), 32 * 40);
+}
+
+#[test]
+fn texture_cache_workflow() {
+    let cache = TextureCache::new();
+    assert!(cache.is_empty());
+    assert!(!cache.contains(0));
+    assert!(!cache.contains(42));
+}
+
+#[test]
+fn pipeline_index_pattern() {
+    let mut batch = SpriteBatch::new();
+    batch.push(Sprite::new(0.0, 0.0, 10.0, 10.0));
+    batch.push(Sprite::new(20.0, 0.0, 10.0, 10.0));
+    batch.push(Sprite::new(40.0, 0.0, 10.0, 10.0));
+
+    let (_, indices) = batch_to_vertices(&batch);
+    // Each quad: base+0, base+1, base+2, base+2, base+3, base+0
+    assert_eq!(&indices[0..6], &[0, 1, 2, 2, 3, 0]);
+    assert_eq!(&indices[6..12], &[4, 5, 6, 6, 7, 4]);
+    assert_eq!(&indices[12..18], &[8, 9, 10, 10, 11, 8]);
 }

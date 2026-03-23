@@ -1,5 +1,6 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use soorat::color::Color;
+use soorat::pipeline::batch_to_vertices;
 use soorat::sprite::{Sprite, SpriteBatch};
 use soorat::vertex::Vertex2D;
 
@@ -175,5 +176,43 @@ fn bench_vertex(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_color, bench_sprite, bench_vertex);
+fn bench_pipeline(c: &mut Criterion) {
+    let mut group = c.benchmark_group("pipeline");
+
+    group.bench_function("batch_to_vertices_100", |b| {
+        let mut batch = SpriteBatch::with_capacity(100);
+        for i in 0..100 {
+            batch.push(
+                Sprite::new(i as f32 * 10.0, 0.0, 32.0, 32.0)
+                    .with_color(Color::WHITE)
+                    .with_z_order(100 - i),
+            );
+        }
+        batch.sort_by_z();
+        b.iter(|| batch_to_vertices(black_box(&batch)))
+    });
+
+    group.bench_function("batch_to_vertices_1000", |b| {
+        let mut batch = SpriteBatch::with_capacity(1000);
+        for i in 0..1000 {
+            batch.push(
+                Sprite::new(i as f32 * 10.0, 0.0, 32.0, 32.0)
+                    .with_color(Color::WHITE)
+                    .with_z_order(1000 - i),
+            );
+        }
+        batch.sort_by_z();
+        b.iter(|| batch_to_vertices(black_box(&batch)))
+    });
+
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_color,
+    bench_sprite,
+    bench_vertex,
+    bench_pipeline
+);
 criterion_main!(benches);
