@@ -1,0 +1,47 @@
+[package]
+name = "soorat"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0"
+description = "Soorat — GPU rendering engine for AGNOS"
+homepage = "https://github.com/MacCracken/soorat"
+repository = "https://github.com/MacCracken/soorat"
+readme = "README.md"
+documentation = "https://docs.rs/soorat"
+keywords = ["rendering", "gpu", "wgpu", "graphics", "game-engine"]
+categories = ["rendering", "graphics", "game-engines"]
+exclude = [".claude/", ".github/", "docs/", "scripts/"]
+
+[features]
+default = []
+optics = ["dep:prakash"]
+full = ["optics"]
+
+[dependencies]
+# GPU
+wgpu = "24"
+winit = "0.30"
+
+# Math
+glam = "0.29"
+
+# Core
+bytemuck = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+tracing = "0.1"
+
+# Optics / color science (optional)
+prakash = { path = "../prakash", optional = true }
+
+# Image loading
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+serde_json = "1"
+pollster = "0.4"
+
+[[bench]]
+name = "benchmarks"
+harness = false
