@@ -11,6 +11,7 @@
 //! - Render pass abstraction
 
 pub mod color;
+pub mod debug_draw;
 pub mod error;
 pub mod gltf_loader;
 pub mod gpu;
@@ -23,6 +24,7 @@ pub mod texture;
 pub mod vertex;
 pub mod window;
 
+pub use debug_draw::{LineBatch, LinePipeline, LineVertex};
 pub use error::{RenderError, Result};
 pub use gpu::GpuContext;
 pub use material::Material;

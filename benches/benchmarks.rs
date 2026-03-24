@@ -235,11 +235,56 @@ fn bench_pipeline(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_debug_draw(c: &mut Criterion) {
+    use soorat::debug_draw::LineBatch;
+
+    let mut group = c.benchmark_group("debug_draw");
+
+    group.bench_function("wire_box_100", |b| {
+        let mut batch = LineBatch::new();
+        b.iter(|| {
+            batch.clear();
+            for i in 0..100 {
+                let p = i as f32;
+                batch.wire_box(
+                    black_box([p, 0.0, 0.0]),
+                    black_box([p + 1.0, 1.0, 1.0]),
+                    Color::GREEN,
+                );
+            }
+            black_box(batch.line_count());
+        })
+    });
+
+    group.bench_function("wire_sphere_100", |b| {
+        let mut batch = LineBatch::new();
+        b.iter(|| {
+            batch.clear();
+            for i in 0..100 {
+                batch.wire_sphere(black_box([i as f32, 0.0, 0.0]), 1.0, 16, Color::BLUE);
+            }
+            black_box(batch.line_count());
+        })
+    });
+
+    group.bench_function("grid_10x10", |b| {
+        let mut batch = LineBatch::new();
+        b.iter(|| {
+            batch.clear();
+            batch.grid(black_box(10.0), black_box(1.0), Color::WHITE);
+            black_box(batch.line_count());
+        })
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_color,
     bench_sprite,
     bench_vertex,
-    bench_pipeline
+    bench_pipeline,
+    bench_debug_draw
 );
 criterion_main!(benches);
