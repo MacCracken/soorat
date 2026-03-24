@@ -13,7 +13,7 @@ struct CameraUniforms {
 
 struct LightUniforms {
     ambient_color: vec4<f32>,      // RGB + intensity in alpha
-    light_direction: vec4<f32>,    // normalized direction (w unused)
+    light_direction: vec4<f32>,    // normalized direction, w = shadow_map_size
     light_color: vec4<f32>,        // RGB + intensity in alpha
     light_view_proj: mat4x4<f32>, // for shadow mapping
 }
@@ -112,7 +112,8 @@ fn sample_shadow(coords: vec3<f32>) -> f32 {
     }
 
     // 3x3 PCF (percentage closer filtering)
-    let texel_size = 1.0 / 2048.0; // matches DEFAULT_SHADOW_MAP_SIZE
+    let shadow_size = max(light.light_direction.w, 512.0);
+    let texel_size = 1.0 / shadow_size;
     var shadow = 0.0;
     for (var x: i32 = -1; x <= 1; x++) {
         for (var y: i32 = -1; y <= 1; y++) {
@@ -173,8 +174,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let color = ambient + direct;
 
-    // Reinhard tone mapping
-    let mapped = color / (color + vec3<f32>(1.0));
-
-    return vec4<f32>(mapped, base_color.a);
+    // Output linear HDR — tone mapping handled by PostProcessPipeline
+    return vec4<f32>(color, base_color.a);
 }

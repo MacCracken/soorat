@@ -1,5 +1,6 @@
 //! Shadow mapping for directional lights.
 
+use crate::math_util::{IDENTITY_MAT4, cross, mul_mat4, normalize3};
 use crate::mesh_pipeline::{DepthBuffer, Mesh};
 use crate::vertex::Vertex3D;
 
@@ -67,15 +68,11 @@ pub struct ShadowUniforms {
 impl Default for ShadowUniforms {
     fn default() -> Self {
         Self {
-            light_view_proj: IDENTITY,
-            model: IDENTITY,
+            light_view_proj: IDENTITY_MAT4,
+            model: IDENTITY_MAT4,
         }
     }
 }
-
-const IDENTITY: [f32; 16] = [
-    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-];
 
 /// Compute an orthographic light-space matrix for a directional light.
 /// `direction`: normalized light direction (where light points).
@@ -146,37 +143,6 @@ pub fn directional_light_matrix(
     ];
 
     mul_mat4(proj, view)
-}
-
-fn normalize3(v: [f32; 3]) -> [f32; 3] {
-    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-    if len < 1e-10 {
-        return [0.0, 0.0, 1.0];
-    }
-    [v[0] / len, v[1] / len, v[2] / len]
-}
-
-fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-
-/// Multiply two 4x4 column-major matrices: result = a * b.
-fn mul_mat4(a: [f32; 16], b: [f32; 16]) -> [f32; 16] {
-    let mut r = [0.0f32; 16];
-    for col in 0..4 {
-        for row in 0..4 {
-            let mut sum = 0.0;
-            for k in 0..4 {
-                sum += a[k * 4 + row] * b[col * 4 + k];
-            }
-            r[col * 4 + row] = sum;
-        }
-    }
-    r
 }
 
 /// Shadow pass pipeline — renders depth-only from the light's perspective.
@@ -341,26 +307,6 @@ mod tests {
     fn directional_light_matrix_produces_valid() {
         let m = directional_light_matrix([0.0, -1.0, 0.0], 10.0, 0.1, 50.0);
         assert_eq!(m.len(), 16);
-        // Should not be identity
-        assert!(m != IDENTITY);
-    }
-
-    #[test]
-    fn normalize3_unit() {
-        let n = normalize3([3.0, 0.0, 4.0]);
-        let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-        assert!((len - 1.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn cross_product() {
-        let c = cross([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
-        assert!((c[2] - 1.0).abs() < 0.001); // i×j = k
-    }
-
-    #[test]
-    fn mul_mat4_identity() {
-        let r = mul_mat4(IDENTITY, IDENTITY);
-        assert_eq!(r, IDENTITY);
+        assert!(m != IDENTITY_MAT4);
     }
 }

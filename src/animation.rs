@@ -1,6 +1,7 @@
 //! Skeletal animation — joints, skins, animation clips.
 
 use crate::error::{RenderError, Result};
+use crate::math_util::{IDENTITY_MAT4, mul_mat4};
 
 /// Maximum joints per skin (matches common GPU uniform limits).
 pub const MAX_JOINTS: usize = 128;
@@ -24,7 +25,7 @@ impl Default for Joint {
     fn default() -> Self {
         Self {
             parent: -1,
-            inverse_bind: IDENTITY,
+            inverse_bind: IDENTITY_MAT4,
             translation: [0.0; 3],
             rotation: [0.0, 0.0, 0.0, 1.0], // identity quaternion
             scale: [1.0, 1.0, 1.0],
@@ -43,7 +44,7 @@ impl Skeleton {
     /// Returns up to MAX_JOINTS matrices (each 4x4 column-major).
     pub fn compute_joint_matrices(&self) -> Vec<[f32; 16]> {
         let count = self.joints.len().min(MAX_JOINTS);
-        let mut world_transforms = vec![IDENTITY; count];
+        let mut world_transforms = vec![IDENTITY_MAT4; count];
         let mut joint_matrices = Vec::with_capacity(count);
 
         // Forward pass: compute world transforms from local transforms
@@ -79,7 +80,7 @@ impl Default for JointUniforms {
     fn default() -> Self {
         Self {
             joint_count: [0.0; 4],
-            joints: [IDENTITY; MAX_JOINTS],
+            joints: [IDENTITY_MAT4; MAX_JOINTS],
         }
     }
 }
@@ -227,7 +228,7 @@ pub fn load_gltf_animations(bytes: &[u8]) -> Result<(Vec<Skeleton>, Vec<Animatio
             let ibm = if i < inverse_binds.len() {
                 flatten_mat4(inverse_binds[i])
             } else {
-                IDENTITY
+                IDENTITY_MAT4
             };
 
             // Find parent index within the joints list
@@ -335,10 +336,6 @@ pub fn load_gltf_animations(bytes: &[u8]) -> Result<(Vec<Skeleton>, Vec<Animatio
 
 // ── Matrix helpers ──────────────────────────────────────────────────────────
 
-const IDENTITY: [f32; 16] = [
-    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-];
-
 fn flatten_mat4(m: [[f32; 4]; 4]) -> [f32; 16] {
     [
         m[0][0], m[0][1], m[0][2], m[0][3], m[1][0], m[1][1], m[1][2], m[1][3], m[2][0], m[2][1],
@@ -382,20 +379,6 @@ fn compose_trs(t: [f32; 3], r: [f32; 4], s: [f32; 3]) -> [f32; 16] {
     ]
 }
 
-fn mul_mat4(a: [f32; 16], b: [f32; 16]) -> [f32; 16] {
-    let mut r = [0.0f32; 16];
-    for col in 0..4 {
-        for row in 0..4 {
-            let mut sum = 0.0;
-            for k in 0..4 {
-                sum += a[k * 4 + row] * b[col * 4 + k];
-            }
-            r[col * 4 + row] = sum;
-        }
-    }
-    r
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -415,7 +398,7 @@ mod tests {
         };
         let matrices = skeleton.compute_joint_matrices();
         assert_eq!(matrices.len(), 1);
-        assert_eq!(matrices[0], IDENTITY);
+        assert_eq!(matrices[0], IDENTITY_MAT4);
     }
 
     #[test]
@@ -428,7 +411,7 @@ mod tests {
     #[test]
     fn joint_uniforms_set_joints() {
         let mut u = JointUniforms::default();
-        let matrices = vec![IDENTITY, IDENTITY, IDENTITY];
+        let matrices = vec![IDENTITY_MAT4, IDENTITY_MAT4, IDENTITY_MAT4];
         u.set_joints(&matrices);
         assert_eq!(u.joint_count[0], 3.0);
     }
@@ -438,10 +421,10 @@ mod tests {
         let m = compose_trs([0.0; 3], [0.0, 0.0, 0.0, 1.0], [1.0; 3]);
         for i in 0..16 {
             assert!(
-                (m[i] - IDENTITY[i]).abs() < 0.001,
+                (m[i] - IDENTITY_MAT4[i]).abs() < 0.001,
                 "mismatch at {i}: {} vs {}",
                 m[i],
-                IDENTITY[i]
+                IDENTITY_MAT4[i]
             );
         }
     }

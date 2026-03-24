@@ -161,9 +161,8 @@ mod tests {
     fn brdf_lut_values_in_range() {
         let pixels = generate_brdf_lut(8, 16);
         for chunk in pixels.chunks(4) {
-            // scale and bias should be valid u8
-            assert!(chunk[0] <= 255);
-            assert!(chunk[1] <= 255);
+            // RGBA values exist and alpha is opaque
+            assert_eq!(chunk.len(), 4);
             assert_eq!(chunk[3], 255); // alpha always 1
         }
     }

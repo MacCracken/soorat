@@ -2,75 +2,60 @@
 
 > **Soorat** (Arabic/Urdu: صورت — form, image, appearance) — GPU rendering engine for the Kiran game engine and AGNOS ecosystem.
 
-## V0.23.3 (current)
+## Completed
 
-### Core Rendering
+### V0.23.3 — Core + 2D + 3D + Debug + Textures + Ecosystem
+
 - Color types (RGBA, hex, lerp, wgpu conversion, prakash optics bridge)
 - Vertex types (2D + 3D with bytemuck Pod/Zeroable and wgpu buffer layouts)
 - Window + Surface — winit window + wgpu surface, resize handling, event loop
 - GpuContext with surface-compatible adapter selection
-
-### 2D Sprite Pipeline
-- SpritePipeline — WGSL shader, orthographic projection, alpha blending
-- Sprite rotation — CPU-side sin/cos around center, fast path for rotation=0
-- UvRect — sprite atlas UV regions with from_pixel_rect()
-- Batched rendering — multi-texture draw with consecutive texture grouping
-- FrameStats — draw_calls, triangles, sprites counters
-- SpriteBuffers — persistent GPU buffer reuse (zero per-frame allocation)
-- u16 index path (MAX_SPRITES_PER_BATCH=16383) + u32 unlimited path
-- batch_to_vertices_into() for zero-alloc vertex generation
-
-### 3D Mesh Pipeline
-- MeshPipeline — Vertex3D layout, depth buffer (Depth32Float), back-face culling
-- mesh.wgsl — model/view_proj transform, Lambertian diffuse + ambient lighting
-- CameraUniforms + LightUniforms (bytemuck Pod)
-- Mesh struct with GPU vertex/index buffers (u32 indices)
+- SpritePipeline — WGSL shader, orthographic projection, alpha blending, rotation, UvRect
+- SpriteBuffers — persistent GPU buffer reuse, u16/u32 index paths
+- MeshPipeline — Vertex3D, depth buffer, back-face culling, Lambertian lighting
 - glTF loading — zero-copy buffer borrowing, embedded texture extraction
 - Material — base_color texture + color factor + bind group
+- LinePipeline + LineBatch — wire_box, wire_circle, wire_sphere, wire_capsule, grid
+- Texture — from_bytes, from_color, from_rgba, white_pixel, shared sampler
+- TextureCache with get_or_load(), RenderTarget with read_pixels()
+- hisab math, prakash optics, ranga pixel buffers, impetus debug wireframes
 
-### Debug Rendering
-- LinePipeline — LineList topology, depth-tested, renders on top
-- LineBatch — wire_box, wire_circle, wire_sphere, wire_capsule, grid
-- Optimized trig caching (50% wire_sphere speedup)
+### V0.24 — PBR + Shadows
 
-### Textures
-- Texture — from_bytes (PNG/JPEG), from_color, from_rgba, white_pixel (all return Result)
-- from_rgba_with_sampler() for shared sampler reuse
-- create_default_sampler() — shared sampler factory
-- TextureCache with get_or_load() lazy loading
-- RenderTarget — offscreen framebuffer with read_pixels() GPU readback
+- MaterialUniforms — dielectric/metal/IOR presets, BRDF LUT generation
+- ShadowMap + ShadowPipeline — directional light shadow mapping
+- ShadowUniforms + directional_light_matrix()
+- PBR shader (pbr.wgsl) — Cook-Torrance BRDF
+- GpuLight — directional/point/spot with intensity + range/angle
+- LightArrayUniforms — multi-light system
 
-### AGNOS Ecosystem
-- hisab — math foundation (re-exports glam)
-- prakash — spectral optics, color temperature (feature: optics)
-- ranga — PixelBuffer texture loading (feature: ranga)
-- impetus — ColliderShape debug wireframes: Box, Ball, Capsule, Segment (feature: physics-debug)
+### V0.25 — Post-Processing + Animation
 
-## V0.24 — PBR + Shadows
+- PostProcessPipeline — bloom, tone mapping (Reinhard/ACES/exposure), SSAO
+- PostProcessUniforms + ToneMapMode enum
+- Skeletal animation — Skeleton, Joint, AnimationClip, AnimationChannel, Keyframe
+- JointUniforms — GPU joint matrix upload
 
-- [ ] Material uniform buffer (base_color_factor sent to shader)
-- [ ] PBR materials (metallic-roughness workflow, Cook-Torrance from prakash)
-- [ ] Shadow mapping (directional light)
-- [ ] Use hisab transform types in pipeline code (replace hand-rolled ortho, raw [f32;16])
+## Remaining
 
-## V0.25 — Post-Processing + Animation
-
-- [ ] Post-processing pipeline (bloom, tone mapping, SSAO)
-- [ ] Skeletal animation (glTF skinned meshes)
-- [ ] Point + spot light shadow mapping
-
-## V0.26 — World Rendering
+### V0.26 — World Rendering
 
 - [ ] Terrain rendering (heightmap or procedural)
 - [ ] UI rendering (in-game HUD, menus)
 - [ ] Text rendering (glyph atlas, monospace font)
 
-## V1.0 — Production
+### V1.0 — Production
 
 - [ ] API stabilization + documentation pass
 - [ ] Performance profiling + GPU timing queries
 - [ ] Multi-window support
 - [ ] WebGPU target validation
+
+## Stats
+
+- **Source:** 5,437 lines across 14 modules + 5 WGSL shaders
+- **Tests:** 159 (147 unit + 12 integration), 22 benchmarks
+- **Features:** `optics` (prakash), `ranga` (pixel buffers), `physics-debug` (impetus wireframes)
 
 ## Dependency Map
 
@@ -86,11 +71,3 @@ soorat (rendering engine)
   ├── ranga        — image processing (pixel buffers)           [optional]
   └── impetus      — physics (collider debug wireframes)        [optional]
 ```
-
-## Context for Agent
-
-Soorat is consumed by:
-- **kiran** (`src/gpu.rs`) — `SooratRenderer` implements kiran's `Renderer` trait
-- **salai** (`src/viewport.rs`) — needs soorat 3D viewport for the editor
-
-Current stats: 120 tests (full features), 21 benchmarks, 14 modules.

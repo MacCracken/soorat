@@ -13,7 +13,7 @@ pub enum LightType {
 }
 
 /// A single light packed for GPU upload.
-/// 80 bytes per light, aligned to 16 bytes.
+/// 64 bytes per light (4 × vec4), aligned to 16 bytes.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuLight {
