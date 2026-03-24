@@ -1,7 +1,9 @@
 //! PBR material types and BRDF LUT precomputation.
 
 use crate::color::Color;
+#[cfg(feature = "optics")]
 use crate::error::Result;
+#[cfg(feature = "optics")]
 use crate::texture::Texture;
 
 /// PBR material parameters.

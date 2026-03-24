@@ -3,6 +3,7 @@
 //! Requires feature: `fluids` (dep: pravash).
 
 use crate::color::Color;
+#[cfg(feature = "fluids")]
 use crate::vertex::Vertex3D;
 
 /// Color mapping mode for fluid particles.

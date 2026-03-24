@@ -312,7 +312,7 @@ fn bench_animation(c: &mut Criterion) {
         let skeleton = Skeleton {
             joints: (0..16)
                 .map(|i| Joint {
-                    parent: if i > 0 { i as i32 - 1 } else { -1 },
+                    parent: if i > 0 { i - 1 } else { -1 },
                     ..Default::default()
                 })
                 .collect(),
@@ -324,7 +324,7 @@ fn bench_animation(c: &mut Criterion) {
         let skeleton = Skeleton {
             joints: (0..64)
                 .map(|i| Joint {
-                    parent: if i > 0 { i as i32 - 1 } else { -1 },
+                    parent: if i > 0 { i - 1 } else { -1 },
                     ..Default::default()
                 })
                 .collect(),
