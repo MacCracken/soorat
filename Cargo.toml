@@ -26,7 +26,7 @@ wgpu = "24"
 winit = "0.30"
 
 # Math (hisab re-exports glam + adds transforms, projections, spatial types)
-hisab = { path = "../hisab" }
+hisab = "0.22"
 
 # Core
 bytemuck = { version = "1", features = ["derive"] }
@@ -36,15 +36,15 @@ thiserror = "2"
 tracing = "0.1"
 
 # Optics / color science (optional)
-prakash = { path = "../prakash", optional = true, features = ["spectral", "pbr"] }
+prakash = { version = "0.23", optional = true, features = ["spectral", "pbr"] }
 
 # Image processing (optional — ranga pixel buffer integration)
-ranga = { path = "../ranga", optional = true }
+ranga = { version = "0.21", optional = true }
 
 # Physics debug rendering (optional — impetus collider wireframes)
-impetus = { path = "../impetus", optional = true }
+impetus = { version = "0.23", optional = true }
 
-# Fluid dynamics rendering (optional — pravash particle/surface visualization)
+# Fluid dynamics rendering (optional — pravash particle/surface visualization, not yet on crates.io)
 pravash = { path = "../pravash", optional = true, features = ["sph", "shallow"] }
 
 # Image loading

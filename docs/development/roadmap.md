@@ -31,4 +31,4 @@ Soorat is consumed by:
 - **kiran** (`src/gpu.rs`) — `SooratRenderer` implements kiran's `Renderer` trait
 - **salai** (`src/viewport.rs`) — uses `draw_into_pass()` APIs + egui_bridge for 3D viewport
 
-Current: 264 tests, 29 benchmarks, 38 modules, 8 WGSL shaders.
+Current: 278 tests, 29 benchmarks, 40 modules, 9 WGSL shaders.

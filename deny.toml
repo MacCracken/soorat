@@ -27,3 +27,5 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = []
+# pravash is a path dep (not yet published to crates.io)
+allow-org = { github = ["MacCracken"] }

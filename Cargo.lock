@@ -825,16 +825,6 @@ checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 [[package]]
 name = "hisab"
 version = "0.22.4"
-dependencies = [
- "glam",
- "serde",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
-name = "hisab"
-version = "0.22.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c69ef9a41596ee017fb670eb47a281c292362096c35bc44a4ae77b7b6502b266"
 dependencies = [
@@ -862,8 +852,10 @@ dependencies = [
 [[package]]
 name = "impetus"
 version = "0.23.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95702d646e9e0f8169131cbc10ba79ed1aa9da0419d605da1a2d1b5cc22e424c"
 dependencies = [
- "hisab 0.22.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hisab",
  "serde",
  "thiserror 2.0.18",
 ]
@@ -1612,8 +1604,10 @@ checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
 [[package]]
 name = "prakash"
 version = "0.23.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "865e8c2ab15f599023b61aa5917d9ccbf57b66fbae622dcaeeb3811b0663548f"
 dependencies = [
- "hisab 0.22.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hisab",
  "serde",
  "thiserror 2.0.18",
  "tracing",
@@ -1623,7 +1617,7 @@ dependencies = [
 name = "pravash"
 version = "0.2.0"
 dependencies = [
- "hisab 0.22.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hisab",
  "serde",
  "thiserror 2.0.18",
  "tracing",
@@ -1692,6 +1686,8 @@ checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
 [[package]]
 name = "ranga"
 version = "0.21.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "795e7e4dc0e7d12b923cc2bc8b0043e5b9c2c15daf62aa8cd5639f9d515e3301"
 dependencies = [
  "serde",
  "serde_json",
@@ -2013,7 +2009,7 @@ dependencies = [
  "bytemuck",
  "criterion",
  "gltf",
- "hisab 0.22.4",
+ "hisab",
  "image",
  "impetus",
  "pollster",
