@@ -94,7 +94,7 @@ impl Texture {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some(&format!("{label}_sampler")),
+            label: Some("sprite_sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
@@ -140,21 +140,25 @@ impl Texture {
     }
 }
 
+/// A cached texture entry: texture + its bind group.
+struct CachedTexture {
+    texture: Texture,
+    bind_group: wgpu::BindGroup,
+}
+
 /// Cache of loaded textures, keyed by texture ID.
 pub struct TextureCache {
-    textures: HashMap<u64, Texture>,
-    bind_groups: HashMap<u64, wgpu::BindGroup>,
+    entries: HashMap<u64, CachedTexture>,
 }
 
 impl TextureCache {
     pub fn new() -> Self {
         Self {
-            textures: HashMap::new(),
-            bind_groups: HashMap::new(),
+            entries: HashMap::new(),
         }
     }
 
-    /// Insert a texture with its bind group.
+    /// Insert a texture, creating its bind group.
     pub fn insert(
         &mut self,
         id: u64,
@@ -163,32 +167,37 @@ impl TextureCache {
         layout: &wgpu::BindGroupLayout,
     ) {
         let bind_group = texture.bind_group(device, layout);
-        self.textures.insert(id, texture);
-        self.bind_groups.insert(id, bind_group);
+        self.entries.insert(
+            id,
+            CachedTexture {
+                texture,
+                bind_group,
+            },
+        );
     }
 
     /// Get the bind group for a texture ID.
     pub fn get_bind_group(&self, id: u64) -> Option<&wgpu::BindGroup> {
-        self.bind_groups.get(&id)
+        self.entries.get(&id).map(|e| &e.bind_group)
     }
 
     /// Check if a texture ID exists.
     pub fn contains(&self, id: u64) -> bool {
-        self.textures.contains_key(&id)
+        self.entries.contains_key(&id)
     }
 
     /// Get a texture by ID.
     pub fn get(&self, id: u64) -> Option<&Texture> {
-        self.textures.get(&id)
+        self.entries.get(&id).map(|e| &e.texture)
     }
 
     /// Number of cached textures.
     pub fn len(&self) -> usize {
-        self.textures.len()
+        self.entries.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.textures.is_empty()
+        self.entries.is_empty()
     }
 }
 

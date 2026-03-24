@@ -4,34 +4,30 @@ use crate::color::Color;
 use crate::error::Result;
 use crate::sprite::SpriteBatch;
 use crate::vertex::Vertex2D;
+use wgpu::util::DeviceExt;
 
 /// Orthographic projection matrix for 2D rendering.
 /// Maps screen coordinates (0,0 top-left) to clip space.
+/// Origin at top-left, Y-axis points down, Z range [0, 1].
 fn orthographic_projection(width: f32, height: f32) -> [f32; 16] {
-    let l = 0.0;
-    let r = width;
-    let t = 0.0;
-    let b = height;
-    let n = -1.0;
-    let f = 1.0;
-
-    // Column-major 4x4 orthographic matrix (right-handed, zero-to-one depth)
+    // Column-major 4x4: origin (0,0) top-left, right-handed, zero-to-one depth
+    // Simplified from general ortho with l=0, t=0, n=-1, f=1
     [
-        2.0 / (r - l),
+        2.0 / width,
         0.0,
         0.0,
         0.0,
         0.0,
-        2.0 / (t - b),
+        -2.0 / height,
         0.0,
         0.0,
         0.0,
         0.0,
-        1.0 / (n - f),
+        -0.5,
         0.0,
-        -(r + l) / (r - l),
-        -(t + b) / (t - b),
-        n / (n - f),
+        -1.0,
+        1.0,
+        0.5,
         1.0,
     ]
 }
@@ -44,6 +40,22 @@ pub fn batch_to_vertices(batch: &SpriteBatch) -> (Vec<Vertex2D>, Vec<u16>) {
     let sprite_count = batch.sprites.len();
     let mut vertices = Vec::with_capacity(sprite_count * 4);
     let mut indices = Vec::with_capacity(sprite_count * 6);
+    batch_to_vertices_into(batch, &mut vertices, &mut indices);
+    (vertices, indices)
+}
+
+/// Expand a sprite batch into pre-allocated vertex and index buffers.
+/// Clears and fills the provided buffers. Use this to avoid allocations in game loops.
+pub fn batch_to_vertices_into(
+    batch: &SpriteBatch,
+    vertices: &mut Vec<Vertex2D>,
+    indices: &mut Vec<u16>,
+) {
+    let sprite_count = batch.sprites.len();
+    vertices.clear();
+    vertices.reserve(sprite_count * 4);
+    indices.clear();
+    indices.reserve(sprite_count * 6);
 
     for (i, sprite) in batch.sprites.iter().enumerate() {
         let c = sprite.color.to_array();
@@ -75,8 +87,6 @@ pub fn batch_to_vertices(batch: &SpriteBatch) -> (Vec<Vertex2D>, Vec<u16>) {
             indices.push(base + idx);
         }
     }
-
-    (vertices, indices)
 }
 
 /// Sprite rendering pipeline — holds the wgpu pipeline, bind group layouts, and buffers.
@@ -280,22 +290,20 @@ impl SpritePipeline {
     }
 }
 
-use wgpu::util::DeviceExt;
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::sprite::Sprite;
 
     #[test]
-    fn orthographic_projection_identity_check() {
+    fn orthographic_projection_values() {
         let proj = orthographic_projection(800.0, 600.0);
-        // Should be 16 floats
         assert_eq!(proj.len(), 16);
-        // Top-left (0,0) should map to clip (-1, 1)
-        // proj[0] = 2/800, proj[12] = -1 => x=0 maps to -1
+        // Column-major: proj[0] = 2/w, proj[5] = -2/h, proj[12] = -1, proj[13] = 1
         assert!((proj[0] - 2.0 / 800.0).abs() < f32::EPSILON);
+        assert!((proj[5] - (-2.0 / 600.0)).abs() < f32::EPSILON);
         assert!((proj[12] - (-1.0)).abs() < f32::EPSILON);
+        assert!((proj[13] - 1.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -358,5 +366,41 @@ mod tests {
     fn quad_indices_are_valid() {
         // Two triangles forming a quad
         assert_eq!(QUAD_INDICES, [0, 1, 2, 2, 3, 0]);
+    }
+
+    #[test]
+    fn batch_to_vertices_into_reuses_buffers() {
+        let mut verts = Vec::new();
+        let mut indices = Vec::new();
+
+        let mut batch = SpriteBatch::new();
+        batch.push(Sprite::new(0.0, 0.0, 10.0, 10.0));
+        batch_to_vertices_into(&batch, &mut verts, &mut indices);
+        assert_eq!(verts.len(), 4);
+        assert_eq!(indices.len(), 6);
+
+        // Second call reuses the same Vecs
+        batch.push(Sprite::new(20.0, 0.0, 10.0, 10.0));
+        batch_to_vertices_into(&batch, &mut verts, &mut indices);
+        assert_eq!(verts.len(), 8);
+        assert_eq!(indices.len(), 12);
+        // Capacity should be >= 8 (no realloc for second call)
+        assert!(verts.capacity() >= 8);
+    }
+
+    #[test]
+    fn batch_to_vertices_into_matches_batch_to_vertices() {
+        let mut batch = SpriteBatch::new();
+        for i in 0..10 {
+            batch.push(Sprite::new(i as f32 * 10.0, 0.0, 32.0, 32.0).with_color(Color::RED));
+        }
+
+        let (verts_a, indices_a) = batch_to_vertices(&batch);
+        let mut verts_b = Vec::new();
+        let mut indices_b = Vec::new();
+        batch_to_vertices_into(&batch, &mut verts_b, &mut indices_b);
+
+        assert_eq!(verts_a, verts_b);
+        assert_eq!(indices_a, indices_b);
     }
 }

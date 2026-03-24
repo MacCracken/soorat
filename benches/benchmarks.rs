@@ -1,6 +1,6 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use soorat::color::Color;
-use soorat::pipeline::batch_to_vertices;
+use soorat::pipeline::{batch_to_vertices, batch_to_vertices_into};
 use soorat::sprite::{Sprite, SpriteBatch};
 use soorat::vertex::Vertex2D;
 
@@ -203,6 +203,21 @@ fn bench_pipeline(c: &mut Criterion) {
         }
         batch.sort_by_z();
         b.iter(|| batch_to_vertices(black_box(&batch)))
+    });
+
+    group.bench_function("batch_to_vertices_into_1000", |b| {
+        let mut batch = SpriteBatch::with_capacity(1000);
+        for i in 0..1000 {
+            batch.push(
+                Sprite::new(i as f32 * 10.0, 0.0, 32.0, 32.0)
+                    .with_color(Color::WHITE)
+                    .with_z_order(1000 - i),
+            );
+        }
+        batch.sort_by_z();
+        let mut verts = Vec::with_capacity(4000);
+        let mut indices = Vec::with_capacity(6000);
+        b.iter(|| batch_to_vertices_into(black_box(&batch), &mut verts, &mut indices))
     });
 
     group.finish();

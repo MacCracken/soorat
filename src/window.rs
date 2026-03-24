@@ -73,30 +73,14 @@ impl Window {
         winit_window: Arc<winit::window::Window>,
         config: &WindowConfig,
     ) -> Result<Self> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let gpu = GpuContext::new().await?;
 
-        let surface = instance
+        let surface = gpu
+            .instance
             .create_surface(winit_window.clone())
             .map_err(|e| RenderError::SurfaceConfig(e.to_string()))?;
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await
-            .ok_or(RenderError::AdapterNotFound)?;
-
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor::default(), None)
-            .await
-            .map_err(|e| RenderError::DeviceRequest(e.to_string()))?;
-
-        let surface_caps = surface.get_capabilities(&adapter);
+        let surface_caps = surface.get_capabilities(&gpu.adapter);
         let surface_format = surface_caps
             .formats
             .iter()
@@ -118,21 +102,12 @@ impl Window {
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
-        surface.configure(&device, &surface_config);
+        surface.configure(&gpu.device, &surface_config);
 
         tracing::info!(
-            adapter = adapter.get_info().name,
-            backend = ?adapter.get_info().backend,
             format = ?surface_format,
-            "Window created"
+            "Window surface configured"
         );
-
-        let gpu = GpuContext {
-            instance,
-            adapter,
-            device,
-            queue,
-        };
 
         Ok(Self {
             gpu,
