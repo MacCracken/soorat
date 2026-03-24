@@ -1,10 +1,18 @@
 //! Sprite rendering pipeline.
 
+//! Also re-exports batch functions from [`crate::batch`] for backward compatibility.
+
 use crate::color::Color;
 use crate::error::Result;
 use crate::sprite::SpriteBatch;
 use crate::vertex::Vertex2D;
 use wgpu::util::DeviceExt;
+
+// Re-export batch functions for backward compatibility
+pub use crate::batch::{
+    MAX_SPRITES_PER_BATCH, batch_to_vertices, batch_to_vertices_into, batch_to_vertices_u32,
+    batch_to_vertices_u32_into,
+};
 
 /// Orthographic projection matrix for 2D rendering.
 /// Maps screen coordinates (0,0 top-left) to clip space.
@@ -30,136 +38,6 @@ fn orthographic_projection(width: f32, height: f32) -> [f32; 16] {
         0.5,
         1.0,
     ]
-}
-
-/// Quad indices for a single sprite (two triangles).
-const QUAD_INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
-const QUAD_INDICES_U32: [u32; 6] = [0, 1, 2, 2, 3, 0];
-
-/// Maximum sprites per batch with u16 indices (65535 / 4 = 16383).
-pub const MAX_SPRITES_PER_BATCH: usize = 16383;
-
-/// Expand a sprite batch into vertex and index data for GPU upload.
-///
-/// **Limit**: u16 indices support up to 16383 sprites per batch.
-/// Batches exceeding this will be truncated. Use multiple draw calls for larger scenes.
-pub fn batch_to_vertices(batch: &SpriteBatch) -> (Vec<Vertex2D>, Vec<u16>) {
-    let sprite_count = batch.sprites.len();
-    let mut vertices = Vec::with_capacity(sprite_count * 4);
-    let mut indices = Vec::with_capacity(sprite_count * 6);
-    batch_to_vertices_into(batch, &mut vertices, &mut indices);
-    (vertices, indices)
-}
-
-/// Expand a sprite batch into pre-allocated vertex and index buffers.
-/// Clears and fills the provided buffers. Use this to avoid allocations in game loops.
-pub fn batch_to_vertices_into(
-    batch: &SpriteBatch,
-    vertices: &mut Vec<Vertex2D>,
-    indices: &mut Vec<u16>,
-) {
-    let sprite_count = batch.sprites.len().min(MAX_SPRITES_PER_BATCH);
-    vertices.clear();
-    vertices.reserve(sprite_count * 4);
-    indices.clear();
-    indices.reserve(sprite_count * 6);
-
-    for (i, sprite) in batch.sprites.iter().take(sprite_count).enumerate() {
-        let c = sprite.color.to_array();
-        let base = (i * 4) as u16;
-
-        // Quad corners relative to origin, then rotate around center
-        let cx = sprite.x + sprite.width * 0.5;
-        let cy = sprite.y + sprite.height * 0.5;
-        let hw = sprite.width * 0.5;
-        let hh = sprite.height * 0.5;
-
-        // Local corners (relative to center)
-        let corners = [
-            [-hw, -hh], // top-left
-            [hw, -hh],  // top-right
-            [hw, hh],   // bottom-right
-            [-hw, hh],  // bottom-left
-        ];
-
-        let (sin, cos) = if sprite.rotation != 0.0 {
-            (sprite.rotation.sin(), sprite.rotation.cos())
-        } else {
-            (0.0, 1.0)
-        };
-
-        let uvs = sprite.uv.corners();
-
-        for (j, corner) in corners.iter().enumerate() {
-            let rx = corner[0] * cos - corner[1] * sin + cx;
-            let ry = corner[0] * sin + corner[1] * cos + cy;
-            vertices.push(Vertex2D {
-                position: [rx, ry],
-                tex_coords: uvs[j],
-                color: c,
-            });
-        }
-
-        for &idx in &QUAD_INDICES {
-            indices.push(base + idx);
-        }
-    }
-}
-
-/// Expand a sprite batch into vertex and u32 index data. No sprite count limit.
-pub fn batch_to_vertices_u32(batch: &SpriteBatch) -> (Vec<Vertex2D>, Vec<u32>) {
-    let sprite_count = batch.sprites.len();
-    let mut vertices = Vec::with_capacity(sprite_count * 4);
-    let mut indices = Vec::with_capacity(sprite_count * 6);
-    batch_to_vertices_u32_into(batch, &mut vertices, &mut indices);
-    (vertices, indices)
-}
-
-/// Expand a sprite batch into pre-allocated u32 index buffers. No sprite count limit.
-pub fn batch_to_vertices_u32_into(
-    batch: &SpriteBatch,
-    vertices: &mut Vec<Vertex2D>,
-    indices: &mut Vec<u32>,
-) {
-    let sprite_count = batch.sprites.len();
-    vertices.clear();
-    vertices.reserve(sprite_count * 4);
-    indices.clear();
-    indices.reserve(sprite_count * 6);
-
-    for (i, sprite) in batch.sprites.iter().enumerate() {
-        let c = sprite.color.to_array();
-        let base = (i * 4) as u32;
-
-        let cx = sprite.x + sprite.width * 0.5;
-        let cy = sprite.y + sprite.height * 0.5;
-        let hw = sprite.width * 0.5;
-        let hh = sprite.height * 0.5;
-
-        let corners = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]];
-
-        let (sin, cos) = if sprite.rotation != 0.0 {
-            (sprite.rotation.sin(), sprite.rotation.cos())
-        } else {
-            (0.0, 1.0)
-        };
-
-        let uvs = sprite.uv.corners();
-
-        for (j, corner) in corners.iter().enumerate() {
-            let rx = corner[0] * cos - corner[1] * sin + cx;
-            let ry = corner[0] * sin + corner[1] * cos + cy;
-            vertices.push(Vertex2D {
-                position: [rx, ry],
-                tex_coords: uvs[j],
-                color: c,
-            });
-        }
-
-        for &idx in &QUAD_INDICES_U32 {
-            indices.push(base + idx);
-        }
-    }
 }
 
 /// Persistent GPU buffers for sprite rendering. Reuse across frames to avoid per-frame allocation.
@@ -713,12 +591,6 @@ mod tests {
         assert_eq!(verts[1].tex_coords, [1.0, 0.0]);
         assert_eq!(verts[2].tex_coords, [1.0, 1.0]);
         assert_eq!(verts[3].tex_coords, [0.0, 1.0]);
-    }
-
-    #[test]
-    fn quad_indices_are_valid() {
-        // Two triangles forming a quad
-        assert_eq!(QUAD_INDICES, [0, 1, 2, 2, 3, 0]);
     }
 
     #[test]

@@ -17,6 +17,7 @@
 //! - **Integration**: [`egui_bridge`] (salai editor)
 
 pub mod animation;
+pub mod batch;
 pub mod capabilities;
 pub mod color;
 pub mod compute;
