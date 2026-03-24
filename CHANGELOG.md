@@ -94,8 +94,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reinhard + ACES filmic tone mapping in WGSL.
 - `PostProcessUniforms` — exposure, bloom intensity, tone map mode.
 - `HdrFramebuffer` — Rgba16Float render target for linear HDR scene rendering.
+- `BloomPipeline` — orchestrates threshold → horizontal blur → vertical blur (3 render passes).
 - `BloomUniforms` — threshold, soft knee, intensity, texel size.
 - `bloom.wgsl` — threshold extraction + separable 9-tap Gaussian blur (H/V passes).
+- `SsaoPipeline` — depth + normal input → single-channel occlusion output.
 - `SsaoUniforms` — radius, bias, intensity, sample count, projection matrices.
 - `ssao.wgsl` — screen-space ambient occlusion with hemisphere sampling + PCF.
 
@@ -105,10 +107,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `UiPanel`, `UiLabel`, `UiBatch` — screen-space overlay rendering.
 
 #### Fluid Rendering
-- `particles_to_quads()` — pravash `FluidParticle` → Vertex3D quads with color modes (Solid, Velocity, Density, Pressure).
+- `particles_to_quads()` — pravash `FluidParticle` → Vertex3D XZ-plane quads with color modes (Solid, Velocity, Density, Pressure).
+- `particles_to_billboards()` — camera-facing billboard quads using camera right/up vectors.
 - `shallow_water_to_mesh()` — pravash `ShallowWater` height field → mesh with computed normals.
 - `visualization_heat_map()` — blue→cyan→green→yellow→red gradient for scalar data.
 - Feature flag: `fluids` (dep: pravash).
+
+#### LOD
+- `LodChain` — distance-based mesh selection with squared distance comparison.
+- `TerrainLod` — grid resolution selection by distance from camera.
+
+#### Instanced Rendering
+- `InstanceData` — 80 bytes: model matrix + color tint, vertex step mode = Instance.
+- `InstanceBuffer` — GPU instance buffer with auto-grow on update.
+
+#### Compute
+- `ComputePipeline` — wraps wgpu compute pipeline from WGSL source.
+- `create_storage_buffer()` / `create_storage_buffer_empty()` — GPU storage buffer helpers.
 
 #### Ecosystem Integration
 - Replaced glam with hisab (re-exports glam, adds transforms/projections).

@@ -20,6 +20,9 @@ wgpu-based rendering engine designed for the [Kiran](https://github.com/MacCrack
 - **Fluids** — SPH particle quads with velocity/density/pressure color mapping, shallow water surface meshes (via [pravash](https://github.com/MacCracken/pravash))
 - **glTF** — model + animation loading with zero-copy buffer borrowing
 - **Multi-window** — shared GPU context across windows
+- **LOD** — distance-based mesh and terrain resolution selection
+- **Instancing** — per-instance transforms + color, auto-growing GPU buffer
+- **Compute** — general-purpose compute shader pipeline with storage buffer helpers
 - **Profiling** — CPU frame timing (EMA + FPS), GPU timestamp queries, per-pass timing
 - **Capabilities** — GPU feature/limit reporting, WebGPU compatibility validation
 
@@ -31,10 +34,11 @@ src/
 ├── 2D:          pipeline (sprites), sprite, texture, text, ui
 ├── 3D:          mesh_pipeline (PBR), shadow, animation, terrain, fluid_render
 ├── Debug:       debug_draw (lines, shapes, grid)
-├── Post:        postprocess, hdr, ssao
+├── Post:        postprocess, hdr (bloom pipeline), ssao
 ├── Loading:     gltf_loader, texture
 ├── Lights:      lights (directional/point/spot)
 ├── Materials:   material, pbr_material
+├── Rendering:   instancing, lod, compute
 ├── Shaders:     sprite.wgsl, pbr.wgsl, pbr_skinned.wgsl, shadow.wgsl,
 │                line.wgsl, postprocess.wgsl, bloom.wgsl, ssao.wgsl
 └── Targets:     render_target
@@ -76,7 +80,7 @@ cargo bench
 
 ## Stats
 
-236 tests, 28 benchmarks, 31 modules, 8 WGSL shaders.
+251 tests, 29 benchmarks, 34 modules, 8 WGSL shaders.
 
 ## License
 
