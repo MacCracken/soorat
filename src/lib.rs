@@ -10,28 +10,36 @@
 //! - Window management via winit
 //! - Render pass abstraction
 
+pub mod animation;
 pub mod color;
 pub mod debug_draw;
 pub mod error;
 pub mod gltf_loader;
 pub mod gpu;
+pub mod lights;
 pub mod material;
 pub mod mesh_pipeline;
 pub mod pbr_material;
 pub mod pipeline;
+pub mod postprocess;
 pub mod render_target;
+pub mod shadow;
 pub mod sprite;
 pub mod texture;
 pub mod vertex;
 pub mod window;
 
+pub use animation::{AnimationClip, JointUniforms, Skeleton};
 pub use debug_draw::{LineBatch, LinePipeline, LineVertex};
 pub use error::{RenderError, Result};
 pub use gpu::GpuContext;
+pub use lights::{GpuLight, LightArrayUniforms};
 pub use material::Material;
 pub use mesh_pipeline::{CameraUniforms, DepthBuffer, LightUniforms, Mesh, MeshPipeline};
 pub use pbr_material::MaterialUniforms;
 pub use pipeline::{FrameStats, SpriteBuffers, SpritePipeline};
+pub use postprocess::{PostProcessPipeline, PostProcessUniforms, ToneMapMode};
 pub use render_target::RenderTarget;
+pub use shadow::{ShadowMap, ShadowPipeline, ShadowUniforms};
 pub use texture::{Texture, TextureCache};
 pub use window::{Window, WindowConfig};

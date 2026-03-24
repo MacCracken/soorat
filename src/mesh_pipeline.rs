@@ -33,6 +33,8 @@ pub struct LightUniforms {
     pub light_direction: [f32; 4],
     /// RGB + intensity in alpha.
     pub light_color: [f32; 4],
+    /// Light view-projection matrix for shadow mapping.
+    pub light_view_proj: [f32; 16],
 }
 
 impl Default for LightUniforms {
@@ -47,6 +49,7 @@ impl Default for LightUniforms {
                 0.0,
             ],
             light_color: [1.0, 1.0, 1.0, 1.0],
+            light_view_proj: IDENTITY_MAT4,
         }
     }
 }
@@ -129,6 +132,7 @@ pub struct MeshPipeline {
     material_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
     material_bind_group_layout: wgpu::BindGroupLayout,
+    shadow_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl MeshPipeline {
@@ -201,9 +205,37 @@ impl MeshPipeline {
                 ],
             });
 
+        // Group 2: shadow map (depth texture + comparison sampler)
+        let shadow_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("pbr_shadow_layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Depth,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                        count: None,
+                    },
+                ],
+            });
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("mesh_pipeline_layout"),
-            bind_group_layouts: &[&uniform_bind_group_layout, &material_bind_group_layout],
+            label: Some("pbr_pipeline_layout"),
+            bind_group_layouts: &[
+                &uniform_bind_group_layout,
+                &material_bind_group_layout,
+                &shadow_bind_group_layout,
+            ],
             push_constant_ranges: &[],
         });
 
@@ -294,6 +326,7 @@ impl MeshPipeline {
             material_buffer,
             uniform_bind_group,
             material_bind_group_layout,
+            shadow_bind_group_layout,
         })
     }
 
@@ -321,7 +354,34 @@ impl MeshPipeline {
         queue.write_buffer(&self.material_buffer, 0, bytemuck::bytes_of(material));
     }
 
-    /// Draw a mesh with the given material bind group.
+    /// Get the shadow bind group layout for creating shadow bind groups.
+    pub fn shadow_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.shadow_bind_group_layout
+    }
+
+    /// Create a shadow bind group from a shadow map.
+    pub fn create_shadow_bind_group(
+        &self,
+        device: &wgpu::Device,
+        shadow_map: &crate::shadow::ShadowMap,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("shadow_bind_group"),
+            layout: &self.shadow_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&shadow_map.depth_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&shadow_map.sampler),
+                },
+            ],
+        })
+    }
+
+    /// Draw a mesh with PBR shading and shadow mapping.
     #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &self,
@@ -331,6 +391,7 @@ impl MeshPipeline {
         depth: &DepthBuffer,
         mesh: &Mesh,
         material_bind_group: &wgpu::BindGroup,
+        shadow_bind_group: &wgpu::BindGroup,
         clear_color: Option<crate::color::Color>,
     ) {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -367,6 +428,7 @@ impl MeshPipeline {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
             render_pass.set_bind_group(1, material_bind_group, &[]);
+            render_pass.set_bind_group(2, shadow_bind_group, &[]);
             render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
             render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
@@ -387,7 +449,7 @@ mod tests {
 
     #[test]
     fn light_uniforms_size() {
-        assert_eq!(std::mem::size_of::<LightUniforms>(), 48); // 3 * vec4 = 3 * 16
+        assert_eq!(std::mem::size_of::<LightUniforms>(), 112); // 3 * vec4 + mat4 = 48 + 64
     }
 
     #[test]
@@ -422,7 +484,7 @@ mod tests {
     fn light_uniforms_bytemuck() {
         let light = LightUniforms::default();
         let bytes = bytemuck::bytes_of(&light);
-        assert_eq!(bytes.len(), 48);
+        assert_eq!(bytes.len(), 112);
     }
 
     #[test]
