@@ -36,8 +36,8 @@ fn heat_map(t: f32) -> Color {
     }
 }
 
-/// Generate sprite-like quads for SPH particles (camera-facing billboards).
-/// Each particle becomes a small quad in world space.
+/// Generate XZ-plane quads for SPH particles.
+/// Each particle becomes a small axis-aligned quad positioned at its world coordinates.
 /// `particle_size`: world-space size of each particle quad.
 #[cfg(feature = "fluids")]
 pub fn particles_to_quads(
