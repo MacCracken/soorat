@@ -80,10 +80,10 @@ pub use debug_draw::{LineBatch, LinePipeline, LineVertex};
 
 // ── Post-processing ─────────────────────────────────────────────────────────
 pub use capabilities::GpuCapabilities;
-pub use hdr::{BloomUniforms, HdrFramebuffer};
+pub use hdr::{BloomPipeline, BloomUniforms, HdrFramebuffer};
 pub use postprocess::{PostProcessPipeline, PostProcessUniforms, ToneMapMode};
 pub use profiler::{FrameProfiler, GpuTimestamps, PassTiming};
-pub use ssao::SsaoUniforms;
+pub use ssao::{SsaoPipeline, SsaoUniforms};
 
 // ── Render targets ──────────────────────────────────────────────────────────
 pub use render_target::RenderTarget;

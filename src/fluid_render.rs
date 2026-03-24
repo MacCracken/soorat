@@ -201,6 +201,117 @@ pub fn shallow_water_to_mesh(
     (vertices, indices)
 }
 
+/// Generate camera-facing billboard quads for particles.
+/// Unlike `particles_to_quads` (XZ-plane), these orient toward the camera.
+/// `camera_right`/`camera_up`: camera basis vectors in world space.
+#[cfg(feature = "fluids")]
+#[allow(clippy::too_many_arguments)]
+pub fn particles_to_billboards(
+    particles: &[pravash::common::FluidParticle],
+    particle_size: f32,
+    camera_right: [f32; 3],
+    camera_up: [f32; 3],
+    color_mode: FluidColorMode,
+    base_color: Color,
+    max_velocity: f32,
+    max_density: f64,
+    max_pressure: f64,
+) -> (Vec<Vertex3D>, Vec<u32>) {
+    let count = particles.len();
+    let mut vertices = Vec::with_capacity(count * 4);
+    let mut indices = Vec::with_capacity(count * 6);
+    let hs = particle_size * 0.5;
+
+    let r = [
+        camera_right[0] * hs,
+        camera_right[1] * hs,
+        camera_right[2] * hs,
+    ];
+    let u = [camera_up[0] * hs, camera_up[1] * hs, camera_up[2] * hs];
+
+    // Billboard normal = cross(right, up)
+    let n = [
+        camera_right[1] * camera_up[2] - camera_right[2] * camera_up[1],
+        camera_right[2] * camera_up[0] - camera_right[0] * camera_up[2],
+        camera_right[0] * camera_up[1] - camera_right[1] * camera_up[0],
+    ];
+
+    for (i, p) in particles.iter().enumerate() {
+        let pos = [
+            p.position[0] as f32,
+            p.position[1] as f32,
+            p.position[2] as f32,
+        ];
+
+        let color = match color_mode {
+            FluidColorMode::Solid => base_color,
+            FluidColorMode::Velocity => {
+                let speed = p.speed() as f32;
+                heat_map((speed / max_velocity.max(0.001)).clamp(0.0, 1.0))
+            }
+            FluidColorMode::Density => {
+                heat_map(((p.density / max_density.max(0.001)) as f32).clamp(0.0, 1.0))
+            }
+            FluidColorMode::Pressure => {
+                heat_map(((p.pressure / max_pressure.max(0.001)) as f32).clamp(0.0, 1.0))
+            }
+        };
+        let c = color.to_array();
+        let base = (i * 4) as u32;
+
+        // Billboard corners: center ± right ± up
+        vertices.push(Vertex3D {
+            position: [
+                pos[0] - r[0] - u[0],
+                pos[1] - r[1] - u[1],
+                pos[2] - r[2] - u[2],
+            ],
+            normal: n,
+            tex_coords: [0.0, 0.0],
+            color: c,
+        });
+        vertices.push(Vertex3D {
+            position: [
+                pos[0] + r[0] - u[0],
+                pos[1] + r[1] - u[1],
+                pos[2] + r[2] - u[2],
+            ],
+            normal: n,
+            tex_coords: [1.0, 0.0],
+            color: c,
+        });
+        vertices.push(Vertex3D {
+            position: [
+                pos[0] + r[0] + u[0],
+                pos[1] + r[1] + u[1],
+                pos[2] + r[2] + u[2],
+            ],
+            normal: n,
+            tex_coords: [1.0, 1.0],
+            color: c,
+        });
+        vertices.push(Vertex3D {
+            position: [
+                pos[0] - r[0] + u[0],
+                pos[1] - r[1] + u[1],
+                pos[2] - r[2] + u[2],
+            ],
+            normal: n,
+            tex_coords: [0.0, 1.0],
+            color: c,
+        });
+
+        indices.push(base);
+        indices.push(base + 1);
+        indices.push(base + 2);
+        indices.push(base + 2);
+        indices.push(base + 3);
+        indices.push(base);
+    }
+
+    (vertices, indices)
+}
+
 // ── CPU-only helpers (no feature gate) ──────────────────────────────────────
 
 /// Heat map color for visualization (exposed for general use).
@@ -299,6 +410,45 @@ mod tests {
         let (v, i) = shallow_water_to_mesh(&water, 1.0, Color::BLUE);
         assert_eq!(v.len(), 16); // 4*4
         assert_eq!(i.len(), 9 * 6); // 3*3 quads * 6 indices
+    }
+
+    #[cfg(feature = "fluids")]
+    #[test]
+    fn billboard_single_particle() {
+        let p = pravash::common::FluidParticle::new([0.0, 1.0, 0.0], 1.0);
+        let (v, i) = particles_to_billboards(
+            &[p],
+            1.0,
+            [1.0, 0.0, 0.0], // camera right
+            [0.0, 1.0, 0.0], // camera up
+            FluidColorMode::Solid,
+            Color::WHITE,
+            1.0,
+            1.0,
+            1.0,
+        );
+        assert_eq!(v.len(), 4);
+        assert_eq!(i.len(), 6);
+        // Normal should face camera (cross of right × up = forward = [0,0,1])
+        assert!((v[0].normal[2] - 1.0).abs() < 0.01);
+    }
+
+    #[cfg(feature = "fluids")]
+    #[test]
+    fn billboard_empty() {
+        let (v, i) = particles_to_billboards(
+            &[],
+            1.0,
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            FluidColorMode::Solid,
+            Color::WHITE,
+            1.0,
+            1.0,
+            1.0,
+        );
+        assert!(v.is_empty());
+        assert!(i.is_empty());
     }
 
     #[cfg(feature = "fluids")]
