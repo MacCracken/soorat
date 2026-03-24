@@ -18,6 +18,7 @@ pub mod capabilities;
 pub mod color;
 pub mod compute;
 pub mod debug_draw;
+pub mod environment;
 pub mod error;
 pub mod fluid_render;
 pub mod gltf_loader;
@@ -47,6 +48,7 @@ pub mod window;
 // ── Core ────────────────────────────────────────────────────────────────────
 pub use color::Color;
 pub use compute::ComputePipeline;
+pub use environment::{EnvironmentMap, IblBindGroup};
 pub use error::{RenderError, Result};
 pub use fluid_render::FluidColorMode;
 pub use gpu::GpuContext;

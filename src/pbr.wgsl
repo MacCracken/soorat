@@ -60,6 +60,14 @@ struct ShadowUniforms {
 @group(2) @binding(0) var t_shadow_map: texture_depth_2d;
 @group(2) @binding(1) var s_shadow_map: sampler_comparison;
 
+// IBL (Image-Based Lighting) — optional, group 3
+@group(3) @binding(0) var t_irradiance: texture_cube<f32>;
+@group(3) @binding(1) var s_irradiance: sampler;
+@group(3) @binding(2) var t_prefiltered: texture_cube<f32>;
+@group(3) @binding(3) var s_prefiltered: sampler;
+@group(3) @binding(4) var t_brdf_lut: texture_2d<f32>;
+@group(3) @binding(5) var s_brdf_lut: sampler;
+
 // ── Vertex I/O ──────────────────────────────────────────────────────────────
 
 struct VertexInput {
@@ -243,10 +251,25 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let f0 = mix(vec3<f32>(0.04), albedo, metallic);
 
-    // Ambient
-    let ambient = light_array.ambient.rgb * light_array.ambient.a * albedo;
+    // ── IBL Ambient (split-sum approximation) ──────────────────────────────
+    // Diffuse IBL: irradiance cubemap sampled by normal
+    let irradiance = textureSample(t_irradiance, s_irradiance, n).rgb;
+    let k_s_ambient = fresnel_schlick(f0, n_dot_v);
+    let k_d_ambient = (vec3<f32>(1.0) - k_s_ambient) * (1.0 - metallic);
+    let diffuse_ibl = k_d_ambient * albedo * irradiance;
 
-    // Accumulate contribution from all lights
+    // Specular IBL: pre-filtered environment map + BRDF LUT
+    let r = reflect(-v, n);
+    let prefiltered = textureSample(t_prefiltered, s_prefiltered, r).rgb;
+    let brdf = textureSample(t_brdf_lut, s_brdf_lut, vec2<f32>(n_dot_v, roughness)).rg;
+    let specular_ibl = prefiltered * (f0 * brdf.x + brdf.y);
+
+    let ambient_ibl = (diffuse_ibl + specular_ibl) * light_array.ambient.a;
+
+    // Fallback: if ambient intensity is 0, IBL contributes nothing
+    // If no IBL maps are bound, the cubemap samples return black → graceful fallback
+
+    // ── Direct lighting ──────────────────────────────────────────────────
     var direct = vec3<f32>(0.0);
     let light_count = u32(light_array.light_count.x);
 
@@ -266,7 +289,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         direct += contribution;
     }
 
-    let color = ambient + direct;
+    let color = ambient_ibl + direct;
 
     // Output linear HDR — tone mapping handled by PostProcessPipeline
     return vec4<f32>(color, base_color.a);
