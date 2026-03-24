@@ -64,7 +64,10 @@ pub use pbr_material::MaterialUniforms;
 pub use lights::{GpuLight, LightArrayUniforms};
 
 // ── Shadows ─────────────────────────────────────────────────────────────────
-pub use shadow::{ShadowMap, ShadowPipeline, ShadowUniforms};
+pub use shadow::{
+    CascadeUniforms, CascadedShadowMap, PointShadowMap, ShadowAtlas, ShadowAtlasConfig, ShadowMap,
+    ShadowPipeline, ShadowUniforms,
+};
 
 // ── Animation ───────────────────────────────────────────────────────────────
 pub use animation::{AnimationClip, JointUniforms, Skeleton};

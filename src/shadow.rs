@@ -280,6 +280,288 @@ impl ShadowPipeline {
     }
 }
 
+// ── Cascaded Shadow Maps ────────────────────────────────────────────────────
+
+/// Maximum number of shadow cascades.
+pub const MAX_CASCADES: usize = 4;
+
+/// Cascaded shadow map — multiple depth textures at different distance ranges.
+pub struct CascadedShadowMap {
+    pub cascades: Vec<ShadowMap>,
+    pub split_distances: Vec<f32>,
+    pub view_proj_matrices: Vec<[f32; 16]>,
+}
+
+impl CascadedShadowMap {
+    /// Create cascaded shadow maps with the given number of cascades and resolution.
+    pub fn new(device: &wgpu::Device, cascade_count: u32, resolution: u32) -> Self {
+        let count = (cascade_count as usize).clamp(1, MAX_CASCADES);
+        let cascades = (0..count)
+            .map(|_| ShadowMap::new(device, resolution))
+            .collect();
+        Self {
+            cascades,
+            split_distances: vec![0.0; count + 1],
+            view_proj_matrices: vec![IDENTITY_MAT4; count],
+        }
+    }
+
+    /// Compute cascade split distances using practical split scheme (Nvidia GPU Gems 3).
+    /// `near`/`far`: camera frustum range.
+    /// `lambda`: blend between logarithmic (1.0) and uniform (0.0) splits. 0.5 is typical.
+    pub fn compute_splits(&mut self, near: f32, far: f32, lambda: f32) {
+        let count = self.cascades.len();
+        self.split_distances[0] = near;
+        for i in 1..count {
+            let ratio = i as f32 / count as f32;
+            let log_split = near * (far / near).powf(ratio);
+            let uniform_split = near + (far - near) * ratio;
+            self.split_distances[i] = lambda * log_split + (1.0 - lambda) * uniform_split;
+        }
+        self.split_distances[count] = far;
+    }
+
+    /// Update the view-projection matrix for a specific cascade.
+    pub fn set_cascade_matrix(&mut self, index: usize, matrix: [f32; 16]) {
+        if index < self.view_proj_matrices.len() {
+            self.view_proj_matrices[index] = matrix;
+        }
+    }
+
+    /// Number of cascades.
+    pub fn cascade_count(&self) -> usize {
+        self.cascades.len()
+    }
+}
+
+/// Cascade uniforms for the PBR shader — split distances + matrices.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct CascadeUniforms {
+    /// Split distances (x,y,z,w = split 0-3).
+    pub splits: [f32; 4],
+    /// View-projection matrices for each cascade.
+    pub matrices: [[f32; 16]; MAX_CASCADES],
+}
+
+impl Default for CascadeUniforms {
+    fn default() -> Self {
+        Self {
+            splits: [10.0, 30.0, 100.0, 500.0],
+            matrices: [IDENTITY_MAT4; MAX_CASCADES],
+        }
+    }
+}
+
+// ── Shadow Atlas ────────────────────────────────────────────────────────────
+
+/// Shadow atlas — a single large texture subdivided into regions for multiple lights.
+pub struct ShadowAtlas {
+    pub depth_texture: wgpu::Texture,
+    pub depth_view: wgpu::TextureView,
+    pub sampler: wgpu::Sampler,
+    pub size: u32,
+    pub tile_size: u32,
+    pub columns: u32,
+}
+
+impl ShadowAtlas {
+    /// Create a shadow atlas.
+    /// `size`: total atlas resolution (e.g., 4096).
+    /// `tile_size`: resolution per light (e.g., 1024 → 4×4 = 16 lights).
+    pub fn new(device: &wgpu::Device, size: u32, tile_size: u32) -> Self {
+        let columns = size / tile_size.max(1);
+
+        let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("shadow_atlas"),
+            size: wgpu::Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DepthBuffer::FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("shadow_atlas_sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+
+        Self {
+            depth_texture,
+            depth_view,
+            sampler,
+            size,
+            tile_size,
+            columns,
+        }
+    }
+
+    /// Get the viewport (x, y, w, h) for a given light index in the atlas.
+    pub fn tile_viewport(&self, index: u32) -> (u32, u32, u32, u32) {
+        let col = index % self.columns;
+        let row = index / self.columns;
+        (
+            col * self.tile_size,
+            row * self.tile_size,
+            self.tile_size,
+            self.tile_size,
+        )
+    }
+
+    /// Get the UV offset and scale for a tile (for shader sampling).
+    pub fn tile_uv(&self, index: u32) -> [f32; 4] {
+        let col = index % self.columns;
+        let row = index / self.columns;
+        let scale = self.tile_size as f32 / self.size as f32;
+        [col as f32 * scale, row as f32 * scale, scale, scale]
+    }
+
+    /// Maximum number of lights that fit in the atlas.
+    pub fn max_lights(&self) -> u32 {
+        self.columns * self.columns
+    }
+}
+
+// ── Point Light Shadows ─────────────────────────────────────────────────────
+
+/// Point light shadow map — 6 faces (cube map emulated as 6 atlas tiles).
+pub struct PointShadowMap {
+    /// 6 view-projection matrices (one per cube face: +X, -X, +Y, -Y, +Z, -Z).
+    pub face_matrices: [[f32; 16]; 6],
+}
+
+impl PointShadowMap {
+    /// Compute the 6 face view-projection matrices for a point light.
+    pub fn new(position: [f32; 3], near: f32, far: f32) -> Self {
+        // Perspective projection for 90° FOV (cube face)
+        let proj = perspective_90(near, far);
+
+        // 6 look directions + up vectors for cube faces
+        let faces: [([f32; 3], [f32; 3]); 6] = [
+            ([1.0, 0.0, 0.0], [0.0, -1.0, 0.0]),  // +X
+            ([-1.0, 0.0, 0.0], [0.0, -1.0, 0.0]), // -X
+            ([0.0, 1.0, 0.0], [0.0, 0.0, 1.0]),   // +Y
+            ([0.0, -1.0, 0.0], [0.0, 0.0, -1.0]), // -Y
+            ([0.0, 0.0, 1.0], [0.0, -1.0, 0.0]),  // +Z
+            ([0.0, 0.0, -1.0], [0.0, -1.0, 0.0]), // -Z
+        ];
+
+        let mut face_matrices = [IDENTITY_MAT4; 6];
+        for (i, (dir, up)) in faces.iter().enumerate() {
+            let view = look_at(position, *dir, *up);
+            face_matrices[i] = mul_mat4(proj, view);
+        }
+
+        Self { face_matrices }
+    }
+}
+
+/// 90° perspective projection for cube shadow map faces.
+fn perspective_90(near: f32, far: f32) -> [f32; 16] {
+    // fov = 90°, aspect = 1.0
+    // f = 1 / tan(fov/2) = 1 / tan(45°) = 1.0
+    let nf = 1.0 / (near - far);
+    [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        far * nf,
+        -1.0,
+        0.0,
+        0.0,
+        near * far * nf,
+        0.0,
+    ]
+}
+
+/// Look-at view matrix from a position along a direction.
+fn look_at(pos: [f32; 3], dir: [f32; 3], up: [f32; 3]) -> [f32; 16] {
+    let f = normalize3(dir);
+    let s = normalize3(cross(f, up));
+    let u = cross(s, f);
+
+    [
+        s[0],
+        u[0],
+        -f[0],
+        0.0,
+        s[1],
+        u[1],
+        -f[1],
+        0.0,
+        s[2],
+        u[2],
+        -f[2],
+        0.0,
+        -(s[0] * pos[0] + s[1] * pos[1] + s[2] * pos[2]),
+        -(u[0] * pos[0] + u[1] * pos[1] + u[2] * pos[2]),
+        f[0] * pos[0] + f[1] * pos[1] + f[2] * pos[2],
+        1.0,
+    ]
+}
+
+/// Compute practical cascade split distances (standalone, no GPU needed).
+pub fn compute_practical_splits(near: f32, far: f32, count: usize, lambda: f32) -> Vec<f32> {
+    let mut splits = Vec::with_capacity(count + 1);
+    splits.push(near);
+    for i in 1..count {
+        let ratio = i as f32 / count as f32;
+        let log_split = near * (far / near).powf(ratio);
+        let uniform_split = near + (far - near) * ratio;
+        splits.push(lambda * log_split + (1.0 - lambda) * uniform_split);
+    }
+    splits.push(far);
+    splits
+}
+
+/// Atlas configuration for pure-CPU tile math (no GPU needed).
+pub struct ShadowAtlasConfig {
+    pub size: u32,
+    pub tile_size: u32,
+}
+
+/// Get viewport for a tile index in an atlas config.
+pub fn tile_viewport(config: &ShadowAtlasConfig, index: u32) -> (u32, u32, u32, u32) {
+    let columns = config.size / config.tile_size.max(1);
+    let col = index % columns;
+    let row = index / columns;
+    (
+        col * config.tile_size,
+        row * config.tile_size,
+        config.tile_size,
+        config.tile_size,
+    )
+}
+
+/// Get UV offset+scale for a tile index in an atlas config.
+pub fn tile_uv(config: &ShadowAtlasConfig, index: u32) -> [f32; 4] {
+    let columns = config.size / config.tile_size.max(1);
+    let col = index % columns;
+    let row = index / columns;
+    let scale = config.tile_size as f32 / config.size as f32;
+    [col as f32 * scale, row as f32 * scale, scale, scale]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,5 +615,99 @@ mod tests {
     #[test]
     fn default_shadow_map_size() {
         assert_eq!(DEFAULT_SHADOW_MAP_SIZE, 2048);
+    }
+
+    #[test]
+    fn cascade_uniforms_size() {
+        // 4 floats + 4 * 16 floats = 4*4 + 4*64 = 16 + 256 = 272
+        assert_eq!(std::mem::size_of::<CascadeUniforms>(), 272);
+    }
+
+    #[test]
+    fn cascade_uniforms_default() {
+        let u = CascadeUniforms::default();
+        assert_eq!(u.splits[0], 10.0);
+        assert_eq!(u.splits[3], 500.0);
+    }
+
+    #[test]
+    fn cascade_splits_practical() {
+        // Test the practical split scheme
+        let splits = compute_practical_splits(0.1, 100.0, 4, 0.5);
+        assert_eq!(splits.len(), 5); // 4 cascades = 5 split points
+        assert_eq!(splits[0], 0.1);
+        assert_eq!(splits[4], 100.0);
+        // Splits should be monotonically increasing
+        for i in 1..splits.len() {
+            assert!(splits[i] > splits[i - 1]);
+        }
+    }
+
+    #[test]
+    fn shadow_atlas_tile_viewport() {
+        let atlas = ShadowAtlasConfig {
+            size: 4096,
+            tile_size: 1024,
+        };
+        let columns = atlas.size / atlas.tile_size;
+        assert_eq!(columns, 4);
+        // tile 0 = (0,0), tile 1 = (1024,0), tile 4 = (0,1024)
+        assert_eq!(tile_viewport(&atlas, 0), (0, 0, 1024, 1024));
+        assert_eq!(tile_viewport(&atlas, 1), (1024, 0, 1024, 1024));
+        assert_eq!(tile_viewport(&atlas, 4), (0, 1024, 1024, 1024));
+    }
+
+    #[test]
+    fn shadow_atlas_tile_uv() {
+        let atlas = ShadowAtlasConfig {
+            size: 4096,
+            tile_size: 1024,
+        };
+        let uv = tile_uv(&atlas, 0);
+        assert_eq!(uv, [0.0, 0.0, 0.25, 0.25]);
+        let uv1 = tile_uv(&atlas, 1);
+        assert!((uv1[0] - 0.25).abs() < 0.001);
+    }
+
+    #[test]
+    fn shadow_atlas_max_lights() {
+        let atlas = ShadowAtlasConfig {
+            size: 4096,
+            tile_size: 1024,
+        };
+        assert_eq!(
+            atlas.size / atlas.tile_size * (atlas.size / atlas.tile_size),
+            16
+        );
+    }
+
+    #[test]
+    fn point_shadow_6_faces() {
+        let psm = PointShadowMap::new([0.0, 5.0, 0.0], 0.1, 25.0);
+        assert_eq!(psm.face_matrices.len(), 6);
+        // All matrices should be different
+        for i in 0..6 {
+            for j in (i + 1)..6 {
+                assert!(psm.face_matrices[i] != psm.face_matrices[j]);
+            }
+        }
+    }
+
+    #[test]
+    fn point_shadow_no_nan() {
+        let psm = PointShadowMap::new([10.0, 3.0, -5.0], 0.1, 50.0);
+        for face in &psm.face_matrices {
+            for &v in face {
+                assert!(!v.is_nan(), "Point shadow matrix contains NaN");
+            }
+        }
+    }
+
+    #[test]
+    fn perspective_90_valid() {
+        let p = perspective_90(0.1, 100.0);
+        assert_eq!(p[0], 1.0); // aspect=1, fov=90 → f=1
+        assert_eq!(p[5], 1.0);
+        assert!(!p[10].is_nan());
     }
 }
