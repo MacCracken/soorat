@@ -38,6 +38,9 @@ prakash = { path = "../prakash", optional = true }
 # Image loading
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
+# 3D model loading
+gltf = "1"
+
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 serde_json = "1"

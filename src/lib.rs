@@ -12,7 +12,10 @@
 
 pub mod color;
 pub mod error;
+pub mod gltf_loader;
 pub mod gpu;
+pub mod material;
+pub mod mesh_pipeline;
 pub mod pipeline;
 pub mod render_target;
 pub mod sprite;
@@ -22,6 +25,8 @@ pub mod window;
 
 pub use error::{RenderError, Result};
 pub use gpu::GpuContext;
+pub use material::Material;
+pub use mesh_pipeline::{CameraUniforms, DepthBuffer, LightUniforms, Mesh, MeshPipeline};
 pub use pipeline::{FrameStats, SpritePipeline};
 pub use render_target::RenderTarget;
 pub use texture::{Texture, TextureCache};
