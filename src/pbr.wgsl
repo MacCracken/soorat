@@ -31,8 +31,6 @@ struct MaterialUniforms {
 
 @group(1) @binding(0) var t_base_color: texture_2d<f32>;
 @group(1) @binding(1) var s_base_color: sampler;
-@group(1) @binding(2) var t_brdf_lut: texture_2d<f32>;
-@group(1) @binding(3) var s_brdf_lut: sampler;
 
 // ── Vertex I/O ──────────────────────────────────────────────────────────────
 

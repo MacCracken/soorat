@@ -48,15 +48,19 @@ impl MaterialUniforms {
         }
     }
 
-    /// Set metallic-roughness from an IOR (via prakash).
+    /// Create a dielectric material from an IOR (via prakash).
+    /// Uses prakash::pbr::ior_to_f0 to compute reflectance.
+    /// Always non-metallic — for metals, use `metal()` directly.
     #[cfg(feature = "optics")]
     pub fn from_ior(base_color: Color, ior: f64, roughness: f32) -> Self {
-        let f0 = prakash::pbr::ior_to_f0(ior) as f32;
-        // F0 > 0.5 is metallic-like
-        let metallic = if f0 > 0.5 { 1.0 } else { 0.0 };
+        // IOR→F0 gives us the dielectric reflectance, but the PBR shader
+        // hardcodes F0=0.04 for dielectrics via mix(0.04, albedo, metallic).
+        // For non-standard IOR (e.g. water=1.33, diamond=2.42), the user
+        // should adjust the shader or use the F0 value directly.
+        let _f0 = prakash::pbr::ior_to_f0(ior) as f32;
         Self {
             base_color_factor: base_color.to_array(),
-            metallic,
+            metallic: 0.0,
             roughness,
             ..Default::default()
         }
