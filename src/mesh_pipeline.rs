@@ -576,6 +576,34 @@ mod tests {
     }
 
     #[test]
+    fn camera_set_model_non_uniform_scale() {
+        let mut cam = CameraUniforms::default();
+        // Non-uniform scale: 2x in X, 1x in Y, 0.5x in Z
+        let mut model = IDENTITY_MAT4;
+        model[0] = 2.0; // scale X
+        model[10] = 0.5; // scale Z
+        cam.set_model(model);
+        // Normal matrix should compensate: X normals shrink, Z normals stretch
+        assert!((cam.normal_matrix_0[0] - 0.5).abs() < 0.001); // 1/2
+        assert!((cam.normal_matrix_1[1] - 1.0).abs() < 0.001); // 1/1
+        assert!((cam.normal_matrix_2[2] - 2.0).abs() < 0.001); // 1/0.5
+    }
+
+    #[test]
+    fn shadow_pass_uniforms_default() {
+        let s = ShadowPassUniforms::default();
+        assert_eq!(s.shadow_map_size[0], 2048.0);
+        assert_eq!(s.light_view_proj[0], 1.0); // identity
+    }
+
+    #[test]
+    fn shadow_pass_uniforms_bytemuck() {
+        let s = ShadowPassUniforms::default();
+        let bytes = bytemuck::bytes_of(&s);
+        assert_eq!(bytes.len(), 80);
+    }
+
+    #[test]
     fn light_uniforms_bytemuck() {
         let light = LightUniforms::default();
         let bytes = bytemuck::bytes_of(&light);

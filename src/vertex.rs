@@ -348,4 +348,32 @@ mod tests {
         assert_eq!(v.joints, [0; 4]);
         assert_eq!(v.weights, [0.0; 4]);
     }
+
+    #[test]
+    fn skinned_vertex3d_layout_offsets() {
+        let layout = SkinnedVertex3D::layout();
+        assert_eq!(layout.attributes[0].offset, 0); // position
+        assert_eq!(layout.attributes[1].offset, 12); // normal (3*4)
+        assert_eq!(layout.attributes[2].offset, 24); // tex_coords (6*4)
+        assert_eq!(layout.attributes[3].offset, 32); // color (6*4+2*4)
+        assert_eq!(layout.attributes[4].offset, 48); // tangent (32+16)
+        assert_eq!(layout.attributes[5].offset, 64); // joints (48+16)
+        assert_eq!(layout.attributes[6].offset, 80); // weights (64+16)
+    }
+
+    #[test]
+    fn skinned_vertex3d_serde() {
+        let v = SkinnedVertex3D {
+            position: [1.0, 2.0, 3.0],
+            normal: [0.0, 1.0, 0.0],
+            tex_coords: [0.5, 0.5],
+            color: [1.0, 0.0, 0.0, 1.0],
+            tangent: [1.0, 0.0, 0.0, 1.0],
+            joints: [0, 1, 2, 3],
+            weights: [0.5, 0.3, 0.1, 0.1],
+        };
+        let json = serde_json::to_string(&v).unwrap();
+        let decoded: SkinnedVertex3D = serde_json::from_str(&json).unwrap();
+        assert_eq!(v, decoded);
+    }
 }

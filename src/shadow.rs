@@ -309,4 +309,29 @@ mod tests {
         assert_eq!(m.len(), 16);
         assert!(m != IDENTITY_MAT4);
     }
+
+    #[test]
+    fn directional_light_matrix_different_directions() {
+        let m1 = directional_light_matrix([0.0, -1.0, 0.0], 10.0, 0.1, 50.0);
+        let m2 = directional_light_matrix([1.0, 0.0, 0.0], 10.0, 0.1, 50.0);
+        assert!(
+            m1 != m2,
+            "Different directions should produce different matrices"
+        );
+    }
+
+    #[test]
+    fn directional_light_matrix_diagonal_direction() {
+        // Ensure the near-parallel-to-up case works
+        let m = directional_light_matrix([0.0, -0.999, -0.01], 20.0, 1.0, 100.0);
+        // Should not be NaN
+        for &v in &m {
+            assert!(!v.is_nan(), "Matrix contains NaN");
+        }
+    }
+
+    #[test]
+    fn default_shadow_map_size() {
+        assert_eq!(DEFAULT_SHADOW_MAP_SIZE, 2048);
+    }
 }

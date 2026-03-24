@@ -279,12 +279,70 @@ fn bench_debug_draw(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_terrain(c: &mut Criterion) {
+    use soorat::terrain::{TerrainConfig, flat_heightmap, generate_terrain};
+
+    let mut group = c.benchmark_group("terrain");
+
+    group.bench_function("generate_32x32", |b| {
+        let cfg = TerrainConfig {
+            width: 32,
+            depth: 32,
+            ..Default::default()
+        };
+        let heights = flat_heightmap(32, 32);
+        b.iter(|| generate_terrain(black_box(&cfg), black_box(&heights)))
+    });
+
+    group.bench_function("generate_64x64", |b| {
+        let cfg = TerrainConfig::default(); // 64x64
+        let heights = flat_heightmap(64, 64);
+        b.iter(|| generate_terrain(black_box(&cfg), black_box(&heights)))
+    });
+
+    group.finish();
+}
+
+fn bench_animation(c: &mut Criterion) {
+    use soorat::animation::{Joint, Skeleton};
+
+    let mut group = c.benchmark_group("animation");
+
+    group.bench_function("compute_joints_16", |b| {
+        let skeleton = Skeleton {
+            joints: (0..16)
+                .map(|i| Joint {
+                    parent: if i > 0 { i as i32 - 1 } else { -1 },
+                    ..Default::default()
+                })
+                .collect(),
+        };
+        b.iter(|| skeleton.compute_joint_matrices())
+    });
+
+    group.bench_function("compute_joints_64", |b| {
+        let skeleton = Skeleton {
+            joints: (0..64)
+                .map(|i| Joint {
+                    parent: if i > 0 { i as i32 - 1 } else { -1 },
+                    ..Default::default()
+                })
+                .collect(),
+        };
+        b.iter(|| skeleton.compute_joint_matrices())
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_color,
     bench_sprite,
     bench_vertex,
     bench_pipeline,
-    bench_debug_draw
+    bench_debug_draw,
+    bench_terrain,
+    bench_animation
 );
 criterion_main!(benches);
