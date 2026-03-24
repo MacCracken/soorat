@@ -1,6 +1,7 @@
 //! 3D mesh rendering pipeline.
 
 use crate::error::Result;
+use crate::math_util::IDENTITY_MAT4;
 use crate::vertex::Vertex3D;
 use wgpu::util::DeviceExt;
 
@@ -114,11 +115,6 @@ impl Default for LightUniforms {
     }
 }
 
-/// Identity 4x4 matrix (column-major).
-const IDENTITY_MAT4: [f32; 16] = [
-    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-];
-
 /// A loaded 3D mesh with GPU buffers ready for drawing.
 pub struct Mesh {
     pub vertex_buffer: wgpu::Buffer,
@@ -199,6 +195,17 @@ impl Default for ShadowPassUniforms {
             shadow_map_size: [2048.0, 0.0, 0.0, 0.0],
         }
     }
+}
+
+/// Draw parameters for `MeshPipeline::draw`.
+pub struct MeshDrawParams<'a> {
+    pub color_view: &'a wgpu::TextureView,
+    pub depth: &'a DepthBuffer,
+    pub mesh: &'a Mesh,
+    pub material_bind_group: &'a wgpu::BindGroup,
+    pub shadow_bind_group: &'a wgpu::BindGroup,
+    pub ibl_bind_group: &'a wgpu::BindGroup,
+    pub clear_color: Option<crate::color::Color>,
 }
 
 /// 3D mesh rendering pipeline with PBR shading (Cook-Torrance/GGX/Fresnel-Schlick).
@@ -472,27 +479,14 @@ impl MeshPipeline {
     }
 
     /// Draw a mesh with PBR shading, shadow mapping, and IBL.
-    /// `ibl_bind_group`: IBL environment maps. Use `EnvironmentMap::solid_color` for a black
-    /// cubemap when IBL is not desired.
-    #[allow(clippy::too_many_arguments)]
-    pub fn draw(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        color_view: &wgpu::TextureView,
-        depth: &DepthBuffer,
-        mesh: &Mesh,
-        material_bind_group: &wgpu::BindGroup,
-        shadow_bind_group: &wgpu::BindGroup,
-        ibl_bind_group: &wgpu::BindGroup,
-        clear_color: Option<crate::color::Color>,
-    ) {
+    /// Use `EnvironmentMap::solid_color` for a black cubemap when IBL is not desired.
+    pub fn draw(&self, device: &wgpu::Device, queue: &wgpu::Queue, params: &MeshDrawParams<'_>) {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("mesh_encoder"),
         });
 
         {
-            let color_load = match clear_color {
+            let color_load = match params.clear_color {
                 Some(c) => wgpu::LoadOp::Clear(c.to_wgpu()),
                 None => wgpu::LoadOp::Load,
             };
@@ -500,7 +494,7 @@ impl MeshPipeline {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("mesh_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: color_view,
+                    view: params.color_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: color_load,
@@ -508,7 +502,7 @@ impl MeshPipeline {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &depth.view,
+                    view: &params.depth.view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -520,12 +514,15 @@ impl MeshPipeline {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            render_pass.set_bind_group(1, material_bind_group, &[]);
-            render_pass.set_bind_group(2, shadow_bind_group, &[]);
-            render_pass.set_bind_group(3, ibl_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            render_pass.set_bind_group(1, params.material_bind_group, &[]);
+            render_pass.set_bind_group(2, params.shadow_bind_group, &[]);
+            render_pass.set_bind_group(3, params.ibl_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, params.mesh.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(
+                params.mesh.index_buffer.slice(..),
+                wgpu::IndexFormat::Uint32,
+            );
+            render_pass.draw_indexed(0..params.mesh.index_count, 0, 0..1);
         }
 
         queue.submit(std::iter::once(encoder.finish()));

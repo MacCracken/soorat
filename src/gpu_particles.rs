@@ -156,13 +156,27 @@ impl GpuParticleSystem {
         );
     }
 
-    /// Run the compute simulation step.
+    /// Run the compute simulation step with default gravity/damping.
     pub fn simulate(&self, device: &wgpu::Device, queue: &wgpu::Queue, delta_time: f32) {
-        let params = SimParams {
-            delta_time,
-            particle_count: self.particle_count,
-            ..Default::default()
-        };
+        self.simulate_with_params(
+            device,
+            queue,
+            SimParams {
+                delta_time,
+                particle_count: self.particle_count,
+                ..Default::default()
+            },
+        );
+    }
+
+    /// Run the compute simulation step with custom parameters.
+    pub fn simulate_with_params(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        mut params: SimParams,
+    ) {
+        params.particle_count = self.particle_count;
         queue.write_buffer(&self.params_buffer, 0, bytemuck::bytes_of(&params));
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {

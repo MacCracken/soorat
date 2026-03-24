@@ -5,13 +5,16 @@
 //!
 //! # Modules
 //!
+//! - **Core**: [`gpu`], [`window`], [`color`], [`vertex`], [`error`], [`profiler`], [`capabilities`]
 //! - **2D**: [`pipeline`] (sprites), [`sprite`], [`texture`], [`text`], [`ui`]
-//! - **3D**: [`mesh_pipeline`] (PBR), [`shadow`], [`animation`], [`terrain`]
+//! - **3D**: [`mesh_pipeline`] (PBR), [`shadow`], [`animation`], [`terrain`], [`primitives`]
+//! - **Lighting**: [`lights`], [`environment`] (IBL)
+//! - **Post-processing**: [`postprocess`], [`hdr`] (bloom), [`ssao`]
 //! - **Debug**: [`debug_draw`] (wireframe lines, shapes, grid)
-//! - **Post-processing**: [`postprocess`] (tone mapping, bloom)
-//! - **Core**: [`gpu`], [`window`], [`color`], [`vertex`], [`error`]
-//! - **Lights**: [`lights`] (directional, point, spot)
+//! - **Rendering**: [`instancing`], [`lod`], [`compute`], [`gpu_particles`], [`render_graph`]
+//! - **Fluids**: [`fluid_render`] (pravash integration)
 //! - **Loading**: [`gltf_loader`], [`texture`]
+//! - **Integration**: [`egui_bridge`] (salai editor)
 
 pub mod animation;
 pub mod capabilities;
@@ -50,19 +53,27 @@ pub mod vertex;
 pub mod window;
 
 // ── Core ────────────────────────────────────────────────────────────────────
+pub use capabilities::GpuCapabilities;
 pub use color::Color;
-pub use compute::ComputePipeline;
-pub use egui_bridge::ViewportSize;
-pub use environment::{EnvironmentMap, IblBindGroup};
 pub use error::{RenderError, Result};
-pub use fluid_render::FluidColorMode;
 pub use gpu::GpuContext;
+pub use profiler::{FrameProfiler, GpuTimestamps, PassTiming};
+pub use vertex::{SkinnedVertex3D, Vertex2D, Vertex3D};
+pub use window::{Window, WindowConfig};
+
+// ── Rendering ───────────────────────────────────────────────────────────────
+pub use compute::ComputePipeline;
 pub use gpu_particles::{GpuParticle, GpuParticleSystem, SimParams};
 pub use instancing::{InstanceBuffer, InstanceData};
 pub use lod::{LodChain, TerrainLod};
 pub use render_graph::{PassType, RenderGraph};
-pub use vertex::{SkinnedVertex3D, Vertex2D, Vertex3D};
-pub use window::{Window, WindowConfig};
+
+// ── Lighting + Environment ──────────────────────────────────────────────────
+pub use environment::{EnvironmentMap, IblBindGroup};
+pub use fluid_render::{FluidColorMode, ParticleColorParams};
+
+// ── Integration ─────────────────────────────────────────────────────────────
+pub use egui_bridge::ViewportSize;
 
 // ── 2D Sprites ──────────────────────────────────────────────────────────────
 pub use pipeline::{
@@ -94,10 +105,8 @@ pub use animation::{AnimationClip, JointUniforms, Skeleton};
 pub use debug_draw::{LineBatch, LinePipeline, LineVertex};
 
 // ── Post-processing ─────────────────────────────────────────────────────────
-pub use capabilities::GpuCapabilities;
 pub use hdr::{BloomPipeline, BloomUniforms, HdrFramebuffer};
 pub use postprocess::{PostProcessPipeline, PostProcessUniforms, ToneMapMode};
-pub use profiler::{FrameProfiler, GpuTimestamps, PassTiming};
 pub use ssao::{SsaoPipeline, SsaoUniforms};
 
 // ── Render targets ──────────────────────────────────────────────────────────
@@ -108,5 +117,6 @@ pub use terrain::{TerrainConfig, TerrainData};
 pub use text::{BitmapFont, TextBatch};
 pub use ui::{UiBatch, UiLabel, UiPanel};
 
-// ── Legacy compat ───────────────────────────────────────────────────────────
+// ── Materials ───────────────────────────────────────────────────────────────
+/// Deprecated: use `MaterialUniforms` for PBR. Retained for simple texture+bind group use.
 pub use material::Material;

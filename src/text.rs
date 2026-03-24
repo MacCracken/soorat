@@ -80,26 +80,26 @@ impl TextBatch {
         scale: f32,
         color: Color,
     ) {
-        let char_w = font.glyph_width as f32 * scale;
-        let char_h = font.glyph_height as f32 * scale;
-
-        for (i, ch) in text.chars().enumerate() {
-            if ch == ' ' {
-                continue; // skip spaces (transparent anyway)
-            }
-
-            let uv = font.glyph_uv(ch);
-            let sprite = Sprite::new(x + i as f32 * char_w, y, char_w, char_h)
-                .with_color(color)
-                .with_texture(font.texture_id)
-                .with_uv(uv);
-            self.batch.push(sprite);
-        }
+        self.draw_text_impl(font, text, x, y, scale, color, 0);
     }
 
     /// Add text with a z-order (for layering with other sprites).
     #[allow(clippy::too_many_arguments)]
     pub fn draw_text_z(
+        &mut self,
+        font: &BitmapFont,
+        text: &str,
+        x: f32,
+        y: f32,
+        scale: f32,
+        color: Color,
+        z_order: i32,
+    ) {
+        self.draw_text_impl(font, text, x, y, scale, color, z_order);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_text_impl(
         &mut self,
         font: &BitmapFont,
         text: &str,

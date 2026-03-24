@@ -202,21 +202,37 @@ pub fn shallow_water_to_mesh(
     (vertices, indices)
 }
 
+/// Parameters for particle rendering (color mapping + normalization ranges).
+pub struct ParticleColorParams {
+    pub color_mode: FluidColorMode,
+    pub base_color: Color,
+    pub max_velocity: f32,
+    pub max_density: f64,
+    pub max_pressure: f64,
+}
+
+impl Default for ParticleColorParams {
+    fn default() -> Self {
+        Self {
+            color_mode: FluidColorMode::Solid,
+            base_color: Color::WHITE,
+            max_velocity: 10.0,
+            max_density: 1000.0,
+            max_pressure: 1000.0,
+        }
+    }
+}
+
 /// Generate camera-facing billboard quads for particles.
 /// Unlike `particles_to_quads` (XZ-plane), these orient toward the camera.
 /// `camera_right`/`camera_up`: camera basis vectors in world space.
 #[cfg(feature = "fluids")]
-#[allow(clippy::too_many_arguments)]
 pub fn particles_to_billboards(
     particles: &[pravash::common::FluidParticle],
     particle_size: f32,
     camera_right: [f32; 3],
     camera_up: [f32; 3],
-    color_mode: FluidColorMode,
-    base_color: Color,
-    max_velocity: f32,
-    max_density: f64,
-    max_pressure: f64,
+    params: &ParticleColorParams,
 ) -> (Vec<Vertex3D>, Vec<u32>) {
     let count = particles.len();
     let mut vertices = Vec::with_capacity(count * 4);
@@ -244,17 +260,17 @@ pub fn particles_to_billboards(
             p.position[2] as f32,
         ];
 
-        let color = match color_mode {
-            FluidColorMode::Solid => base_color,
+        let color = match params.color_mode {
+            FluidColorMode::Solid => params.base_color,
             FluidColorMode::Velocity => {
                 let speed = p.speed() as f32;
-                heat_map((speed / max_velocity.max(0.001)).clamp(0.0, 1.0))
+                heat_map((speed / params.max_velocity.max(0.001)).clamp(0.0, 1.0))
             }
             FluidColorMode::Density => {
-                heat_map(((p.density / max_density.max(0.001)) as f32).clamp(0.0, 1.0))
+                heat_map(((p.density / params.max_density.max(0.001)) as f32).clamp(0.0, 1.0))
             }
             FluidColorMode::Pressure => {
-                heat_map(((p.pressure / max_pressure.max(0.001)) as f32).clamp(0.0, 1.0))
+                heat_map(((p.pressure / params.max_pressure.max(0.001)) as f32).clamp(0.0, 1.0))
             }
         };
         let c = color.to_array();
@@ -420,13 +436,9 @@ mod tests {
         let (v, i) = particles_to_billboards(
             &[p],
             1.0,
-            [1.0, 0.0, 0.0], // camera right
-            [0.0, 1.0, 0.0], // camera up
-            FluidColorMode::Solid,
-            Color::WHITE,
-            1.0,
-            1.0,
-            1.0,
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            &ParticleColorParams::default(),
         );
         assert_eq!(v.len(), 4);
         assert_eq!(i.len(), 6);
@@ -442,11 +454,7 @@ mod tests {
             1.0,
             [1.0, 0.0, 0.0],
             [0.0, 1.0, 0.0],
-            FluidColorMode::Solid,
-            Color::WHITE,
-            1.0,
-            1.0,
-            1.0,
+            &ParticleColorParams::default(),
         );
         assert!(v.is_empty());
         assert!(i.is_empty());

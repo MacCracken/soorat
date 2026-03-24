@@ -242,6 +242,15 @@ pub struct FrameStats {
     pub sprites: u32,
 }
 
+/// Parameters for `SpritePipeline::draw_batched`.
+pub struct SpriteBatchDrawParams<'a> {
+    pub view: &'a wgpu::TextureView,
+    pub batch: &'a SpriteBatch,
+    pub texture_cache: &'a crate::texture::TextureCache,
+    pub fallback_bind_group: &'a wgpu::BindGroup,
+    pub clear_color: Option<Color>,
+}
+
 /// Sprite rendering pipeline — holds the wgpu pipeline, bind group layouts, and buffers.
 pub struct SpritePipeline {
     render_pipeline: wgpu::RenderPipeline,
@@ -466,25 +475,20 @@ impl SpritePipeline {
 
     /// Draw a sprite batch with multiple textures, issuing one draw call per texture group.
     /// Sprites are drawn in z-order; consecutive sprites sharing a texture_id are batched.
-    #[allow(clippy::too_many_arguments)]
     pub fn draw_batched(
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        view: &wgpu::TextureView,
-        batch: &SpriteBatch,
-        texture_cache: &crate::texture::TextureCache,
-        fallback_bind_group: &wgpu::BindGroup,
-        clear_color: Option<Color>,
+        params: &SpriteBatchDrawParams<'_>,
     ) -> FrameStats {
         let mut stats = FrameStats::default();
 
-        if batch.is_empty() && clear_color.is_none() {
+        if params.batch.is_empty() && params.clear_color.is_none() {
             return stats;
         }
 
-        let (vertices, indices) = batch_to_vertices(batch);
-        stats.sprites = batch.sprites.len() as u32;
+        let (vertices, indices) = batch_to_vertices(params.batch);
+        stats.sprites = params.batch.sprites.len() as u32;
         stats.triangles = indices.len() as u32 / 3;
 
         let (vertex_buffer, index_buffer) = Self::upload_buffers(device, &vertices, &indices);
@@ -493,9 +497,9 @@ impl SpritePipeline {
         });
 
         {
-            let mut render_pass = Self::begin_pass(&mut encoder, view, clear_color);
+            let mut render_pass = Self::begin_pass(&mut encoder, params.view, params.clear_color);
 
-            if !batch.is_empty() {
+            if !params.batch.is_empty() {
                 render_pass.set_pipeline(&self.render_pipeline);
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
@@ -503,14 +507,14 @@ impl SpritePipeline {
 
                 // Issue draw calls grouped by consecutive texture_id
                 let mut run_start: u32 = 0;
-                let mut current_tex_id = batch.sprites[0].texture_id;
+                let mut current_tex_id = params.batch.sprites[0].texture_id;
 
-                for (i, sprite) in batch.sprites.iter().enumerate() {
+                for (i, sprite) in params.batch.sprites.iter().enumerate() {
                     if sprite.texture_id != current_tex_id {
-                        // Flush previous run
-                        let bind_group = texture_cache
+                        let bind_group = params
+                            .texture_cache
                             .get_bind_group(current_tex_id)
-                            .unwrap_or(fallback_bind_group);
+                            .unwrap_or(params.fallback_bind_group);
                         render_pass.set_bind_group(1, bind_group, &[]);
                         let idx_start = run_start * 6;
                         let idx_end = (i as u32) * 6;
@@ -522,13 +526,13 @@ impl SpritePipeline {
                     }
                 }
 
-                // Flush final run
-                let bind_group = texture_cache
+                let bind_group = params
+                    .texture_cache
                     .get_bind_group(current_tex_id)
-                    .unwrap_or(fallback_bind_group);
+                    .unwrap_or(params.fallback_bind_group);
                 render_pass.set_bind_group(1, bind_group, &[]);
                 let idx_start = run_start * 6;
-                let idx_end = batch.sprites.len() as u32 * 6;
+                let idx_end = params.batch.sprites.len() as u32 * 6;
                 render_pass.draw_indexed(idx_start..idx_end, 0, 0..1);
                 stats.draw_calls += 1;
             }

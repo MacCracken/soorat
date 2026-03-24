@@ -83,6 +83,16 @@ impl Default for BloomUniforms {
     }
 }
 
+/// Intermediate targets for the bloom pipeline passes.
+pub struct BloomTargets<'a> {
+    pub hdr_bind_group: &'a wgpu::BindGroup,
+    pub bright_view: &'a wgpu::TextureView,
+    pub blur_temp_view: &'a wgpu::TextureView,
+    pub bloom_output_view: &'a wgpu::TextureView,
+    pub bright_bind_group: &'a wgpu::BindGroup,
+    pub blur_temp_bind_group: &'a wgpu::BindGroup,
+}
+
 /// Bloom pipeline — orchestrates threshold extraction + separable Gaussian blur.
 /// Requires 2 intermediate textures (same format as HDR framebuffer).
 pub struct BloomPipeline {
@@ -227,18 +237,7 @@ impl BloomPipeline {
     /// `blur_target`: intermediate texture for blur H output.
     /// `final_target`: output view for the final blurred bloom.
     /// Run the full bloom pipeline: threshold → blur_h → blur_v.
-    #[allow(clippy::too_many_arguments)]
-    pub fn render(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        hdr_bind_group: &wgpu::BindGroup,
-        bright_view: &wgpu::TextureView,
-        blur_temp_view: &wgpu::TextureView,
-        bloom_output_view: &wgpu::TextureView,
-        bright_bind_group: &wgpu::BindGroup,
-        blur_temp_bind_group: &wgpu::BindGroup,
-    ) {
+    pub fn render(&self, device: &wgpu::Device, queue: &wgpu::Queue, targets: &BloomTargets<'_>) {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("bloom_encoder"),
         });
@@ -248,7 +247,7 @@ impl BloomPipeline {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("bloom_threshold_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: bright_view,
+                    view: targets.bright_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
@@ -259,7 +258,7 @@ impl BloomPipeline {
                 ..Default::default()
             });
             pass.set_pipeline(&self.threshold_pipeline);
-            pass.set_bind_group(0, hdr_bind_group, &[]);
+            pass.set_bind_group(0, targets.hdr_bind_group, &[]);
             pass.draw(0..3, 0..1);
         }
 
@@ -268,7 +267,7 @@ impl BloomPipeline {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("bloom_blur_h_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: blur_temp_view,
+                    view: targets.blur_temp_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
@@ -279,7 +278,7 @@ impl BloomPipeline {
                 ..Default::default()
             });
             pass.set_pipeline(&self.blur_h_pipeline);
-            pass.set_bind_group(0, bright_bind_group, &[]);
+            pass.set_bind_group(0, targets.bright_bind_group, &[]);
             pass.draw(0..3, 0..1);
         }
 
@@ -288,7 +287,7 @@ impl BloomPipeline {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("bloom_blur_v_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: bloom_output_view,
+                    view: targets.bloom_output_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
@@ -299,7 +298,7 @@ impl BloomPipeline {
                 ..Default::default()
             });
             pass.set_pipeline(&self.blur_v_pipeline);
-            pass.set_bind_group(0, blur_temp_bind_group, &[]);
+            pass.set_bind_group(0, targets.blur_temp_bind_group, &[]);
             pass.draw(0..3, 0..1);
         }
 

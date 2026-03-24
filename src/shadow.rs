@@ -238,8 +238,8 @@ impl ShadowPipeline {
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(uniforms));
     }
 
-    /// Render a mesh into the shadow map (depth-only pass).
-    pub fn render_shadow(
+    /// Render meshes into the shadow map (depth-only pass).
+    pub fn render(
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
