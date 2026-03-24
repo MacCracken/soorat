@@ -3,12 +3,15 @@
 //! **Soorat** (Arabic/Urdu: صورت — form, image, appearance) is a wgpu-based
 //! rendering engine designed for the Kiran game engine and AGNOS ecosystem.
 //!
-//! Provides:
-//! - GPU device and surface management
-//! - Sprite rendering pipeline (2D)
-//! - Mesh rendering pipeline (3D)
-//! - Window management via winit
-//! - Render pass abstraction
+//! # Modules
+//!
+//! - **2D**: [`pipeline`] (sprites), [`sprite`], [`texture`], [`text`], [`ui`]
+//! - **3D**: [`mesh_pipeline`] (PBR), [`shadow`], [`animation`], [`terrain`]
+//! - **Debug**: [`debug_draw`] (wireframe lines, shapes, grid)
+//! - **Post-processing**: [`postprocess`] (tone mapping, bloom)
+//! - **Core**: [`gpu`], [`window`], [`color`], [`vertex`], [`error`]
+//! - **Lights**: [`lights`] (directional, point, spot)
+//! - **Loading**: [`gltf_loader`], [`texture`]
 
 pub mod animation;
 pub mod color;
@@ -18,11 +21,12 @@ pub mod gltf_loader;
 pub mod gpu;
 pub mod lights;
 pub mod material;
-pub mod math_util;
+pub(crate) mod math_util;
 pub mod mesh_pipeline;
 pub mod pbr_material;
 pub mod pipeline;
 pub mod postprocess;
+pub mod profiler;
 pub mod render_target;
 pub mod shadow;
 pub mod sprite;
@@ -33,20 +37,48 @@ pub mod ui;
 pub mod vertex;
 pub mod window;
 
-pub use animation::{AnimationClip, JointUniforms, Skeleton};
-pub use debug_draw::{LineBatch, LinePipeline, LineVertex};
+// ── Core ────────────────────────────────────────────────────────────────────
+pub use color::Color;
 pub use error::{RenderError, Result};
 pub use gpu::GpuContext;
-pub use lights::{GpuLight, LightArrayUniforms};
-pub use material::Material;
+pub use vertex::{Vertex2D, Vertex3D};
+pub use window::{Window, WindowConfig};
+
+// ── 2D Sprites ──────────────────────────────────────────────────────────────
+pub use pipeline::{
+    FrameStats, SpriteBuffers, SpritePipeline, batch_to_vertices, batch_to_vertices_into,
+    batch_to_vertices_u32,
+};
+pub use sprite::{Sprite, SpriteBatch, UvRect};
+pub use texture::{Texture, TextureCache, create_default_sampler};
+
+// ── 3D Meshes (PBR) ────────────────────────────────────────────────────────
 pub use mesh_pipeline::{CameraUniforms, DepthBuffer, LightUniforms, Mesh, MeshPipeline};
 pub use pbr_material::MaterialUniforms;
-pub use pipeline::{FrameStats, SpriteBuffers, SpritePipeline};
-pub use postprocess::{PostProcessPipeline, PostProcessUniforms, ToneMapMode};
-pub use render_target::RenderTarget;
+
+// ── Lighting ────────────────────────────────────────────────────────────────
+pub use lights::{GpuLight, LightArrayUniforms};
+
+// ── Shadows ─────────────────────────────────────────────────────────────────
 pub use shadow::{ShadowMap, ShadowPipeline, ShadowUniforms};
-pub use terrain::TerrainConfig;
+
+// ── Animation ───────────────────────────────────────────────────────────────
+pub use animation::{AnimationClip, JointUniforms, Skeleton};
+
+// ── Debug ───────────────────────────────────────────────────────────────────
+pub use debug_draw::{LineBatch, LinePipeline, LineVertex};
+
+// ── Post-processing ─────────────────────────────────────────────────────────
+pub use postprocess::{PostProcessPipeline, PostProcessUniforms, ToneMapMode};
+pub use profiler::FrameProfiler;
+
+// ── Render targets ──────────────────────────────────────────────────────────
+pub use render_target::RenderTarget;
+
+// ── World ───────────────────────────────────────────────────────────────────
+pub use terrain::{TerrainConfig, TerrainData};
 pub use text::{BitmapFont, TextBatch};
-pub use texture::{Texture, TextureCache};
 pub use ui::{UiBatch, UiLabel, UiPanel};
-pub use window::{Window, WindowConfig};
+
+// ── Legacy compat ───────────────────────────────────────────────────────────
+pub use material::Material;

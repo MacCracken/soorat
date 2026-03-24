@@ -2,60 +2,55 @@
 
 > **Soorat** (Arabic/Urdu: صورت — form, image, appearance) — GPU rendering engine for the Kiran game engine and AGNOS ecosystem.
 
-## Completed
-
-### V0.23.3 — Core + 2D + 3D + Debug + Textures + Ecosystem
+## V0.23.3 — Foundation
 
 - Color types (RGBA, hex, lerp, wgpu conversion, prakash optics bridge)
 - Vertex types (2D + 3D with bytemuck Pod/Zeroable and wgpu buffer layouts)
 - Window + Surface — winit window + wgpu surface, resize handling, event loop
 - GpuContext with surface-compatible adapter selection
-- SpritePipeline — WGSL shader, orthographic projection, alpha blending, rotation, UvRect
-- SpriteBuffers — persistent GPU buffer reuse, u16/u32 index paths
-- MeshPipeline — Vertex3D, depth buffer, back-face culling, Lambertian lighting
-- glTF loading — zero-copy buffer borrowing, embedded texture extraction
-- Material — base_color texture + color factor + bind group
-- LinePipeline + LineBatch — wire_box, wire_circle, wire_sphere, wire_capsule, grid
-- Texture — from_bytes, from_color, from_rgba, white_pixel, shared sampler
-- TextureCache with get_or_load(), RenderTarget with read_pixels()
-- hisab math, prakash optics, ranga pixel buffers, impetus debug wireframes
+- SpritePipeline — WGSL shader, orthographic projection, alpha blending
+- Sprite rotation, UvRect atlas regions, batched multi-texture draw
+- FrameStats, SpriteBuffers (persistent GPU buffer reuse), u16 + u32 index paths
+- Texture — from_bytes, from_color, from_rgba, shared sampler, TextureCache with get_or_load
+- RenderTarget — offscreen framebuffer with read_pixels GPU readback
 
-### V0.24 — PBR + Shadows
+## V0.24 — PBR Rendering
 
-- MaterialUniforms — dielectric/metal/IOR presets, BRDF LUT generation
-- ShadowMap + ShadowPipeline — directional light shadow mapping
-- ShadowUniforms + directional_light_matrix()
-- PBR shader (pbr.wgsl) — Cook-Torrance BRDF
-- GpuLight — directional/point/spot with intensity + range/angle
-- LightArrayUniforms — multi-light system
+- MeshPipeline with PBR shader (Cook-Torrance/GGX/Fresnel-Schlick from prakash)
+- CameraUniforms (view_proj + model + camera_pos), LightUniforms, MaterialUniforms
+- BRDF LUT precomputation via prakash::pbr::integrate_brdf_lut
+- DepthBuffer (Depth32Float), Mesh (GPU vertex/index buffers), Material
+- glTF loading — zero-copy buffer borrowing, embedded textures
 
-### V0.25 — Post-Processing + Animation
+## V0.25 — Shadows, Lights, Animation, Post-Processing
 
-- PostProcessPipeline — bloom, tone mapping (Reinhard/ACES/exposure), SSAO
-- PostProcessUniforms + ToneMapMode enum
-- Skeletal animation — Skeleton, Joint, AnimationClip, AnimationChannel, Keyframe
-- JointUniforms — GPU joint matrix upload
+- ShadowMap + ShadowPipeline — depth-only pass, front-face cull, depth bias, PCF 3x3
+- PBR shader shadow integration — light_view_proj, shadow_coords, comparison sampling
+- Multi-light system — GpuLight (directional/point/spot), LightArrayUniforms (8 max)
+- Skeletal animation — Skeleton, Joint (TRS + inverse bind), AnimationClip, keyframe interpolation
+- glTF animation loading — skins, joints, channels
+- PostProcessPipeline — full-screen triangle, Reinhard + ACES filmic tone mapping
+- math_util — shared mul_mat4, normalize3, cross (deduplicated from shadow + animation)
 
-## Remaining
+## V0.26 — World, Text, UI
 
-### V0.26 — World Rendering
+- Terrain — heightmap mesh generation with computed normals, centered origin, UV mapping
+- Text — BitmapFont glyph atlas, TextBatch (positioned sprite quads)
+- UI — UiPanel, UiLabel, UiBatch (screen-space overlay via SpritePipeline)
 
-- [ ] Terrain rendering (heightmap or procedural)
-- [ ] UI rendering (in-game HUD, menus)
-- [ ] Text rendering (glyph atlas, monospace font)
+## V1.0 — Production
 
-### V1.0 — Production
+- API stabilization — organized re-exports, module docs, math_util made pub(crate)
+- FrameProfiler — CPU frame timing, EMA smoothing, FPS counter
+- Multi-window — Window::new_with_gpu() shares GpuContext across windows
+- Debug draw — LinePipeline, wire_box/circle/sphere/capsule/grid, impetus colliders
 
-- [ ] API stabilization + documentation pass
-- [ ] Performance profiling + GPU timing queries
-- [ ] Multi-window support
-- [ ] WebGPU target validation
+## AGNOS Ecosystem Integration
 
-## Stats
-
-- **Source:** 5,437 lines across 14 modules + 5 WGSL shaders
-- **Tests:** 159 (147 unit + 12 integration), 22 benchmarks
-- **Features:** `optics` (prakash), `ranga` (pixel buffers), `physics-debug` (impetus wireframes)
+- hisab — math foundation (re-exports glam)
+- prakash — spectral optics, PBR math, BRDF LUT (feature: optics)
+- ranga — PixelBuffer texture loading (feature: ranga)
+- impetus — ColliderShape debug wireframes (feature: physics-debug)
 
 ## Dependency Map
 
@@ -67,7 +62,17 @@ soorat (rendering engine)
   ├── bytemuck     — vertex type zero-copy casting
   ├── image        — texture loading (png, jpeg)
   ├── gltf         — 3D model loading
-  ├── prakash      — optics (spectral color, PBR math)         [optional]
+  ├── prakash      — optics, PBR math                          [optional]
   ├── ranga        — image processing (pixel buffers)           [optional]
   └── impetus      — physics (collider debug wireframes)        [optional]
 ```
+
+## Stats
+
+188 tests, 21 benchmarks, 25 modules, clippy clean, fmt clean.
+
+## Context for Agent
+
+Soorat is consumed by:
+- **kiran** (`src/gpu.rs`) — `SooratRenderer` implements kiran's `Renderer` trait
+- **salai** (`src/viewport.rs`) — needs soorat 3D viewport for the editor

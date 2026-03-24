@@ -117,6 +117,50 @@ impl Window {
         })
     }
 
+    /// Create a window using an existing GPU context (for multi-window setups).
+    /// The GpuContext is shared across windows; each window owns its own surface.
+    pub fn new_with_gpu(
+        gpu: GpuContext,
+        winit_window: Arc<winit::window::Window>,
+        config: &WindowConfig,
+    ) -> Result<Self> {
+        let surface = gpu
+            .instance
+            .create_surface(winit_window.clone())
+            .map_err(|e| RenderError::SurfaceConfig(e.to_string()))?;
+
+        let surface_caps = surface.get_capabilities(&gpu.adapter);
+        let surface_format = surface_caps
+            .formats
+            .iter()
+            .find(|f| f.is_srgb())
+            .copied()
+            .unwrap_or(surface_caps.formats[0]);
+
+        let size = winit_window.inner_size();
+        let width = size.width.max(1);
+        let height = size.height.max(1);
+
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            width,
+            height,
+            present_mode: config.present_mode(),
+            alpha_mode: surface_caps.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+        surface.configure(&gpu.device, &surface_config);
+
+        Ok(Self {
+            gpu,
+            surface,
+            surface_config,
+            winit_window,
+        })
+    }
+
     /// Reconfigure the surface after a resize.
     pub fn resize(&mut self, width: u32, height: u32) {
         if width == 0 || height == 0 {
