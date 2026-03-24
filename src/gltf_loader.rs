@@ -21,9 +21,11 @@ pub struct MeshData {
 
 /// Load mesh data from glTF bytes (without GPU upload).
 pub fn load_gltf_meshes(bytes: &[u8]) -> Result<(Vec<MeshData>, Vec<Vec<u8>>)> {
-    let gltf = gltf::Gltf::from_slice(bytes).map_err(|e| RenderError::Texture(e.to_string()))?;
+    let gltf = gltf::Gltf::from_slice(bytes).map_err(|e| RenderError::Model(e.to_string()))?;
 
-    let buffers = load_buffers(&gltf, bytes)?;
+    let blob = gltf.blob.as_deref().unwrap_or(&[]);
+    let buffer_sources = collect_buffer_sources(&gltf, blob);
+
     let mut meshes = Vec::new();
     let mut images = Vec::new();
 
@@ -31,10 +33,18 @@ pub fn load_gltf_meshes(bytes: &[u8]) -> Result<(Vec<MeshData>, Vec<Vec<u8>>)> {
     for image in gltf.images() {
         match image.source() {
             gltf::image::Source::View { view, .. } => {
-                let buf = &buffers[view.buffer().index()];
-                let start = view.offset();
-                let end = start + view.length();
-                images.push(buf[start..end].to_vec());
+                let buf_idx = view.buffer().index();
+                if let Some(buf) = buffer_sources.get(buf_idx) {
+                    let start = view.offset();
+                    let end = start + view.length();
+                    if end <= buf.len() {
+                        images.push(buf[start..end].to_vec());
+                    } else {
+                        images.push(Vec::new());
+                    }
+                } else {
+                    images.push(Vec::new());
+                }
             }
             gltf::image::Source::Uri { .. } => {
                 images.push(Vec::new());
@@ -45,7 +55,7 @@ pub fn load_gltf_meshes(bytes: &[u8]) -> Result<(Vec<MeshData>, Vec<Vec<u8>>)> {
     // Load meshes
     for mesh in gltf.meshes() {
         for primitive in mesh.primitives() {
-            let reader = primitive.reader(|buf| Some(&buffers[buf.index()]));
+            let reader = primitive.reader(|buf| buffer_sources.get(buf.index()).copied());
 
             let positions: Vec<[f32; 3]> = reader
                 .read_positions()
@@ -124,31 +134,14 @@ pub fn load_model(device: &wgpu::Device, queue: &wgpu::Queue, bytes: &[u8]) -> R
     })
 }
 
-fn load_buffers(gltf: &gltf::Gltf, glb_bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
-    let mut buffers = Vec::new();
-
-    for buffer in gltf.buffers() {
-        match buffer.source() {
-            gltf::buffer::Source::Bin => {
-                let blob = gltf
-                    .blob
-                    .as_ref()
-                    .ok_or_else(|| RenderError::Texture("Missing GLB bin chunk".into()))?;
-                buffers.push(blob.clone());
-            }
-            gltf::buffer::Source::Uri(_) => {
-                // For embedded base64 or external files — not supported in from-bytes path
-                buffers.push(Vec::new());
-            }
-        }
-    }
-
-    // If no buffers found but we have GLB data, use the entire blob
-    if buffers.is_empty() && !glb_bytes.is_empty() {
-        buffers.push(glb_bytes.to_vec());
-    }
-
-    Ok(buffers)
+/// Collect borrowed buffer slices from the glTF. Zero-copy for GLB blobs.
+fn collect_buffer_sources<'a>(gltf: &'a gltf::Gltf, blob: &'a [u8]) -> Vec<&'a [u8]> {
+    gltf.buffers()
+        .map(|buffer| match buffer.source() {
+            gltf::buffer::Source::Bin => blob,
+            gltf::buffer::Source::Uri(_) => &[] as &[u8],
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -174,6 +167,12 @@ mod tests {
     #[test]
     fn load_invalid_gltf_returns_error() {
         let result = load_gltf_meshes(b"not a gltf file");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn load_empty_gltf_returns_model_error() {
+        let result = load_gltf_meshes(b"");
         assert!(result.is_err());
     }
 }

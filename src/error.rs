@@ -27,6 +27,9 @@ pub enum RenderError {
     #[error("texture load failed: {0}")]
     Texture(String),
 
+    #[error("model load failed: {0}")]
+    Model(String),
+
     #[error("window creation failed: {0}")]
     Window(String),
 
@@ -56,6 +59,7 @@ mod tests {
             RenderError::Shader("test".into()),
             RenderError::Pipeline("test".into()),
             RenderError::Texture("test".into()),
+            RenderError::Model("test".into()),
             RenderError::Window("test".into()),
         ];
         for err in &errors {

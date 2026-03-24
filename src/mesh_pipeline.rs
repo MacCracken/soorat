@@ -37,7 +37,13 @@ impl Default for LightUniforms {
     fn default() -> Self {
         Self {
             ambient_color: [1.0, 1.0, 1.0, 0.1],
-            light_direction: [0.0, -1.0, -1.0, 0.0],
+            // Normalized: (0, -1, -1) / sqrt(2)
+            light_direction: [
+                0.0,
+                -std::f32::consts::FRAC_1_SQRT_2,
+                -std::f32::consts::FRAC_1_SQRT_2,
+                0.0,
+            ],
             light_color: [1.0, 1.0, 1.0, 1.0],
         }
     }
@@ -365,6 +371,10 @@ mod tests {
         let light = LightUniforms::default();
         assert_eq!(light.ambient_color[3], 0.1); // low ambient
         assert!(light.light_direction[1] < 0.0); // pointing down
+        // Direction should be normalized (length ~1.0)
+        let d = light.light_direction;
+        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        assert!((len - 1.0).abs() < 0.001);
     }
 
     #[test]
