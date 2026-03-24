@@ -1,6 +1,6 @@
 [package]
 name = "soorat"
-version = "0.1.0"
+version = "0.23.3"
 edition = "2024"
 license = "GPL-3.0"
 description = "Soorat — GPU rendering engine for AGNOS"
@@ -35,7 +35,7 @@ thiserror = "2"
 tracing = "0.1"
 
 # Optics / color science (optional)
-prakash = { path = "../prakash", optional = true }
+prakash = { path = "../prakash", optional = true, features = ["spectral", "pbr"] }
 
 # Image processing (optional — ranga pixel buffer integration)
 ranga = { path = "../ranga", optional = true }

@@ -34,6 +34,7 @@ fn orthographic_projection(width: f32, height: f32) -> [f32; 16] {
 
 /// Quad indices for a single sprite (two triangles).
 const QUAD_INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
+const QUAD_INDICES_U32: [u32; 6] = [0, 1, 2, 2, 3, 0];
 
 /// Maximum sprites per batch with u16 indices (65535 / 4 = 16383).
 pub const MAX_SPRITES_PER_BATCH: usize = 16383;
@@ -102,6 +103,134 @@ pub fn batch_to_vertices_into(
         for &idx in &QUAD_INDICES {
             indices.push(base + idx);
         }
+    }
+}
+
+/// Expand a sprite batch into vertex and u32 index data. No sprite count limit.
+pub fn batch_to_vertices_u32(batch: &SpriteBatch) -> (Vec<Vertex2D>, Vec<u32>) {
+    let sprite_count = batch.sprites.len();
+    let mut vertices = Vec::with_capacity(sprite_count * 4);
+    let mut indices = Vec::with_capacity(sprite_count * 6);
+    batch_to_vertices_u32_into(batch, &mut vertices, &mut indices);
+    (vertices, indices)
+}
+
+/// Expand a sprite batch into pre-allocated u32 index buffers. No sprite count limit.
+pub fn batch_to_vertices_u32_into(
+    batch: &SpriteBatch,
+    vertices: &mut Vec<Vertex2D>,
+    indices: &mut Vec<u32>,
+) {
+    let sprite_count = batch.sprites.len();
+    vertices.clear();
+    vertices.reserve(sprite_count * 4);
+    indices.clear();
+    indices.reserve(sprite_count * 6);
+
+    for (i, sprite) in batch.sprites.iter().enumerate() {
+        let c = sprite.color.to_array();
+        let base = (i * 4) as u32;
+
+        let cx = sprite.x + sprite.width * 0.5;
+        let cy = sprite.y + sprite.height * 0.5;
+        let hw = sprite.width * 0.5;
+        let hh = sprite.height * 0.5;
+
+        let corners = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]];
+
+        let (sin, cos) = if sprite.rotation != 0.0 {
+            (sprite.rotation.sin(), sprite.rotation.cos())
+        } else {
+            (0.0, 1.0)
+        };
+
+        let uvs = sprite.uv.corners();
+
+        for (j, corner) in corners.iter().enumerate() {
+            let rx = corner[0] * cos - corner[1] * sin + cx;
+            let ry = corner[0] * sin + corner[1] * cos + cy;
+            vertices.push(Vertex2D {
+                position: [rx, ry],
+                tex_coords: uvs[j],
+                color: c,
+            });
+        }
+
+        for &idx in &QUAD_INDICES_U32 {
+            indices.push(base + idx);
+        }
+    }
+}
+
+/// Persistent GPU buffers for sprite rendering. Reuse across frames to avoid per-frame allocation.
+pub struct SpriteBuffers {
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    vertex_capacity: usize,
+    index_capacity: usize,
+    // CPU-side staging
+    vertices: Vec<Vertex2D>,
+    indices: Vec<u16>,
+}
+
+impl SpriteBuffers {
+    /// Create persistent buffers sized for the given sprite count.
+    pub fn new(device: &wgpu::Device, sprite_capacity: usize) -> Self {
+        let vert_cap = sprite_capacity * 4;
+        let idx_cap = sprite_capacity * 6;
+        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("sprite_vertex_buffer_persistent"),
+            size: (vert_cap * std::mem::size_of::<Vertex2D>()) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("sprite_index_buffer_persistent"),
+            size: (idx_cap * std::mem::size_of::<u16>()) as u64,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        Self {
+            vertex_buffer,
+            index_buffer,
+            vertex_capacity: vert_cap,
+            index_capacity: idx_cap,
+            vertices: Vec::with_capacity(vert_cap),
+            indices: Vec::with_capacity(idx_cap),
+        }
+    }
+
+    /// Prepare buffers for a batch. Grows GPU buffers if needed, then writes via queue.
+    pub fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, batch: &SpriteBatch) {
+        batch_to_vertices_into(batch, &mut self.vertices, &mut self.indices);
+
+        // Regrow GPU buffers if CPU data exceeds capacity
+        if self.vertices.len() > self.vertex_capacity {
+            self.vertex_capacity = self.vertices.len();
+            self.vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("sprite_vertex_buffer_persistent"),
+                size: (self.vertex_capacity * std::mem::size_of::<Vertex2D>()) as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        if self.indices.len() > self.index_capacity {
+            self.index_capacity = self.indices.len();
+            self.index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("sprite_index_buffer_persistent"),
+                size: (self.index_capacity * std::mem::size_of::<u16>()) as u64,
+                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+
+        queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.vertices));
+        queue.write_buffer(&self.index_buffer, 0, bytemuck::cast_slice(&self.indices));
+    }
+
+    /// Number of indices currently written.
+    pub fn index_count(&self) -> u32 {
+        self.indices.len() as u32
     }
 }
 
@@ -283,6 +412,50 @@ impl SpritePipeline {
                 render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                 render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+                stats.draw_calls = 1;
+            }
+        }
+
+        queue.submit(std::iter::once(encoder.finish()));
+        stats
+    }
+
+    /// Draw using pre-allocated `SpriteBuffers`. Call `buffers.prepare()` first.
+    /// Zero per-frame GPU allocations after the first frame.
+    pub fn draw_with_buffers(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        view: &wgpu::TextureView,
+        buffers: &SpriteBuffers,
+        texture_bind_group: &wgpu::BindGroup,
+        clear_color: Option<Color>,
+    ) -> FrameStats {
+        let mut stats = FrameStats::default();
+        let index_count = buffers.index_count();
+
+        if index_count == 0 && clear_color.is_none() {
+            return stats;
+        }
+
+        stats.sprites = index_count / 6;
+        stats.triangles = index_count / 3;
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("sprite_encoder"),
+        });
+
+        {
+            let mut render_pass = Self::begin_pass(&mut encoder, view, clear_color);
+
+            if index_count > 0 {
+                render_pass.set_pipeline(&self.render_pipeline);
+                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                render_pass.set_bind_group(1, texture_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, buffers.vertex_buffer.slice(..));
+                render_pass
+                    .set_index_buffer(buffers.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..index_count, 0, 0..1);
                 stats.draw_calls = 1;
             }
         }
@@ -599,6 +772,34 @@ mod tests {
         // All indices should be valid u16
         for &idx in &indices {
             assert!(idx < u16::MAX);
+        }
+    }
+
+    #[test]
+    fn batch_to_vertices_u32_no_limit() {
+        let mut batch = SpriteBatch::new();
+        // Push more than u16 limit
+        for i in 0..20000 {
+            batch.push(Sprite::new(i as f32, 0.0, 1.0, 1.0));
+        }
+        let (verts, indices) = batch_to_vertices_u32(&batch);
+        // Should NOT be clamped
+        assert_eq!(verts.len(), 20000 * 4);
+        assert_eq!(indices.len(), 20000 * 6);
+    }
+
+    #[test]
+    fn batch_to_vertices_u32_matches_u16_for_small() {
+        let mut batch = SpriteBatch::new();
+        for i in 0..10 {
+            batch.push(Sprite::new(i as f32, 0.0, 32.0, 32.0));
+        }
+        let (verts_16, indices_16) = batch_to_vertices(&batch);
+        let (verts_32, indices_32) = batch_to_vertices_u32(&batch);
+        assert_eq!(verts_16, verts_32);
+        // Index values should match (just different types)
+        for (a, b) in indices_16.iter().zip(indices_32.iter()) {
+            assert_eq!(*a as u32, *b);
         }
     }
 

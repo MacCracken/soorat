@@ -10,6 +10,7 @@ use wgpu::util::DeviceExt;
 pub struct CameraUniforms {
     pub view_proj: [f32; 16],
     pub model: [f32; 16],
+    pub camera_pos: [f32; 4],
 }
 
 impl Default for CameraUniforms {
@@ -17,6 +18,7 @@ impl Default for CameraUniforms {
         Self {
             view_proj: IDENTITY_MAT4,
             model: IDENTITY_MAT4,
+            camera_pos: [0.0, 0.0, 5.0, 0.0],
         }
     }
 }
@@ -119,31 +121,32 @@ impl DepthBuffer {
     }
 }
 
-/// 3D mesh rendering pipeline.
+/// 3D mesh rendering pipeline with PBR shading (Cook-Torrance/GGX/Fresnel-Schlick).
 pub struct MeshPipeline {
     render_pipeline: wgpu::RenderPipeline,
     camera_buffer: wgpu::Buffer,
     light_buffer: wgpu::Buffer,
+    material_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
     material_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl MeshPipeline {
-    /// Create a new mesh pipeline for the given surface format.
+    /// Create a new PBR mesh pipeline for the given surface format.
     pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat) -> Result<Self> {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("mesh_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("mesh.wgsl").into()),
+            label: Some("pbr_shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("pbr.wgsl").into()),
         });
 
-        // Group 0: camera + light uniforms
+        // Group 0: camera + light + material uniforms
         let uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("mesh_uniform_layout"),
+                label: Some("pbr_uniform_layout"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
@@ -161,13 +164,23 @@ impl MeshPipeline {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
-        // Group 1: material (base color texture + sampler)
+        // Group 1: textures (base color + sampler + BRDF LUT + sampler)
         let material_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("mesh_material_layout"),
+                label: Some("pbr_material_layout"),
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
@@ -181,6 +194,22 @@ impl MeshPipeline {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
@@ -248,8 +277,15 @@ impl MeshPipeline {
             mapped_at_creation: false,
         });
 
+        let material_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("material_uniform_buffer"),
+            size: std::mem::size_of::<crate::pbr_material::MaterialUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("mesh_uniform_bind_group"),
+            label: Some("pbr_uniform_bind_group"),
             layout: &uniform_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -260,6 +296,10 @@ impl MeshPipeline {
                     binding: 1,
                     resource: light_buffer.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: material_buffer.as_entire_binding(),
+                },
             ],
         });
 
@@ -267,6 +307,7 @@ impl MeshPipeline {
             render_pipeline,
             camera_buffer,
             light_buffer,
+            material_buffer,
             uniform_bind_group,
             material_bind_group_layout,
         })
@@ -285,6 +326,15 @@ impl MeshPipeline {
     /// Update light uniforms.
     pub fn update_light(&self, queue: &wgpu::Queue, light: &LightUniforms) {
         queue.write_buffer(&self.light_buffer, 0, bytemuck::bytes_of(light));
+    }
+
+    /// Update PBR material uniforms (metallic, roughness, base_color_factor).
+    pub fn update_material(
+        &self,
+        queue: &wgpu::Queue,
+        material: &crate::pbr_material::MaterialUniforms,
+    ) {
+        queue.write_buffer(&self.material_buffer, 0, bytemuck::bytes_of(material));
     }
 
     /// Draw a mesh with the given material bind group.
@@ -348,7 +398,7 @@ mod tests {
 
     #[test]
     fn camera_uniforms_size() {
-        assert_eq!(std::mem::size_of::<CameraUniforms>(), 128); // 2 * mat4 = 2 * 64
+        assert_eq!(std::mem::size_of::<CameraUniforms>(), 144); // 2 * mat4 + vec4 = 128 + 16
     }
 
     #[test]
@@ -381,7 +431,7 @@ mod tests {
     fn camera_uniforms_bytemuck() {
         let cam = CameraUniforms::default();
         let bytes = bytemuck::bytes_of(&cam);
-        assert_eq!(bytes.len(), 128);
+        assert_eq!(bytes.len(), 144);
     }
 
     #[test]

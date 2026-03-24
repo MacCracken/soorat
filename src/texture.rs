@@ -3,6 +3,21 @@
 use crate::error::{RenderError, Result};
 use std::collections::HashMap;
 
+/// A shared sampler that can be reused across textures.
+/// Create once and pass to `Texture::from_rgba_with_sampler()` to avoid per-texture sampler allocation.
+pub fn create_default_sampler(device: &wgpu::Device) -> wgpu::Sampler {
+    device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("shared_sampler"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Nearest,
+        mipmap_filter: wgpu::FilterMode::Nearest,
+        ..Default::default()
+    })
+}
+
 /// A GPU texture with view and sampler, ready for binding.
 pub struct Texture {
     pub texture: wgpu::Texture,
@@ -32,7 +47,7 @@ impl Texture {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         color: crate::color::Color,
-    ) -> Self {
+    ) -> Result<Self> {
         let rgba = [
             (color.r * 255.0) as u8,
             (color.g * 255.0) as u8,
@@ -41,11 +56,10 @@ impl Texture {
         ];
 
         Self::from_rgba(device, queue, &rgba, 1, 1, "solid_color")
-            .expect("1x1 texture creation should not fail")
     }
 
     /// Create a 1x1 white pixel texture (default texture for untextured sprites).
-    pub fn white_pixel(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+    pub fn white_pixel(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self> {
         Self::from_color(device, queue, crate::color::Color::WHITE)
     }
 
@@ -57,6 +71,20 @@ impl Texture {
         width: u32,
         height: u32,
         label: &str,
+    ) -> Result<Self> {
+        let sampler = create_default_sampler(device);
+        Self::from_rgba_with_sampler(device, queue, rgba, width, height, label, sampler)
+    }
+
+    /// Create a texture from raw RGBA8 pixel data with an externally-provided sampler.
+    pub fn from_rgba_with_sampler(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+        label: &str,
+        sampler: wgpu::Sampler,
     ) -> Result<Self> {
         let size = wgpu::Extent3d {
             width,
@@ -92,17 +120,6 @@ impl Texture {
         );
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("sprite_sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
 
         Ok(Self {
             texture,
@@ -195,6 +212,23 @@ impl TextureCache {
                 bind_group,
             },
         );
+    }
+
+    /// Get the bind group for a texture ID, or load from bytes if not cached.
+    pub fn get_or_load(
+        &mut self,
+        id: u64,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        bytes: &[u8],
+        label: &str,
+    ) -> Result<&wgpu::BindGroup> {
+        if !self.entries.contains_key(&id) {
+            let texture = Texture::from_bytes(device, queue, bytes, label)?;
+            self.insert(id, texture, device, layout);
+        }
+        Ok(&self.entries.get(&id).unwrap().bind_group)
     }
 
     /// Get the bind group for a texture ID.

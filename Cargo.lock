@@ -1961,7 +1961,7 @@ dependencies = [
 
 [[package]]
 name = "soorat"
-version = "0.1.0"
+version = "0.23.3"
 dependencies = [
  "bytemuck",
  "criterion",

@@ -120,7 +120,7 @@ pub fn load_model(device: &wgpu::Device, queue: &wgpu::Queue, bytes: &[u8]) -> R
     let mut textures = Vec::with_capacity(image_datas.len());
     for (i, img_bytes) in image_datas.iter().enumerate() {
         if img_bytes.is_empty() {
-            textures.push(Texture::white_pixel(device, queue));
+            textures.push(Texture::white_pixel(device, queue)?);
         } else {
             let label = format!("gltf_texture_{i}");
             textures.push(Texture::from_bytes(device, queue, img_bytes, &label)?);

@@ -19,7 +19,8 @@ fn main() {
             let (pipeline, bind_group) = state.get_or_insert_with(|| {
                 let p = SpritePipeline::new(&window.gpu.device, window.format())
                     .expect("Failed to create sprite pipeline");
-                let white = Texture::white_pixel(&window.gpu.device, &window.gpu.queue);
+                let white = Texture::white_pixel(&window.gpu.device, &window.gpu.queue)
+                    .expect("Failed to create white pixel texture");
                 let bg = white.bind_group(&window.gpu.device, p.texture_bind_group_layout());
                 (p, bg)
             });

@@ -32,7 +32,8 @@ impl Material {
         queue: &wgpu::Queue,
         layout: &wgpu::BindGroupLayout,
     ) -> Self {
-        let texture = Texture::white_pixel(device, queue);
+        let texture = Texture::white_pixel(device, queue)
+            .expect("white pixel texture creation should not fail");
         Self::new(device, layout, texture, Color::WHITE)
     }
 }
