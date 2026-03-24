@@ -17,6 +17,7 @@ pub mod animation;
 pub mod color;
 pub mod debug_draw;
 pub mod error;
+pub mod fluid_render;
 pub mod gltf_loader;
 pub mod gpu;
 pub mod hdr;
@@ -42,6 +43,7 @@ pub mod window;
 // ── Core ────────────────────────────────────────────────────────────────────
 pub use color::Color;
 pub use error::{RenderError, Result};
+pub use fluid_render::FluidColorMode;
 pub use gpu::GpuContext;
 pub use vertex::{SkinnedVertex3D, Vertex2D, Vertex3D};
 pub use window::{Window, WindowConfig};

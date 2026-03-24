@@ -17,7 +17,8 @@ default = []
 optics = ["dep:prakash"]
 ranga = ["dep:ranga"]
 physics-debug = ["dep:impetus"]
-full = ["optics", "ranga", "physics-debug"]
+fluids = ["dep:pravash"]
+full = ["optics", "ranga", "physics-debug", "fluids"]
 
 [dependencies]
 # GPU
@@ -42,6 +43,9 @@ ranga = { path = "../ranga", optional = true }
 
 # Physics debug rendering (optional — impetus collider wireframes)
 impetus = { path = "../impetus", optional = true }
+
+# Fluid dynamics rendering (optional — pravash particle/surface visualization)
+pravash = { path = "../pravash", optional = true, features = ["sph", "shallow"] }
 
 # Image loading
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

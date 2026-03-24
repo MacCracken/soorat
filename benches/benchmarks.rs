@@ -335,6 +335,26 @@ fn bench_animation(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_shadow(c: &mut Criterion) {
+    use soorat::shadow::{PointShadowMap, compute_practical_splits, directional_light_matrix};
+
+    let mut group = c.benchmark_group("shadow");
+
+    group.bench_function("directional_matrix", |b| {
+        b.iter(|| directional_light_matrix(black_box([0.0, -1.0, -1.0]), 20.0, 0.1, 100.0))
+    });
+
+    group.bench_function("cascade_splits_4", |b| {
+        b.iter(|| compute_practical_splits(black_box(0.1), black_box(500.0), 4, 0.5))
+    });
+
+    group.bench_function("point_shadow_6_faces", |b| {
+        b.iter(|| PointShadowMap::new(black_box([0.0, 5.0, 0.0]), 0.1, 25.0))
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_color,
@@ -343,6 +363,7 @@ criterion_group!(
     bench_pipeline,
     bench_debug_draw,
     bench_terrain,
-    bench_animation
+    bench_animation,
+    bench_shadow
 );
 criterion_main!(benches);

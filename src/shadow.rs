@@ -1,6 +1,6 @@
 //! Shadow mapping for directional lights.
 
-use crate::math_util::{IDENTITY_MAT4, cross, mul_mat4, normalize3};
+use crate::math_util::{IDENTITY_MAT4, cross, look_at, mul_mat4, normalize3, perspective_90};
 use crate::mesh_pipeline::{DepthBuffer, Mesh};
 use crate::vertex::Vertex3D;
 
@@ -467,57 +467,6 @@ impl PointShadowMap {
 
         Self { face_matrices }
     }
-}
-
-/// 90° perspective projection for cube shadow map faces.
-fn perspective_90(near: f32, far: f32) -> [f32; 16] {
-    // fov = 90°, aspect = 1.0
-    // f = 1 / tan(fov/2) = 1 / tan(45°) = 1.0
-    let nf = 1.0 / (near - far);
-    [
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        far * nf,
-        -1.0,
-        0.0,
-        0.0,
-        near * far * nf,
-        0.0,
-    ]
-}
-
-/// Look-at view matrix from a position along a direction.
-fn look_at(pos: [f32; 3], dir: [f32; 3], up: [f32; 3]) -> [f32; 16] {
-    let f = normalize3(dir);
-    let s = normalize3(cross(f, up));
-    let u = cross(s, f);
-
-    [
-        s[0],
-        u[0],
-        -f[0],
-        0.0,
-        s[1],
-        u[1],
-        -f[1],
-        0.0,
-        s[2],
-        u[2],
-        -f[2],
-        0.0,
-        -(s[0] * pos[0] + s[1] * pos[1] + s[2] * pos[2]),
-        -(u[0] * pos[0] + u[1] * pos[1] + u[2] * pos[2]),
-        f[0] * pos[0] + f[1] * pos[1] + f[2] * pos[2],
-        1.0,
-    ]
 }
 
 /// Compute practical cascade split distances (standalone, no GPU needed).

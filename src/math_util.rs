@@ -38,6 +38,55 @@ pub fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     ]
 }
 
+/// 90° perspective projection matrix (aspect=1, fov=90°). For cube shadow map faces.
+pub fn perspective_90(near: f32, far: f32) -> [f32; 16] {
+    let nf = 1.0 / (near - far);
+    [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        far * nf,
+        -1.0,
+        0.0,
+        0.0,
+        near * far * nf,
+        0.0,
+    ]
+}
+
+/// Look-at view matrix from a position along a direction.
+pub fn look_at(pos: [f32; 3], dir: [f32; 3], up: [f32; 3]) -> [f32; 16] {
+    let f = normalize3(dir);
+    let s = normalize3(cross(f, up));
+    let u = cross(s, f);
+
+    [
+        s[0],
+        u[0],
+        -f[0],
+        0.0,
+        s[1],
+        u[1],
+        -f[1],
+        0.0,
+        s[2],
+        u[2],
+        -f[2],
+        0.0,
+        -(s[0] * pos[0] + s[1] * pos[1] + s[2] * pos[2]),
+        -(u[0] * pos[0] + u[1] * pos[1] + u[2] * pos[2]),
+        f[0] * pos[0] + f[1] * pos[1] + f[2] * pos[2],
+        1.0,
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
