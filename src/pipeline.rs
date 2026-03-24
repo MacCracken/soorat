@@ -580,6 +580,27 @@ impl SpritePipeline {
             ..Default::default()
         })
     }
+
+    /// Draw a sprite batch into an existing render pass (for egui/editor integration).
+    pub fn draw_into_pass<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        batch: &SpriteBatch,
+        texture_bind_group: &'a wgpu::BindGroup,
+        device: &wgpu::Device,
+    ) {
+        if batch.is_empty() {
+            return;
+        }
+        let (vertices, indices) = batch_to_vertices(batch);
+        let (vertex_buffer, index_buffer) = Self::upload_buffers(device, &vertices, &indices);
+        render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+        render_pass.set_bind_group(1, texture_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+    }
 }
 
 #[cfg(test)]

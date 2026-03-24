@@ -4,15 +4,6 @@
 
 All planned features have been implemented. Version is 0.23.3.
 
-## Salai Editor Integration (priority)
-
-> Required by salai for 3D viewport rendering inside egui panels.
-
-- [ ] **Render-into-pass API** — allow `MeshPipeline::draw()` to render into an existing `wgpu::RenderPass` rather than creating its own. Needed for egui-wgpu `CallbackTrait::paint()` integration.
-- [ ] **Offscreen-to-egui texture bridge** — helper to register a `RenderTarget` texture view with egui's wgpu renderer for display via `ui.image()`.
-- [ ] **Debug shape rendering into pass** — allow `DebugDrawPipeline::draw()` to render lines/wireframes into an existing pass (for entity bounding boxes, gizmo overlays).
-- [ ] **Simple mesh primitives** — built-in cube, sphere, plane meshes for editor entity visualization without requiring glTF model loading.
-
 ## Future Considerations
 
 - [ ] Electromagnetism field visualization (science crate TBD)
@@ -38,6 +29,6 @@ soorat (rendering engine)
 
 Soorat is consumed by:
 - **kiran** (`src/gpu.rs`) — `SooratRenderer` implements kiran's `Renderer` trait
-- **salai** (`src/viewport.rs`) — needs soorat 3D viewport for the editor
+- **salai** (`src/viewport.rs`) — uses `draw_into_pass()` APIs + egui_bridge for 3D viewport
 
-Current: 253 tests, 29 benchmarks, 35 modules, 8 WGSL shaders.
+Current: 264 tests, 29 benchmarks, 38 modules, 8 WGSL shaders.

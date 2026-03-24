@@ -415,6 +415,27 @@ impl LinePipeline {
 
         queue.submit(std::iter::once(encoder.finish()));
     }
+
+    /// Draw debug lines into an existing render pass (for egui/editor integration).
+    pub fn draw_into_pass<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        batch: &LineBatch,
+        device: &wgpu::Device,
+    ) {
+        if batch.is_empty() {
+            return;
+        }
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("line_vertex_buffer"),
+            contents: bytemuck::cast_slice(&batch.vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        render_pass.draw(0..batch.vertices.len() as u32, 0..1);
+    }
 }
 
 #[cfg(test)]

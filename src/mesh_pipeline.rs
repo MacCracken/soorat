@@ -530,6 +530,26 @@ impl MeshPipeline {
 
         queue.submit(std::iter::once(encoder.finish()));
     }
+
+    /// Draw a mesh into an existing render pass (for egui/editor integration).
+    /// The caller owns the render pass and is responsible for the encoder lifecycle.
+    pub fn draw_into_pass<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        mesh: &'a Mesh,
+        material_bind_group: &'a wgpu::BindGroup,
+        shadow_bind_group: &'a wgpu::BindGroup,
+        ibl_bind_group: &'a wgpu::BindGroup,
+    ) {
+        render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+        render_pass.set_bind_group(1, material_bind_group, &[]);
+        render_pass.set_bind_group(2, shadow_bind_group, &[]);
+        render_pass.set_bind_group(3, ibl_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+        render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+    }
 }
 
 #[cfg(test)]
