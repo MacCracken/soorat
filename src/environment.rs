@@ -12,14 +12,32 @@ pub struct EnvironmentMap {
 }
 
 impl EnvironmentMap {
-    /// Create a cubemap from 6 RGBA8 face images.
+    /// Create a cubemap from 6 RGBA8 face images (sRGB).
     /// `faces`: array of 6 byte slices, each `size * size * 4` bytes.
     /// Order: +X, -X, +Y, -Y, +Z, -Z.
+    /// For HDR/linear IBL data, use `from_faces_hdr` with Rgba16Float format.
     pub fn from_faces(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         faces: [&[u8]; 6],
         size: u32,
+    ) -> Result<Self> {
+        Self::from_faces_with_format(
+            device,
+            queue,
+            faces,
+            size,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        )
+    }
+
+    /// Create a cubemap from 6 face images with a specified format.
+    fn from_faces_with_format(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        faces: [&[u8]; 6],
+        size: u32,
+        format: wgpu::TextureFormat,
     ) -> Result<Self> {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("environment_map"),
@@ -31,16 +49,18 @@ impl EnvironmentMap {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
 
+        let bytes_per_pixel = format.block_copy_size(None).unwrap_or(4);
+        let expected_face_size = (size * size * bytes_per_pixel) as usize;
+
         for (i, face_data) in faces.iter().enumerate() {
-            if face_data.len() != (size * size * 4) as usize {
+            if face_data.len() != expected_face_size {
                 return Err(RenderError::Texture(format!(
-                    "Face {i} size mismatch: expected {} bytes, got {}",
-                    size * size * 4,
+                    "Face {i} size mismatch: expected {expected_face_size} bytes, got {}",
                     face_data.len()
                 )));
             }
@@ -59,7 +79,7 @@ impl EnvironmentMap {
                 face_data,
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(4 * size),
+                    bytes_per_row: Some(bytes_per_pixel * size),
                     rows_per_image: Some(size),
                 },
                 wgpu::Extent3d {
@@ -89,6 +109,17 @@ impl EnvironmentMap {
             sampler,
             size,
         })
+    }
+
+    /// Create a cubemap from 6 Rgba16Float face images (linear HDR).
+    /// Each face is `size * size * 8` bytes (4 channels × f16).
+    pub fn from_faces_hdr(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        faces: [&[u8]; 6],
+        size: u32,
+    ) -> Result<Self> {
+        Self::from_faces_with_format(device, queue, faces, size, wgpu::TextureFormat::Rgba16Float)
     }
 
     /// Create a solid-color cubemap (uniform ambient).

@@ -211,6 +211,7 @@ pub struct MeshPipeline {
     uniform_bind_group: wgpu::BindGroup,
     material_bind_group_layout: wgpu::BindGroupLayout,
     shadow_bind_group_layout: wgpu::BindGroupLayout,
+    ibl_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl MeshPipeline {
@@ -291,12 +292,16 @@ impl MeshPipeline {
                 ],
             });
 
+        // Group 3: IBL (irradiance cubemap + prefiltered cubemap + BRDF LUT)
+        let ibl_bind_group_layout = crate::environment::IblBindGroup::layout(device);
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("pbr_pipeline_layout"),
             bind_group_layouts: &[
                 &uniform_bind_group_layout,
                 &material_bind_group_layout,
                 &shadow_bind_group_layout,
+                &ibl_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -401,6 +406,7 @@ impl MeshPipeline {
             uniform_bind_group,
             material_bind_group_layout,
             shadow_bind_group_layout,
+            ibl_bind_group_layout,
         })
     }
 
@@ -438,6 +444,11 @@ impl MeshPipeline {
         &self.shadow_bind_group_layout
     }
 
+    /// Get the IBL bind group layout for creating IBL bind groups.
+    pub fn ibl_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.ibl_bind_group_layout
+    }
+
     /// Create a shadow bind group from a shadow map.
     pub fn create_shadow_bind_group(
         &self,
@@ -460,7 +471,9 @@ impl MeshPipeline {
         })
     }
 
-    /// Draw a mesh with PBR shading and shadow mapping.
+    /// Draw a mesh with PBR shading, shadow mapping, and IBL.
+    /// `ibl_bind_group`: IBL environment maps. Use `EnvironmentMap::solid_color` for a black
+    /// cubemap when IBL is not desired.
     #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &self,
@@ -471,6 +484,7 @@ impl MeshPipeline {
         mesh: &Mesh,
         material_bind_group: &wgpu::BindGroup,
         shadow_bind_group: &wgpu::BindGroup,
+        ibl_bind_group: &wgpu::BindGroup,
         clear_color: Option<crate::color::Color>,
     ) {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -508,6 +522,7 @@ impl MeshPipeline {
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
             render_pass.set_bind_group(1, material_bind_group, &[]);
             render_pass.set_bind_group(2, shadow_bind_group, &[]);
+            render_pass.set_bind_group(3, ibl_bind_group, &[]);
             render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
             render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
