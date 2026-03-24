@@ -90,58 +90,72 @@ impl LineBatch {
 
     /// Draw a wireframe circle in the XZ plane.
     pub fn wire_circle(&mut self, center: [f32; 3], radius: f32, segments: u32, color: Color) {
+        if segments == 0 {
+            return;
+        }
         let step = std::f32::consts::TAU / segments as f32;
-        for i in 0..segments {
-            let a0 = step * i as f32;
-            let a1 = step * (i + 1) as f32;
+        let (mut prev_s, mut prev_c) = (0.0_f32, 1.0_f32); // sin(0), cos(0)
+        for i in 1..=segments {
+            let angle = step * i as f32;
+            let (next_s, next_c) = (angle.sin(), angle.cos());
             self.line(
                 [
-                    center[0] + radius * a0.cos(),
+                    center[0] + radius * prev_c,
                     center[1],
-                    center[2] + radius * a0.sin(),
+                    center[2] + radius * prev_s,
                 ],
                 [
-                    center[0] + radius * a1.cos(),
+                    center[0] + radius * next_c,
                     center[1],
-                    center[2] + radius * a1.sin(),
+                    center[2] + radius * next_s,
                 ],
                 color,
             );
+            prev_s = next_s;
+            prev_c = next_c;
         }
     }
 
     /// Draw a wireframe sphere (3 circles: XZ, XY, YZ planes).
     pub fn wire_sphere(&mut self, center: [f32; 3], radius: f32, segments: u32, color: Color) {
+        if segments == 0 {
+            return;
+        }
         let step = std::f32::consts::TAU / segments as f32;
-        for i in 0..segments {
-            let a0 = step * i as f32;
-            let a1 = step * (i + 1) as f32;
-            let (s0, c0) = (a0.sin(), a0.cos());
-            let (s1, c1) = (a1.sin(), a1.cos());
+        let (mut ps, mut pc) = (0.0_f32, 1.0_f32);
+        for i in 1..=segments {
+            let angle = step * i as f32;
+            let (ns, nc) = (angle.sin(), angle.cos());
 
             // XZ plane
             self.line(
-                [center[0] + radius * c0, center[1], center[2] + radius * s0],
-                [center[0] + radius * c1, center[1], center[2] + radius * s1],
+                [center[0] + radius * pc, center[1], center[2] + radius * ps],
+                [center[0] + radius * nc, center[1], center[2] + radius * ns],
                 color,
             );
             // XY plane
             self.line(
-                [center[0] + radius * c0, center[1] + radius * s0, center[2]],
-                [center[0] + radius * c1, center[1] + radius * s1, center[2]],
+                [center[0] + radius * pc, center[1] + radius * ps, center[2]],
+                [center[0] + radius * nc, center[1] + radius * ns, center[2]],
                 color,
             );
             // YZ plane
             self.line(
-                [center[0], center[1] + radius * c0, center[2] + radius * s0],
-                [center[0], center[1] + radius * c1, center[2] + radius * s1],
+                [center[0], center[1] + radius * pc, center[2] + radius * ps],
+                [center[0], center[1] + radius * nc, center[2] + radius * ns],
                 color,
             );
+
+            ps = ns;
+            pc = nc;
         }
     }
 
     /// Draw a ground grid in the XZ plane.
     pub fn grid(&mut self, half_extent: f32, spacing: f32, color: Color) {
+        if spacing <= 0.0 || half_extent <= 0.0 {
+            return;
+        }
         let count = (half_extent / spacing).ceil() as i32;
         for i in -count..=count {
             let pos = i as f32 * spacing;
@@ -396,6 +410,34 @@ mod tests {
         let batch = LineBatch::with_capacity(100);
         assert!(batch.is_empty());
         assert!(batch.vertices.capacity() >= 200);
+    }
+
+    #[test]
+    fn wire_circle_zero_segments() {
+        let mut batch = LineBatch::new();
+        batch.wire_circle([0.0, 0.0, 0.0], 1.0, 0, Color::RED);
+        assert!(batch.is_empty());
+    }
+
+    #[test]
+    fn wire_sphere_zero_segments() {
+        let mut batch = LineBatch::new();
+        batch.wire_sphere([0.0, 0.0, 0.0], 1.0, 0, Color::RED);
+        assert!(batch.is_empty());
+    }
+
+    #[test]
+    fn grid_zero_spacing() {
+        let mut batch = LineBatch::new();
+        batch.grid(5.0, 0.0, Color::WHITE);
+        assert!(batch.is_empty());
+    }
+
+    #[test]
+    fn grid_negative_spacing() {
+        let mut batch = LineBatch::new();
+        batch.grid(5.0, -1.0, Color::WHITE);
+        assert!(batch.is_empty());
     }
 
     #[test]
