@@ -13,6 +13,7 @@
 //! - **Debug**: [`debug_draw`] (wireframe lines, shapes, grid)
 //! - **Rendering**: [`instancing`], [`lod`], [`compute`], [`gpu_particles`], [`render_graph`]
 //! - **Fluids**: [`fluid_render`] (pravash integration)
+//! - **Screenshot**: [`screenshot`] (selah integration — capture, annotate, redact)
 //! - **Loading**: [`gltf_loader`], [`texture`]
 //! - **Integration**: [`egui_bridge`] (salai editor)
 
@@ -43,6 +44,7 @@ pub mod primitives;
 pub mod profiler;
 pub mod render_graph;
 pub mod render_target;
+pub mod screenshot;
 pub mod shadow;
 pub mod sprite;
 pub mod ssao;
@@ -112,6 +114,9 @@ pub use ssao::{SsaoPipeline, SsaoUniforms};
 
 // ── Render targets ──────────────────────────────────────────────────────────
 pub use render_target::RenderTarget;
+
+// ── Screenshot (selah integration) ─────────────────────────────────────────
+pub use screenshot::{ScreenshotFormat, capture_render_target, encode_pixels, save_to_file};
 
 // ── World ───────────────────────────────────────────────────────────────────
 pub use terrain::{TerrainConfig, TerrainData};

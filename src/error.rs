@@ -33,6 +33,9 @@ pub enum RenderError {
     #[error("window creation failed: {0}")]
     Window(String),
 
+    #[error("screenshot failed: {0}")]
+    Screenshot(String),
+
     #[error(transparent)]
     Other(#[from] Box<dyn std::error::Error + Send + Sync>),
 }

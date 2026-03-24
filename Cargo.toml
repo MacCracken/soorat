@@ -18,7 +18,8 @@ optics = ["dep:prakash"]
 ranga = ["dep:ranga"]
 physics-debug = ["dep:impetus"]
 fluids = ["dep:pravash"]
-full = ["optics", "ranga", "physics-debug", "fluids"]
+screenshot = ["dep:selah", "dep:uuid", "dep:chrono"]
+full = ["optics", "ranga", "physics-debug", "fluids", "screenshot"]
 
 [dependencies]
 # GPU
@@ -46,6 +47,11 @@ impetus = { version = "0.23", optional = true }
 
 # Fluid dynamics rendering (optional — pravash particle/surface visualization, not yet on crates.io)
 pravash = { path = "../pravash", optional = true, features = ["sph", "shallow"] }
+
+# Screenshot capture, annotation, and redaction (optional — selah integration)
+selah = { version = "0.24", optional = true }
+uuid = { version = "1", features = ["v4"], optional = true }
+chrono = { version = "0.4", optional = true }
 
 # Image loading
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
