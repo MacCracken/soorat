@@ -4,6 +4,15 @@
 
 All planned features have been implemented. Version is 0.23.3.
 
+## Salai Editor Integration (priority)
+
+> Required by salai for 3D viewport rendering inside egui panels.
+
+- [ ] **Render-into-pass API** — allow `MeshPipeline::draw()` to render into an existing `wgpu::RenderPass` rather than creating its own. Needed for egui-wgpu `CallbackTrait::paint()` integration.
+- [ ] **Offscreen-to-egui texture bridge** — helper to register a `RenderTarget` texture view with egui's wgpu renderer for display via `ui.image()`.
+- [ ] **Debug shape rendering into pass** — allow `DebugDrawPipeline::draw()` to render lines/wireframes into an existing pass (for entity bounding boxes, gizmo overlays).
+- [ ] **Simple mesh primitives** — built-in cube, sphere, plane meshes for editor entity visualization without requiring glTF model loading.
+
 ## Future Considerations
 
 - [ ] Electromagnetism field visualization (science crate TBD)

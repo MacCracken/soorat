@@ -124,6 +124,14 @@ fn fresnel_schlick(f0: vec3<f32>, cos_theta: f32) -> vec3<f32> {
     return f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - ct, 5.0);
 }
 
+// Roughness-aware Fresnel for IBL ambient (Epic/UE4 variant).
+// At grazing angles on rough surfaces, reduces specular reflection to avoid halo artifacts.
+fn fresnel_schlick_roughness(f0: vec3<f32>, cos_theta: f32, roughness: f32) -> vec3<f32> {
+    let ct = clamp(cos_theta, 0.0, 1.0);
+    let max_reflect = max(vec3<f32>(1.0 - roughness), f0);
+    return f0 + (max_reflect - f0) * pow(1.0 - ct, 5.0);
+}
+
 fn distribution_ggx(n_dot_h: f32, roughness: f32) -> f32 {
     let a = roughness * roughness;
     let a2 = a * a;
@@ -254,15 +262,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // ── IBL Ambient (split-sum approximation) ──────────────────────────────
     // Diffuse IBL: irradiance cubemap sampled by normal
     let irradiance = textureSample(t_irradiance, s_irradiance, n).rgb;
-    let k_s_ambient = fresnel_schlick(f0, n_dot_v);
+    let k_s_ambient = fresnel_schlick_roughness(f0, n_dot_v, roughness);
     let k_d_ambient = (vec3<f32>(1.0) - k_s_ambient) * (1.0 - metallic);
     let diffuse_ibl = k_d_ambient * albedo * irradiance;
 
-    // Specular IBL: pre-filtered environment map + BRDF LUT
+    // Specular IBL: pre-filtered environment map sampled at roughness-based mip level + BRDF LUT
     let r = reflect(-v, n);
-    let prefiltered = textureSample(t_prefiltered, s_prefiltered, r).rgb;
+    let max_mip = 4.0; // pre-filtered cubemap mip levels (0=mirror, 4=rough)
+    let prefiltered = textureSampleLevel(t_prefiltered, s_prefiltered, r, roughness * max_mip).rgb;
     let brdf = textureSample(t_brdf_lut, s_brdf_lut, vec2<f32>(n_dot_v, roughness)).rg;
-    let specular_ibl = prefiltered * (f0 * brdf.x + brdf.y);
+    let specular_ibl = prefiltered * (k_s_ambient * brdf.x + brdf.y);
 
     let ambient_ibl = (diffuse_ibl + specular_ibl) * light_array.ambient.a;
 

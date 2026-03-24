@@ -2,6 +2,11 @@
 
 use crate::error::{RenderError, Result};
 
+/// Compute the number of mip levels for a given texture size.
+fn max_mip_levels(size: u32) -> u32 {
+    (size as f32).log2().floor() as u32 + 1
+}
+
 /// A cubemap texture for environment lighting.
 /// 6 faces: +X, -X, +Y, -Y, +Z, -Z.
 pub struct EnvironmentMap {
@@ -46,7 +51,7 @@ impl EnvironmentMap {
                 height: size,
                 depth_or_array_layers: 6,
             },
-            mip_level_count: 1,
+            mip_level_count: max_mip_levels(size),
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format,
