@@ -133,6 +133,27 @@ impl Texture {
         })
     }
 
+    /// Create a texture from a ranga PixelBuffer.
+    /// Supports Rgba8 format; other formats are converted via ranga.
+    #[cfg(feature = "ranga")]
+    pub fn from_pixel_buffer(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        buffer: &ranga::pixel::PixelBuffer,
+        label: &str,
+    ) -> Result<Self> {
+        let rgba_data = match buffer.format {
+            ranga::pixel::PixelFormat::Rgba8 => &buffer.data,
+            _ => {
+                return Err(RenderError::Texture(format!(
+                    "Unsupported pixel format {:?}, expected Rgba8",
+                    buffer.format
+                )));
+            }
+        };
+        Self::from_rgba(device, queue, rgba_data, buffer.width, buffer.height, label)
+    }
+
     /// Texture dimensions.
     pub fn size(&self) -> (u32, u32) {
         let s = self.texture.size();

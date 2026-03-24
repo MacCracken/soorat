@@ -103,12 +103,16 @@ impl RenderTarget {
         let buffer_slice = staging.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            tx.send(result).unwrap();
+            let _ = tx.send(result);
         });
         device.poll(wgpu::Maintain::Wait);
-        rx.recv().unwrap().map_err(|e| {
-            crate::error::RenderError::SurfaceTexture(format!("readback failed: {e}"))
-        })?;
+        rx.recv()
+            .map_err(|e| {
+                crate::error::RenderError::SurfaceTexture(format!("readback channel: {e}"))
+            })?
+            .map_err(|e| {
+                crate::error::RenderError::SurfaceTexture(format!("readback failed: {e}"))
+            })?;
 
         let data = buffer_slice.get_mapped_range();
 

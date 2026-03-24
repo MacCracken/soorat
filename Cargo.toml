@@ -15,15 +15,17 @@ exclude = [".claude/", ".github/", "docs/", "scripts/"]
 [features]
 default = []
 optics = ["dep:prakash"]
-full = ["optics"]
+ranga = ["dep:ranga"]
+physics-debug = ["dep:impetus"]
+full = ["optics", "ranga", "physics-debug"]
 
 [dependencies]
 # GPU
 wgpu = "24"
 winit = "0.30"
 
-# Math
-glam = "0.29"
+# Math (hisab re-exports glam + adds transforms, projections, spatial types)
+hisab = { path = "../hisab" }
 
 # Core
 bytemuck = { version = "1", features = ["derive"] }
@@ -34,6 +36,12 @@ tracing = "0.1"
 
 # Optics / color science (optional)
 prakash = { path = "../prakash", optional = true }
+
+# Image processing (optional — ranga pixel buffer integration)
+ranga = { path = "../ranga", optional = true }
+
+# Physics debug rendering (optional — impetus collider wireframes)
+impetus = { path = "../impetus", optional = true }
 
 # Image loading
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

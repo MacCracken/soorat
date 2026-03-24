@@ -257,12 +257,17 @@ impl SpritePipeline {
         batch: &SpriteBatch,
         texture_bind_group: &wgpu::BindGroup,
         clear_color: Option<Color>,
-    ) {
+    ) -> FrameStats {
+        let mut stats = FrameStats::default();
+
         if batch.is_empty() && clear_color.is_none() {
-            return;
+            return stats;
         }
 
         let (vertices, indices) = batch_to_vertices(batch);
+        stats.sprites = batch.sprites.len() as u32;
+        stats.triangles = indices.len() as u32 / 3;
+
         let (vertex_buffer, index_buffer) = Self::upload_buffers(device, &vertices, &indices);
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("sprite_encoder"),
@@ -278,10 +283,12 @@ impl SpritePipeline {
                 render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                 render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+                stats.draw_calls = 1;
             }
         }
 
         queue.submit(std::iter::once(encoder.finish()));
+        stats
     }
 
     /// Draw a sprite batch with multiple textures, issuing one draw call per texture group.

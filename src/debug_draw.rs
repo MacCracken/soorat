@@ -166,6 +166,90 @@ impl LineBatch {
         }
     }
 
+    /// Draw a wireframe capsule (two hemispheres + connecting lines) along the Y axis.
+    pub fn wire_capsule(
+        &mut self,
+        center: [f32; 3],
+        half_height: f32,
+        radius: f32,
+        segments: u32,
+        color: Color,
+    ) {
+        // Top and bottom circle
+        let top = [center[0], center[1] + half_height, center[2]];
+        let bot = [center[0], center[1] - half_height, center[2]];
+        self.wire_circle(top, radius, segments, color);
+        self.wire_circle(bot, radius, segments, color);
+
+        // Connecting vertical lines (4 cardinal directions)
+        for &(dx, dz) in &[(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+            self.line(
+                [top[0] + radius * dx, top[1], top[2] + radius * dz],
+                [bot[0] + radius * dx, bot[1], bot[2] + radius * dz],
+                color,
+            );
+        }
+    }
+
+    /// Draw a wireframe for an impetus ColliderShape at a given position.
+    #[cfg(feature = "physics-debug")]
+    pub fn collider(
+        &mut self,
+        shape: &impetus::collider::ColliderShape,
+        position: [f32; 3],
+        color: Color,
+    ) {
+        match shape {
+            impetus::collider::ColliderShape::Box { half_extents } => {
+                let he = [
+                    half_extents[0] as f32,
+                    half_extents[1] as f32,
+                    half_extents[2] as f32,
+                ];
+                self.wire_box(
+                    [
+                        position[0] - he[0],
+                        position[1] - he[1],
+                        position[2] - he[2],
+                    ],
+                    [
+                        position[0] + he[0],
+                        position[1] + he[1],
+                        position[2] + he[2],
+                    ],
+                    color,
+                );
+            }
+            impetus::collider::ColliderShape::Ball { radius } => {
+                self.wire_sphere(position, *radius as f32, 16, color);
+            }
+            impetus::collider::ColliderShape::Capsule {
+                half_height,
+                radius,
+            } => {
+                self.wire_capsule(position, *half_height as f32, *radius as f32, 16, color);
+            }
+            impetus::collider::ColliderShape::Segment { a, b } => {
+                self.line(
+                    [
+                        a[0] as f32 + position[0],
+                        a[1] as f32 + position[1],
+                        a[2] as f32 + position[2],
+                    ],
+                    [
+                        b[0] as f32 + position[0],
+                        b[1] as f32 + position[1],
+                        b[2] as f32 + position[2],
+                    ],
+                    color,
+                );
+            }
+            _ => {
+                // ConvexHull, TriMesh, Heightfield — complex shapes, skip for now
+            }
+        }
+    }
+
     pub fn clear(&mut self) {
         self.vertices.clear();
     }
@@ -438,6 +522,14 @@ mod tests {
         let mut batch = LineBatch::new();
         batch.grid(5.0, -1.0, Color::WHITE);
         assert!(batch.is_empty());
+    }
+
+    #[test]
+    fn wire_capsule_generates_lines() {
+        let mut batch = LineBatch::new();
+        batch.wire_capsule([0.0, 0.0, 0.0], 1.0, 0.5, 16, Color::WHITE);
+        // 2 circles (16 each) + 4 vertical lines = 36
+        assert_eq!(batch.line_count(), 36);
     }
 
     #[test]
