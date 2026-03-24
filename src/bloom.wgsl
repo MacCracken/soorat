@@ -4,7 +4,7 @@
 // Composite is done in postprocess.wgsl by sampling bloom texture
 
 struct BloomUniforms {
-    // x = threshold, y = soft_threshold, z = intensity, w = pass (0=threshold, 1=blur_h, 2=blur_v)
+    // x = threshold, y = soft_threshold, z = intensity, w = unused
     params: vec4<f32>,
     // x = texel_width, y = texel_height
     texel_size: vec4<f32>,

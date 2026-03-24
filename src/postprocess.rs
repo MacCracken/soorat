@@ -98,7 +98,7 @@ impl PostProcessPipeline {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some("fs_no_bloom"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: output_format,
                     blend: None,

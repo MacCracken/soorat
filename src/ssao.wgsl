@@ -81,6 +81,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
 
-    occlusion = 1.0 - (occlusion / f32(sample_count)) * intensity;
+    let sc = max(f32(sample_count), 1.0);
+    occlusion = 1.0 - (occlusion / sc) * intensity;
     return vec4<f32>(occlusion, occlusion, occlusion, 1.0);
 }
