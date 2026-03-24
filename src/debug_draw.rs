@@ -166,7 +166,7 @@ impl LineBatch {
         }
     }
 
-    /// Draw a wireframe capsule (two hemispheres + connecting lines) along the Y axis.
+    /// Draw a wireframe capsule (two circles + connecting lines) along the Y axis.
     pub fn wire_capsule(
         &mut self,
         center: [f32; 3],

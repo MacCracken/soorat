@@ -134,7 +134,7 @@ impl Texture {
     }
 
     /// Create a texture from a ranga PixelBuffer.
-    /// Supports Rgba8 format; other formats are converted via ranga.
+    /// Only Rgba8 format is supported; convert other formats via ranga before calling.
     #[cfg(feature = "ranga")]
     pub fn from_pixel_buffer(
         device: &wgpu::Device,
