@@ -11,6 +11,11 @@ pub struct CameraUniforms {
     pub view_proj: [f32; 16],
     pub model: [f32; 16],
     pub camera_pos: [f32; 4],
+    /// Inverse-transpose of model matrix rows for correct normals.
+    /// Stored as 3 × vec4 (padded mat3) for WGSL uniform alignment.
+    pub normal_matrix_0: [f32; 4],
+    pub normal_matrix_1: [f32; 4],
+    pub normal_matrix_2: [f32; 4],
 }
 
 impl Default for CameraUniforms {
@@ -19,8 +24,63 @@ impl Default for CameraUniforms {
             view_proj: IDENTITY_MAT4,
             model: IDENTITY_MAT4,
             camera_pos: [0.0, 0.0, 5.0, 0.0],
+            normal_matrix_0: [1.0, 0.0, 0.0, 0.0],
+            normal_matrix_1: [0.0, 1.0, 0.0, 0.0],
+            normal_matrix_2: [0.0, 0.0, 1.0, 0.0],
         }
     }
+}
+
+impl CameraUniforms {
+    /// Set the model matrix and auto-compute the normal matrix (inverse-transpose of upper 3x3).
+    pub fn set_model(&mut self, model: [f32; 16]) {
+        self.model = model;
+        // Extract upper 3x3 rows, compute inverse-transpose
+        // For uniform scale, transpose of upper 3x3 = inverse-transpose
+        // For non-uniform scale, need proper inverse
+        let (nm0, nm1, nm2) = inverse_transpose_3x3(&model);
+        self.normal_matrix_0 = [nm0[0], nm0[1], nm0[2], 0.0];
+        self.normal_matrix_1 = [nm1[0], nm1[1], nm1[2], 0.0];
+        self.normal_matrix_2 = [nm2[0], nm2[1], nm2[2], 0.0];
+    }
+}
+
+/// Compute inverse-transpose of upper-left 3x3 from a 4x4 column-major matrix.
+/// Returns 3 rows of the resulting 3x3 matrix.
+fn inverse_transpose_3x3(m: &[f32; 16]) -> ([f32; 3], [f32; 3], [f32; 3]) {
+    // Extract upper-left 3x3 (column-major)
+    let a = [m[0], m[1], m[2]];
+    let b = [m[4], m[5], m[6]];
+    let c = [m[8], m[9], m[10]];
+
+    // For 3x3 columns [a, b, c]:
+    // inv = (1/det) * [b×c, c×a, a×b]^T
+    // inv^T = (1/det) * [b×c, c×a, a×b] (as rows)
+
+    let bc = [
+        b[1] * c[2] - b[2] * c[1],
+        b[2] * c[0] - b[0] * c[2],
+        b[0] * c[1] - b[1] * c[0],
+    ];
+    let ca = [
+        c[1] * a[2] - c[2] * a[1],
+        c[2] * a[0] - c[0] * a[2],
+        c[0] * a[1] - c[1] * a[0],
+    ];
+    let ab = [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ];
+
+    let det = a[0] * bc[0] + a[1] * bc[1] + a[2] * bc[2];
+    let inv_det = if det.abs() > 1e-10 { 1.0 / det } else { 1.0 };
+
+    (
+        [bc[0] * inv_det, bc[1] * inv_det, bc[2] * inv_det],
+        [ca[0] * inv_det, ca[1] * inv_det, ca[2] * inv_det],
+        [ab[0] * inv_det, ab[1] * inv_det, ab[2] * inv_det],
+    )
 }
 
 /// Light uniforms for the mesh shader.
@@ -124,12 +184,30 @@ impl DepthBuffer {
     }
 }
 
+/// Shadow pass uniforms for the PBR shader.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ShadowPassUniforms {
+    pub light_view_proj: [f32; 16],
+    pub shadow_map_size: [f32; 4],
+}
+
+impl Default for ShadowPassUniforms {
+    fn default() -> Self {
+        Self {
+            light_view_proj: IDENTITY_MAT4,
+            shadow_map_size: [2048.0, 0.0, 0.0, 0.0],
+        }
+    }
+}
+
 /// 3D mesh rendering pipeline with PBR shading (Cook-Torrance/GGX/Fresnel-Schlick).
 pub struct MeshPipeline {
     render_pipeline: wgpu::RenderPipeline,
     camera_buffer: wgpu::Buffer,
     light_buffer: wgpu::Buffer,
     material_buffer: wgpu::Buffer,
+    shadow_pass_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
     material_bind_group_layout: wgpu::BindGroupLayout,
     shadow_bind_group_layout: wgpu::BindGroupLayout,
@@ -143,41 +221,25 @@ impl MeshPipeline {
             source: wgpu::ShaderSource::Wgsl(include_str!("pbr.wgsl").into()),
         });
 
-        // Group 0: camera + light + material uniforms
+        // Group 0: camera + light_array + material + shadow uniforms
+        let uniform_entry = |binding: u32, vis: wgpu::ShaderStages| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: vis,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        };
         let uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("pbr_uniform_layout"),
                 entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
+                    uniform_entry(0, wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT), // camera
+                    uniform_entry(1, wgpu::ShaderStages::FRAGMENT), // light_array
+                    uniform_entry(2, wgpu::ShaderStages::FRAGMENT), // material
+                    uniform_entry(3, wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT), // shadow
                 ],
             });
 
@@ -287,8 +349,8 @@ impl MeshPipeline {
         });
 
         let light_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("light_uniform_buffer"),
-            size: std::mem::size_of::<LightUniforms>() as u64,
+            label: Some("light_array_uniform_buffer"),
+            size: std::mem::size_of::<crate::lights::LightArrayUniforms>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -296,6 +358,13 @@ impl MeshPipeline {
         let material_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("material_uniform_buffer"),
             size: std::mem::size_of::<crate::pbr_material::MaterialUniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let shadow_pass_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("shadow_pass_uniform_buffer"),
+            size: std::mem::size_of::<ShadowPassUniforms>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -316,6 +385,10 @@ impl MeshPipeline {
                     binding: 2,
                     resource: material_buffer.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: shadow_pass_buffer.as_entire_binding(),
+                },
             ],
         });
 
@@ -324,6 +397,7 @@ impl MeshPipeline {
             camera_buffer,
             light_buffer,
             material_buffer,
+            shadow_pass_buffer,
             uniform_bind_group,
             material_bind_group_layout,
             shadow_bind_group_layout,
@@ -340,9 +414,14 @@ impl MeshPipeline {
         queue.write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(camera));
     }
 
-    /// Update light uniforms.
-    pub fn update_light(&self, queue: &wgpu::Queue, light: &LightUniforms) {
-        queue.write_buffer(&self.light_buffer, 0, bytemuck::bytes_of(light));
+    /// Update light uniforms (multi-light array).
+    pub fn update_lights(&self, queue: &wgpu::Queue, lights: &crate::lights::LightArrayUniforms) {
+        queue.write_buffer(&self.light_buffer, 0, bytemuck::bytes_of(lights));
+    }
+
+    /// Update shadow pass uniforms (light view-proj + shadow map size).
+    pub fn update_shadow_pass(&self, queue: &wgpu::Queue, shadow: &ShadowPassUniforms) {
+        queue.write_buffer(&self.shadow_pass_buffer, 0, bytemuck::bytes_of(shadow));
     }
 
     /// Update PBR material uniforms (metallic, roughness, base_color_factor).
@@ -444,12 +523,18 @@ mod tests {
 
     #[test]
     fn camera_uniforms_size() {
-        assert_eq!(std::mem::size_of::<CameraUniforms>(), 144); // 2 * mat4 + vec4 = 128 + 16
+        // 2 * mat4 + vec4 + 3 * vec4 (normal matrix) = 128 + 16 + 48 = 192
+        assert_eq!(std::mem::size_of::<CameraUniforms>(), 192);
     }
 
     #[test]
     fn light_uniforms_size() {
         assert_eq!(std::mem::size_of::<LightUniforms>(), 112); // 3 * vec4 + mat4 = 48 + 64
+    }
+
+    #[test]
+    fn shadow_pass_uniforms_size() {
+        assert_eq!(std::mem::size_of::<ShadowPassUniforms>(), 80); // mat4 + vec4 = 64 + 16
     }
 
     #[test]
@@ -477,7 +562,17 @@ mod tests {
     fn camera_uniforms_bytemuck() {
         let cam = CameraUniforms::default();
         let bytes = bytemuck::bytes_of(&cam);
-        assert_eq!(bytes.len(), 144);
+        assert_eq!(bytes.len(), 192);
+    }
+
+    #[test]
+    fn camera_set_model_computes_normals() {
+        let mut cam = CameraUniforms::default();
+        cam.set_model(IDENTITY_MAT4);
+        // Identity model → identity normal matrix
+        assert!((cam.normal_matrix_0[0] - 1.0).abs() < 0.001);
+        assert!((cam.normal_matrix_1[1] - 1.0).abs() < 0.001);
+        assert!((cam.normal_matrix_2[2] - 1.0).abs() < 0.001);
     }
 
     #[test]

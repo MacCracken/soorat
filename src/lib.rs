@@ -41,7 +41,7 @@ pub mod window;
 pub use color::Color;
 pub use error::{RenderError, Result};
 pub use gpu::GpuContext;
-pub use vertex::{Vertex2D, Vertex3D};
+pub use vertex::{SkinnedVertex3D, Vertex2D, Vertex3D};
 pub use window::{Window, WindowConfig};
 
 // ── 2D Sprites ──────────────────────────────────────────────────────────────
@@ -53,7 +53,9 @@ pub use sprite::{Sprite, SpriteBatch, UvRect};
 pub use texture::{Texture, TextureCache, create_default_sampler};
 
 // ── 3D Meshes (PBR) ────────────────────────────────────────────────────────
-pub use mesh_pipeline::{CameraUniforms, DepthBuffer, LightUniforms, Mesh, MeshPipeline};
+pub use mesh_pipeline::{
+    CameraUniforms, DepthBuffer, LightUniforms, Mesh, MeshPipeline, ShadowPassUniforms,
+};
 pub use pbr_material::MaterialUniforms;
 
 // ── Lighting ────────────────────────────────────────────────────────────────
