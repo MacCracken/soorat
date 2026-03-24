@@ -14,6 +14,7 @@
 //! - **Loading**: [`gltf_loader`], [`texture`]
 
 pub mod animation;
+pub mod capabilities;
 pub mod color;
 pub mod debug_draw;
 pub mod error;
@@ -78,9 +79,10 @@ pub use animation::{AnimationClip, JointUniforms, Skeleton};
 pub use debug_draw::{LineBatch, LinePipeline, LineVertex};
 
 // ── Post-processing ─────────────────────────────────────────────────────────
+pub use capabilities::GpuCapabilities;
 pub use hdr::{BloomUniforms, HdrFramebuffer};
 pub use postprocess::{PostProcessPipeline, PostProcessUniforms, ToneMapMode};
-pub use profiler::FrameProfiler;
+pub use profiler::{FrameProfiler, GpuTimestamps, PassTiming};
 pub use ssao::SsaoUniforms;
 
 // ── Render targets ──────────────────────────────────────────────────────────
