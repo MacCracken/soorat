@@ -19,6 +19,7 @@ pub mod debug_draw;
 pub mod error;
 pub mod gltf_loader;
 pub mod gpu;
+pub mod hdr;
 pub mod lights;
 pub mod material;
 pub(crate) mod math_util;
@@ -30,6 +31,7 @@ pub mod profiler;
 pub mod render_target;
 pub mod shadow;
 pub mod sprite;
+pub mod ssao;
 pub mod terrain;
 pub mod text;
 pub mod texture;
@@ -71,8 +73,10 @@ pub use animation::{AnimationClip, JointUniforms, Skeleton};
 pub use debug_draw::{LineBatch, LinePipeline, LineVertex};
 
 // ── Post-processing ─────────────────────────────────────────────────────────
+pub use hdr::{BloomUniforms, HdrFramebuffer};
 pub use postprocess::{PostProcessPipeline, PostProcessUniforms, ToneMapMode};
 pub use profiler::FrameProfiler;
+pub use ssao::SsaoUniforms;
 
 // ── Render targets ──────────────────────────────────────────────────────────
 pub use render_target::RenderTarget;

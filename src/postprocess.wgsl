@@ -1,5 +1,5 @@
 // Full-screen post-processing shader.
-// Supports: tone mapping (Reinhard/ACES), bloom threshold, brightness/contrast.
+// Tone mapping (Reinhard/ACES) + bloom composite.
 
 struct PostProcessUniforms {
     // x = exposure, y = bloom_threshold, z = bloom_intensity, w = tone_map_mode (0=Reinhard, 1=ACES)
@@ -10,12 +10,15 @@ struct PostProcessUniforms {
 @group(0) @binding(1) var s_input: sampler;
 @group(0) @binding(2) var<uniform> uniforms: PostProcessUniforms;
 
+// Bloom texture (optional — if not bound, bloom_intensity should be 0)
+@group(1) @binding(0) var t_bloom: texture_2d<f32>;
+@group(1) @binding(1) var s_bloom: sampler;
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
 }
 
-// Full-screen triangle (no vertex buffer needed)
 @vertex
 fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     var out: VertexOutput;
@@ -26,7 +29,6 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     return out;
 }
 
-// ACES filmic tone mapping
 fn aces_filmic(x: vec3<f32>) -> vec3<f32> {
     let a = 2.51;
     let b = 0.03;
@@ -40,6 +42,13 @@ fn aces_filmic(x: vec3<f32>) -> vec3<f32> {
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var color = textureSample(t_input, s_input, in.tex_coords).rgb;
 
+    // Add bloom
+    let bloom_intensity = uniforms.params.z;
+    if bloom_intensity > 0.0 {
+        let bloom = textureSample(t_bloom, s_bloom, in.tex_coords).rgb;
+        color += bloom * bloom_intensity;
+    }
+
     let exposure = uniforms.params.x;
     let tone_map_mode = u32(uniforms.params.w);
 
@@ -50,7 +59,25 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if tone_map_mode == 1u {
         color = aces_filmic(color);
     } else {
-        // Reinhard
+        color = color / (color + vec3<f32>(1.0));
+    }
+
+    return vec4<f32>(color, 1.0);
+}
+
+// Simple pass-through for when bloom group isn't bound
+@fragment
+fn fs_no_bloom(in: VertexOutput) -> @location(0) vec4<f32> {
+    var color = textureSample(t_input, s_input, in.tex_coords).rgb;
+
+    let exposure = uniforms.params.x;
+    let tone_map_mode = u32(uniforms.params.w);
+
+    color = color * exposure;
+
+    if tone_map_mode == 1u {
+        color = aces_filmic(color);
+    } else {
         color = color / (color + vec3<f32>(1.0));
     }
 
