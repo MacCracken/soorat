@@ -9,9 +9,6 @@ All planned features have been implemented. Version is 0.23.3.
 - [ ] IBL ambient lighting (environment maps + BRDF LUT sampling in shader)
 - [ ] Electromagnetism field visualization (science crate TBD)
 - [ ] Thermodynamics heat mapping (science crate TBD)
-- [ ] LOD system (level of detail for terrain + meshes)
-- [ ] Instanced rendering (draw thousands of same mesh)
-- [ ] Compute shader pipeline (general-purpose GPU compute)
 
 ## Dependency Map
 
@@ -35,4 +32,4 @@ Soorat is consumed by:
 - **kiran** (`src/gpu.rs`) — `SooratRenderer` implements kiran's `Renderer` trait
 - **salai** (`src/viewport.rs`) — needs soorat 3D viewport for the editor
 
-Current: 238 tests, 28 benchmarks, 31 modules, 8 WGSL shaders.
+Current: 251 tests, 28 benchmarks, 34 modules, 8 WGSL shaders.
