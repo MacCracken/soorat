@@ -14,6 +14,7 @@ pub mod color;
 pub mod error;
 pub mod gpu;
 pub mod pipeline;
+pub mod render_target;
 pub mod sprite;
 pub mod texture;
 pub mod vertex;
@@ -21,6 +22,7 @@ pub mod window;
 
 pub use error::{RenderError, Result};
 pub use gpu::GpuContext;
-pub use pipeline::SpritePipeline;
+pub use pipeline::{FrameStats, SpritePipeline};
+pub use render_target::RenderTarget;
 pub use texture::{Texture, TextureCache};
 pub use window::{Window, WindowConfig};

@@ -3,6 +3,52 @@
 use crate::color::Color;
 use serde::{Deserialize, Serialize};
 
+/// UV rectangle defining a sub-region of a texture (for sprite atlases).
+/// Values are in normalized texture coordinates (0.0–1.0).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct UvRect {
+    pub u_min: f32,
+    pub v_min: f32,
+    pub u_max: f32,
+    pub v_max: f32,
+}
+
+impl Default for UvRect {
+    fn default() -> Self {
+        Self::FULL
+    }
+}
+
+impl UvRect {
+    /// Full texture (0,0 to 1,1).
+    pub const FULL: Self = Self {
+        u_min: 0.0,
+        v_min: 0.0,
+        u_max: 1.0,
+        v_max: 1.0,
+    };
+
+    /// Create a UV rect from pixel coordinates and atlas dimensions.
+    pub fn from_pixel_rect(x: u32, y: u32, w: u32, h: u32, atlas_w: u32, atlas_h: u32) -> Self {
+        Self {
+            u_min: x as f32 / atlas_w as f32,
+            v_min: y as f32 / atlas_h as f32,
+            u_max: (x + w) as f32 / atlas_w as f32,
+            v_max: (y + h) as f32 / atlas_h as f32,
+        }
+    }
+
+    /// UV coordinates for quad corners: [top-left, top-right, bottom-right, bottom-left].
+    pub fn corners(&self) -> [[f32; 2]; 4] {
+        [
+            [self.u_min, self.v_min],
+            [self.u_max, self.v_min],
+            [self.u_max, self.v_max],
+            [self.u_min, self.v_max],
+        ]
+    }
+}
+
 /// A 2D sprite instance to render.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Sprite {
@@ -20,6 +66,8 @@ pub struct Sprite {
     pub texture_id: u64,
     /// Z-order for sorting (higher = in front).
     pub z_order: i32,
+    /// UV region within the texture (for sprite atlases).
+    pub uv: UvRect,
 }
 
 impl Default for Sprite {
@@ -33,6 +81,7 @@ impl Default for Sprite {
             color: Color::WHITE,
             texture_id: 0,
             z_order: 0,
+            uv: UvRect::FULL,
         }
     }
 }
@@ -68,6 +117,11 @@ impl Sprite {
         self
     }
 
+    pub fn with_uv(mut self, uv: UvRect) -> Self {
+        self.uv = uv;
+        self
+    }
+
     /// Center position.
     pub fn center(&self) -> (f32, f32) {
         (self.x + self.width / 2.0, self.y + self.height / 2.0)
@@ -79,7 +133,8 @@ impl Sprite {
     }
 }
 
-/// A batch of sprites to render together (same texture).
+/// A batch of sprites to render together.
+/// Supports mixed textures via `SpritePipeline::draw_batched()`.
 #[derive(Debug, Clone, Default)]
 pub struct SpriteBatch {
     pub sprites: Vec<Sprite>,
@@ -123,12 +178,47 @@ mod tests {
     use super::*;
 
     #[test]
+    fn uv_rect_default() {
+        let uv = UvRect::default();
+        assert_eq!(uv, UvRect::FULL);
+        assert_eq!(
+            uv.corners(),
+            [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+        );
+    }
+
+    #[test]
+    fn uv_rect_from_pixel_rect() {
+        let uv = UvRect::from_pixel_rect(64, 0, 32, 32, 256, 256);
+        assert!((uv.u_min - 0.25).abs() < f32::EPSILON);
+        assert_eq!(uv.v_min, 0.0);
+        assert!((uv.u_max - 0.375).abs() < f32::EPSILON);
+        assert!((uv.v_max - 0.125).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn uv_rect_serde() {
+        let uv = UvRect::from_pixel_rect(10, 20, 30, 40, 100, 100);
+        let json = serde_json::to_string(&uv).unwrap();
+        let decoded: UvRect = serde_json::from_str(&json).unwrap();
+        assert_eq!(uv, decoded);
+    }
+
+    #[test]
+    fn sprite_with_uv() {
+        let uv = UvRect::from_pixel_rect(0, 0, 16, 16, 64, 64);
+        let s = Sprite::new(0.0, 0.0, 32.0, 32.0).with_uv(uv);
+        assert_eq!(s.uv, uv);
+    }
+
+    #[test]
     fn sprite_default() {
         let s = Sprite::default();
         assert_eq!(s.x, 0.0);
         assert_eq!(s.width, 64.0);
         assert_eq!(s.color, Color::WHITE);
         assert_eq!(s.z_order, 0);
+        assert_eq!(s.uv, UvRect::FULL);
     }
 
     #[test]

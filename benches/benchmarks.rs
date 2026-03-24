@@ -205,6 +205,18 @@ fn bench_pipeline(c: &mut Criterion) {
         b.iter(|| batch_to_vertices(black_box(&batch)))
     });
 
+    group.bench_function("batch_to_vertices_rotated_100", |b| {
+        let mut batch = SpriteBatch::with_capacity(100);
+        for i in 0..100 {
+            batch.push(
+                Sprite::new(i as f32 * 10.0, 0.0, 32.0, 32.0)
+                    .with_color(Color::WHITE)
+                    .with_rotation(i as f32 * 0.1),
+            );
+        }
+        b.iter(|| batch_to_vertices(black_box(&batch)))
+    });
+
     group.bench_function("batch_to_vertices_into_1000", |b| {
         let mut batch = SpriteBatch::with_capacity(1000);
         for i in 0..1000 {

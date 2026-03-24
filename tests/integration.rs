@@ -181,3 +181,22 @@ fn pipeline_index_pattern() {
     assert_eq!(&indices[6..12], &[4, 5, 6, 6, 7, 4]);
     assert_eq!(&indices[12..18], &[8, 9, 10, 10, 11, 8]);
 }
+
+#[test]
+fn pipeline_overflow_protection() {
+    use soorat::pipeline::MAX_SPRITES_PER_BATCH;
+
+    let mut batch = SpriteBatch::new();
+    for i in 0..MAX_SPRITES_PER_BATCH + 100 {
+        batch.push(Sprite::new(i as f32, 0.0, 1.0, 1.0));
+    }
+
+    let (verts, indices) = batch_to_vertices(&batch);
+    // Clamped to limit
+    assert_eq!(verts.len(), MAX_SPRITES_PER_BATCH * 4);
+    assert_eq!(indices.len(), MAX_SPRITES_PER_BATCH * 6);
+
+    // No u16 overflow
+    let max_idx = *indices.iter().max().unwrap();
+    assert!(max_idx < u16::MAX);
+}

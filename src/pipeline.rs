@@ -35,7 +35,13 @@ fn orthographic_projection(width: f32, height: f32) -> [f32; 16] {
 /// Quad indices for a single sprite (two triangles).
 const QUAD_INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
+/// Maximum sprites per batch with u16 indices (65535 / 4 = 16383).
+pub const MAX_SPRITES_PER_BATCH: usize = 16383;
+
 /// Expand a sprite batch into vertex and index data for GPU upload.
+///
+/// **Limit**: u16 indices support up to 16383 sprites per batch.
+/// Batches exceeding this will be truncated. Use multiple draw calls for larger scenes.
 pub fn batch_to_vertices(batch: &SpriteBatch) -> (Vec<Vertex2D>, Vec<u16>) {
     let sprite_count = batch.sprites.len();
     let mut vertices = Vec::with_capacity(sprite_count * 4);
@@ -51,42 +57,60 @@ pub fn batch_to_vertices_into(
     vertices: &mut Vec<Vertex2D>,
     indices: &mut Vec<u16>,
 ) {
-    let sprite_count = batch.sprites.len();
+    let sprite_count = batch.sprites.len().min(MAX_SPRITES_PER_BATCH);
     vertices.clear();
     vertices.reserve(sprite_count * 4);
     indices.clear();
     indices.reserve(sprite_count * 6);
 
-    for (i, sprite) in batch.sprites.iter().enumerate() {
+    for (i, sprite) in batch.sprites.iter().take(sprite_count).enumerate() {
         let c = sprite.color.to_array();
         let base = (i * 4) as u16;
 
-        // Quad corners: top-left, top-right, bottom-right, bottom-left
-        vertices.push(Vertex2D {
-            position: [sprite.x, sprite.y],
-            tex_coords: [0.0, 0.0],
-            color: c,
-        });
-        vertices.push(Vertex2D {
-            position: [sprite.x + sprite.width, sprite.y],
-            tex_coords: [1.0, 0.0],
-            color: c,
-        });
-        vertices.push(Vertex2D {
-            position: [sprite.x + sprite.width, sprite.y + sprite.height],
-            tex_coords: [1.0, 1.0],
-            color: c,
-        });
-        vertices.push(Vertex2D {
-            position: [sprite.x, sprite.y + sprite.height],
-            tex_coords: [0.0, 1.0],
-            color: c,
-        });
+        // Quad corners relative to origin, then rotate around center
+        let cx = sprite.x + sprite.width * 0.5;
+        let cy = sprite.y + sprite.height * 0.5;
+        let hw = sprite.width * 0.5;
+        let hh = sprite.height * 0.5;
+
+        // Local corners (relative to center)
+        let corners = [
+            [-hw, -hh], // top-left
+            [hw, -hh],  // top-right
+            [hw, hh],   // bottom-right
+            [-hw, hh],  // bottom-left
+        ];
+
+        let (sin, cos) = if sprite.rotation != 0.0 {
+            (sprite.rotation.sin(), sprite.rotation.cos())
+        } else {
+            (0.0, 1.0)
+        };
+
+        let uvs = sprite.uv.corners();
+
+        for (j, corner) in corners.iter().enumerate() {
+            let rx = corner[0] * cos - corner[1] * sin + cx;
+            let ry = corner[0] * sin + corner[1] * cos + cy;
+            vertices.push(Vertex2D {
+                position: [rx, ry],
+                tex_coords: uvs[j],
+                color: c,
+            });
+        }
 
         for &idx in &QUAD_INDICES {
             indices.push(base + idx);
         }
     }
+}
+
+/// Per-frame rendering statistics.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FrameStats {
+    pub draw_calls: u32,
+    pub triangles: u32,
+    pub sprites: u32,
 }
 
 /// Sprite rendering pipeline — holds the wgpu pipeline, bind group layouts, and buffers.
@@ -221,7 +245,7 @@ impl SpritePipeline {
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&proj));
     }
 
-    /// Draw a sprite batch. The batch should already be sorted by z-order.
+    /// Draw a sprite batch with a single texture. The batch should already be sorted by z-order.
     ///
     /// `clear_color`: if Some, clears the render target first.
     /// `texture_bind_group`: the bind group for the texture to use.
@@ -239,42 +263,13 @@ impl SpritePipeline {
         }
 
         let (vertices, indices) = batch_to_vertices(batch);
-
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("sprite_vertex_buffer"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("sprite_index_buffer"),
-            contents: bytemuck::cast_slice(&indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-
+        let (vertex_buffer, index_buffer) = Self::upload_buffers(device, &vertices, &indices);
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("sprite_encoder"),
         });
 
         {
-            let load_op = match clear_color {
-                Some(c) => wgpu::LoadOp::Clear(c.to_wgpu()),
-                None => wgpu::LoadOp::Load,
-            };
-
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("sprite_pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: load_op,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                ..Default::default()
-            });
+            let mut render_pass = Self::begin_pass(&mut encoder, view, clear_color);
 
             if !batch.is_empty() {
                 render_pass.set_pipeline(&self.render_pipeline);
@@ -287,6 +282,123 @@ impl SpritePipeline {
         }
 
         queue.submit(std::iter::once(encoder.finish()));
+    }
+
+    /// Draw a sprite batch with multiple textures, issuing one draw call per texture group.
+    /// Sprites are drawn in z-order; consecutive sprites sharing a texture_id are batched.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_batched(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        view: &wgpu::TextureView,
+        batch: &SpriteBatch,
+        texture_cache: &crate::texture::TextureCache,
+        fallback_bind_group: &wgpu::BindGroup,
+        clear_color: Option<Color>,
+    ) -> FrameStats {
+        let mut stats = FrameStats::default();
+
+        if batch.is_empty() && clear_color.is_none() {
+            return stats;
+        }
+
+        let (vertices, indices) = batch_to_vertices(batch);
+        stats.sprites = batch.sprites.len() as u32;
+        stats.triangles = indices.len() as u32 / 3;
+
+        let (vertex_buffer, index_buffer) = Self::upload_buffers(device, &vertices, &indices);
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("sprite_encoder"),
+        });
+
+        {
+            let mut render_pass = Self::begin_pass(&mut encoder, view, clear_color);
+
+            if !batch.is_empty() {
+                render_pass.set_pipeline(&self.render_pipeline);
+                render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+                // Issue draw calls grouped by consecutive texture_id
+                let mut run_start: u32 = 0;
+                let mut current_tex_id = batch.sprites[0].texture_id;
+
+                for (i, sprite) in batch.sprites.iter().enumerate() {
+                    if sprite.texture_id != current_tex_id {
+                        // Flush previous run
+                        let bind_group = texture_cache
+                            .get_bind_group(current_tex_id)
+                            .unwrap_or(fallback_bind_group);
+                        render_pass.set_bind_group(1, bind_group, &[]);
+                        let idx_start = run_start * 6;
+                        let idx_end = (i as u32) * 6;
+                        render_pass.draw_indexed(idx_start..idx_end, 0, 0..1);
+                        stats.draw_calls += 1;
+
+                        run_start = i as u32;
+                        current_tex_id = sprite.texture_id;
+                    }
+                }
+
+                // Flush final run
+                let bind_group = texture_cache
+                    .get_bind_group(current_tex_id)
+                    .unwrap_or(fallback_bind_group);
+                render_pass.set_bind_group(1, bind_group, &[]);
+                let idx_start = run_start * 6;
+                let idx_end = batch.sprites.len() as u32 * 6;
+                render_pass.draw_indexed(idx_start..idx_end, 0, 0..1);
+                stats.draw_calls += 1;
+            }
+        }
+
+        queue.submit(std::iter::once(encoder.finish()));
+        stats
+    }
+
+    fn upload_buffers(
+        device: &wgpu::Device,
+        vertices: &[Vertex2D],
+        indices: &[u16],
+    ) -> (wgpu::Buffer, wgpu::Buffer) {
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("sprite_vertex_buffer"),
+            contents: bytemuck::cast_slice(vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("sprite_index_buffer"),
+            contents: bytemuck::cast_slice(indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        (vertex_buffer, index_buffer)
+    }
+
+    fn begin_pass<'a>(
+        encoder: &'a mut wgpu::CommandEncoder,
+        view: &'a wgpu::TextureView,
+        clear_color: Option<Color>,
+    ) -> wgpu::RenderPass<'a> {
+        let load_op = match clear_color {
+            Some(c) => wgpu::LoadOp::Clear(c.to_wgpu()),
+            None => wgpu::LoadOp::Load,
+        };
+
+        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("sprite_pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: load_op,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            ..Default::default()
+        })
     }
 }
 
@@ -322,11 +434,47 @@ mod tests {
         assert_eq!(verts.len(), 4);
         assert_eq!(indices.len(), 6);
         assert_eq!(indices, vec![0, 1, 2, 2, 3, 0]);
-        // Check corners
+        // No rotation: corners should match sprite bounds
         assert_eq!(verts[0].position, [10.0, 20.0]);
         assert_eq!(verts[1].position, [42.0, 20.0]);
         assert_eq!(verts[2].position, [42.0, 52.0]);
         assert_eq!(verts[3].position, [10.0, 52.0]);
+    }
+
+    #[test]
+    fn batch_to_vertices_rotated_sprite() {
+        let mut batch = SpriteBatch::new();
+        // 90 degrees CCW
+        let half_pi = std::f32::consts::FRAC_PI_2;
+        batch.push(Sprite::new(0.0, 0.0, 100.0, 100.0).with_rotation(half_pi));
+        let (verts, _) = batch_to_vertices(&batch);
+
+        // Center is (50, 50). After 90° CCW rotation:
+        // (-50,-50) rotated = (50,-50) + center = (100, 0)... let me check
+        // rot(90): x' = x*cos - y*sin, y' = x*sin + y*cos
+        // cos(90)=0, sin(90)=1
+        // (-50,-50): x'= -50*0 - (-50)*1 = 50, y'= -50*1 + (-50)*0 = -50 => (100, 0)
+        // (50,-50):  x'= 50*0 - (-50)*1 = 50,  y'= 50*1 + (-50)*0 = 50 => (100, 100)
+        // (50,50):   x'= 50*0 - 50*1 = -50,    y'= 50*1 + 50*0 = 50 => (0, 100)
+        // (-50,50):  x'= -50*0 - 50*1 = -50,   y'= -50*1 + 50*0 = -50 => (0, 0)
+        let eps = 0.01;
+        assert!((verts[0].position[0] - 100.0).abs() < eps);
+        assert!((verts[0].position[1] - 0.0).abs() < eps);
+        assert!((verts[2].position[0] - 0.0).abs() < eps);
+        assert!((verts[2].position[1] - 100.0).abs() < eps);
+    }
+
+    #[test]
+    fn batch_to_vertices_zero_rotation_matches_unrotated() {
+        let mut batch_a = SpriteBatch::new();
+        batch_a.push(Sprite::new(10.0, 20.0, 50.0, 30.0));
+        let mut batch_b = SpriteBatch::new();
+        batch_b.push(Sprite::new(10.0, 20.0, 50.0, 30.0).with_rotation(0.0));
+        let (va, _) = batch_to_vertices(&batch_a);
+        let (vb, _) = batch_to_vertices(&batch_b);
+        for (a, b) in va.iter().zip(vb.iter()) {
+            assert_eq!(a.position, b.position);
+        }
     }
 
     #[test]
@@ -389,6 +537,27 @@ mod tests {
     }
 
     #[test]
+    fn frame_stats_default() {
+        let stats = FrameStats::default();
+        assert_eq!(stats.draw_calls, 0);
+        assert_eq!(stats.triangles, 0);
+        assert_eq!(stats.sprites, 0);
+    }
+
+    #[test]
+    fn batch_to_vertices_with_uv() {
+        use crate::sprite::UvRect;
+        let uv = UvRect::from_pixel_rect(0, 0, 16, 16, 64, 64);
+        let mut batch = SpriteBatch::new();
+        batch.push(Sprite::new(0.0, 0.0, 32.0, 32.0).with_uv(uv));
+        let (verts, _) = batch_to_vertices(&batch);
+        assert_eq!(verts[0].tex_coords, [uv.u_min, uv.v_min]);
+        assert_eq!(verts[1].tex_coords, [uv.u_max, uv.v_min]);
+        assert_eq!(verts[2].tex_coords, [uv.u_max, uv.v_max]);
+        assert_eq!(verts[3].tex_coords, [uv.u_min, uv.v_max]);
+    }
+
+    #[test]
     fn batch_to_vertices_into_matches_batch_to_vertices() {
         let mut batch = SpriteBatch::new();
         for i in 0..10 {
@@ -402,5 +571,41 @@ mod tests {
 
         assert_eq!(verts_a, verts_b);
         assert_eq!(indices_a, indices_b);
+    }
+
+    #[test]
+    fn max_sprites_constant() {
+        assert_eq!(MAX_SPRITES_PER_BATCH, 16383);
+    }
+
+    #[test]
+    fn batch_to_vertices_respects_limit() {
+        let mut batch = SpriteBatch::new();
+        // Push more than the limit
+        for i in 0..16400 {
+            batch.push(Sprite::new(i as f32, 0.0, 1.0, 1.0));
+        }
+        let (verts, indices) = batch_to_vertices(&batch);
+        // Should be clamped to MAX_SPRITES_PER_BATCH
+        assert_eq!(verts.len(), MAX_SPRITES_PER_BATCH * 4);
+        assert_eq!(indices.len(), MAX_SPRITES_PER_BATCH * 6);
+        // All indices should be valid u16
+        for &idx in &indices {
+            assert!(idx < u16::MAX);
+        }
+    }
+
+    #[test]
+    fn batch_to_vertices_at_exact_limit() {
+        let mut batch = SpriteBatch::new();
+        for i in 0..MAX_SPRITES_PER_BATCH {
+            batch.push(Sprite::new(i as f32, 0.0, 1.0, 1.0));
+        }
+        let (verts, indices) = batch_to_vertices(&batch);
+        assert_eq!(verts.len(), MAX_SPRITES_PER_BATCH * 4);
+        assert_eq!(indices.len(), MAX_SPRITES_PER_BATCH * 6);
+        // Last index should be valid
+        let last_idx = *indices.last().unwrap();
+        assert!(last_idx < u16::MAX);
     }
 }
