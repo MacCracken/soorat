@@ -39,6 +39,7 @@ impl UvRect {
     }
 
     /// UV coordinates for quad corners: [top-left, top-right, bottom-right, bottom-left].
+    #[must_use]
     pub fn corners(&self) -> [[f32; 2]; 4] {
         [
             [self.u_min, self.v_min],
@@ -97,37 +98,46 @@ impl Sprite {
         }
     }
 
+    #[must_use]
     pub fn with_color(mut self, color: Color) -> Self {
         self.color = color;
         self
     }
 
+    #[must_use]
     pub fn with_rotation(mut self, radians: f32) -> Self {
         self.rotation = radians;
         self
     }
 
+    #[must_use]
     pub fn with_texture(mut self, id: u64) -> Self {
         self.texture_id = id;
         self
     }
 
+    #[must_use]
     pub fn with_z_order(mut self, z: i32) -> Self {
         self.z_order = z;
         self
     }
 
+    #[must_use]
     pub fn with_uv(mut self, uv: UvRect) -> Self {
         self.uv = uv;
         self
     }
 
     /// Center position.
+    #[must_use]
+    #[inline]
     pub fn center(&self) -> (f32, f32) {
         (self.x + self.width / 2.0, self.y + self.height / 2.0)
     }
 
     /// Bounding box: (min_x, min_y, max_x, max_y).
+    #[must_use]
+    #[inline]
     pub fn bounds(&self) -> (f32, f32, f32, f32) {
         (self.x, self.y, self.x + self.width, self.y + self.height)
     }
@@ -159,10 +169,14 @@ impl SpriteBatch {
         self.sprites.clear();
     }
 
+    #[must_use]
+    #[inline]
     pub fn len(&self) -> usize {
         self.sprites.len()
     }
 
+    #[must_use]
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.sprites.is_empty()
     }

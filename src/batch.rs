@@ -17,6 +17,7 @@ pub const MAX_SPRITES_PER_BATCH: usize = 16383;
 ///
 /// **Limit**: u16 indices support up to 16383 sprites per batch.
 /// Batches exceeding this will be truncated. Use multiple draw calls for larger scenes.
+#[must_use]
 pub fn batch_to_vertices(batch: &SpriteBatch) -> (Vec<Vertex2D>, Vec<u16>) {
     let sprite_count = batch.sprites.len();
     let mut vertices = Vec::with_capacity(sprite_count * 4);
@@ -44,6 +45,7 @@ pub fn batch_to_vertices_into(
 }
 
 /// Expand a sprite batch into vertex and u32 index data. No sprite count limit.
+#[must_use]
 pub fn batch_to_vertices_u32(batch: &SpriteBatch) -> (Vec<Vertex2D>, Vec<u32>) {
     let sprite_count = batch.sprites.len();
     let mut vertices = Vec::with_capacity(sprite_count * 4);
@@ -69,6 +71,7 @@ pub fn batch_to_vertices_u32_into(
     }
 }
 
+#[inline]
 fn emit_quad_u16(
     sprite: &crate::sprite::Sprite,
     i: usize,
@@ -91,6 +94,7 @@ fn emit_quad_u16(
     }
 }
 
+#[inline]
 fn emit_quad_u32(
     sprite: &crate::sprite::Sprite,
     i: usize,
@@ -114,6 +118,7 @@ fn emit_quad_u32(
 }
 
 /// Compute rotated quad positions and UV coordinates for a sprite.
+#[inline]
 fn sprite_quad(sprite: &crate::sprite::Sprite) -> ([[f32; 2]; 4], [[f32; 2]; 4]) {
     let cx = sprite.x + sprite.width * 0.5;
     let cy = sprite.y + sprite.height * 0.5;

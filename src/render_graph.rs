@@ -20,6 +20,7 @@ pub struct RenderPassNode {
 }
 
 /// Type of render pass.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PassType {
     /// Shadow depth pass.
@@ -92,32 +93,51 @@ impl RenderGraph {
 
     /// Get the topologically sorted execution order (respecting dependencies).
     /// Returns pass names in execution order. Disabled passes are excluded.
+    /// Circular dependencies are detected and skipped with a warning.
     pub fn execution_order(&self) -> Vec<&str> {
         let mut visited = vec![false; self.nodes.len()];
+        let mut rec_stack = vec![false; self.nodes.len()];
         let mut order = Vec::with_capacity(self.nodes.len());
 
         for i in 0..self.nodes.len() {
             if !visited[i] && self.nodes[i].enabled {
-                self.visit(i, &mut visited, &mut order);
+                self.visit(i, &mut visited, &mut rec_stack, &mut order);
             }
         }
 
         order
     }
 
-    fn visit<'a>(&'a self, index: usize, visited: &mut Vec<bool>, order: &mut Vec<&'a str>) {
+    fn visit<'a>(
+        &'a self,
+        index: usize,
+        visited: &mut Vec<bool>,
+        rec_stack: &mut Vec<bool>,
+        order: &mut Vec<&'a str>,
+    ) {
         if visited[index] || !self.nodes[index].enabled {
             return;
         }
-        visited[index] = true;
+
+        if rec_stack[index] {
+            tracing::warn!(
+                pass = %self.nodes[index].name,
+                "render graph cycle detected — skipping cyclic dependency"
+            );
+            return;
+        }
+
+        rec_stack[index] = true;
 
         // Visit dependencies first
         for dep_name in &self.nodes[index].dependencies {
             if let Some(&dep_idx) = self.name_to_index.get(dep_name.as_str()) {
-                self.visit(dep_idx, visited, order);
+                self.visit(dep_idx, visited, rec_stack, order);
             }
         }
 
+        rec_stack[index] = false;
+        visited[index] = true;
         order.push(&self.nodes[index].name);
     }
 

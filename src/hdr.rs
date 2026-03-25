@@ -104,6 +104,7 @@ pub struct BloomPipeline {
 }
 
 impl BloomPipeline {
+    #[must_use]
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("bloom_shader"),

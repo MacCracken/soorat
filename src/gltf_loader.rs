@@ -86,8 +86,8 @@ pub fn load_gltf_meshes(bytes: &[u8]) -> Result<(Vec<MeshData>, Vec<Vec<u8>>)> {
                 .enumerate()
                 .map(|(i, pos)| Vertex3D {
                     position: *pos,
-                    normal: normals[i],
-                    tex_coords: tex_coords[i],
+                    normal: *normals.get(i).unwrap_or(&[0.0, 1.0, 0.0]),
+                    tex_coords: *tex_coords.get(i).unwrap_or(&[0.0, 0.0]),
                     color: [1.0, 1.0, 1.0, 1.0],
                 })
                 .collect();

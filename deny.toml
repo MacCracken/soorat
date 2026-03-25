@@ -1,5 +1,6 @@
 [advisories]
-ignore = []
+# paste is unmaintained but still pulled transitively by wgpu/image (via rav1e/metal)
+ignore = ["RUSTSEC-2024-0436"]
 
 [licenses]
 allow = [

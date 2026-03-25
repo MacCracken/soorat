@@ -7,6 +7,7 @@ use crate::color::Color;
 use crate::vertex::Vertex3D;
 
 /// Color mapping mode for fluid particles.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FluidColorMode {
     /// Uniform color for all particles.

@@ -6,6 +6,8 @@ pub const IDENTITY_MAT4: [f32; 16] = [
 ];
 
 /// Multiply two 4x4 column-major matrices: result = a * b.
+#[must_use]
+#[inline]
 pub fn mul_mat4(a: [f32; 16], b: [f32; 16]) -> [f32; 16] {
     let mut r = [0.0f32; 16];
     for col in 0..4 {
@@ -21,6 +23,12 @@ pub fn mul_mat4(a: [f32; 16], b: [f32; 16]) -> [f32; 16] {
 }
 
 /// Normalize a 3D vector.
+///
+/// If the vector length is near zero (< 1e-10), returns `[0.0, 0.0, 1.0]` as a Z-up fallback
+/// to avoid division by zero. This convention aligns with the engine's Z-up coordinate system
+/// and ensures downstream cross-product and matrix operations remain numerically stable.
+#[must_use]
+#[inline]
 pub fn normalize3(v: [f32; 3]) -> [f32; 3] {
     let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
     if len < 1e-10 {
@@ -30,6 +38,8 @@ pub fn normalize3(v: [f32; 3]) -> [f32; 3] {
 }
 
 /// Cross product of two 3D vectors.
+#[must_use]
+#[inline]
 pub fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [
         a[1] * b[2] - a[2] * b[1],
@@ -39,7 +49,20 @@ pub fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 }
 
 /// 90° perspective projection matrix (aspect=1, fov=90°). For cube shadow map faces.
+///
+/// If `near` and `far` are effectively equal (difference < 1e-10), returns an identity matrix
+/// to avoid division by zero.
+#[must_use]
+#[inline]
 pub fn perspective_90(near: f32, far: f32) -> [f32; 16] {
+    if (near - far).abs() < 1e-10 {
+        tracing::warn!(
+            near,
+            far,
+            "perspective_90: near ≈ far — returning identity matrix"
+        );
+        return IDENTITY_MAT4;
+    }
     let nf = 1.0 / (near - far);
     [
         1.0,
@@ -62,6 +85,8 @@ pub fn perspective_90(near: f32, far: f32) -> [f32; 16] {
 }
 
 /// Look-at view matrix from a position along a direction.
+#[must_use]
+#[inline]
 pub fn look_at(pos: [f32; 3], dir: [f32; 3], up: [f32; 3]) -> [f32; 16] {
     let f = normalize3(dir);
     let s = normalize3(cross(f, up));
@@ -88,6 +113,8 @@ pub fn look_at(pos: [f32; 3], dir: [f32; 3], up: [f32; 3]) -> [f32; 16] {
 }
 
 /// Flatten a `[[f32; 4]; 4]` (row-major glTF style) to column-major `[f32; 16]`.
+#[must_use]
+#[inline]
 pub fn flatten_mat4(m: [[f32; 4]; 4]) -> [f32; 16] {
     [
         m[0][0], m[0][1], m[0][2], m[0][3], m[1][0], m[1][1], m[1][2], m[1][3], m[2][0], m[2][1],
@@ -96,6 +123,8 @@ pub fn flatten_mat4(m: [[f32; 4]; 4]) -> [f32; 16] {
 }
 
 /// Compose Translation + Rotation (quaternion xyzw) + Scale into a 4x4 column-major matrix.
+#[must_use]
+#[inline]
 pub fn compose_trs(t: [f32; 3], r: [f32; 4], s: [f32; 3]) -> [f32; 16] {
     let (x, y, z, w) = (r[0], r[1], r[2], r[3]);
 

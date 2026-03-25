@@ -4,6 +4,7 @@
 pub const MAX_LIGHTS: usize = 8;
 
 /// Light type discriminator.
+#[non_exhaustive]
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LightType {
@@ -29,6 +30,8 @@ pub struct GpuLight {
 
 impl GpuLight {
     /// Create a directional light.
+    #[must_use]
+    #[inline]
     pub fn directional(direction: [f32; 3], color: [f32; 3], intensity: f32) -> Self {
         Self {
             position_type: [
@@ -44,6 +47,8 @@ impl GpuLight {
     }
 
     /// Create a point light.
+    #[must_use]
+    #[inline]
     pub fn point(position: [f32; 3], color: [f32; 3], intensity: f32, range: f32) -> Self {
         Self {
             position_type: [
@@ -60,6 +65,8 @@ impl GpuLight {
 
     /// Create a spot light.
     /// `inner_cone`/`outer_cone`: half-angles in radians.
+    #[must_use]
+    #[inline]
     pub fn spot(
         position: [f32; 3],
         direction: [f32; 3],

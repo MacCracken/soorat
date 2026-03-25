@@ -78,12 +78,29 @@ impl Default for ShadowUniforms {
 /// `direction`: normalized light direction (where light points).
 /// `extent`: half-size of the shadow frustum in world units.
 /// `near`/`far`: depth range.
+#[must_use]
 pub fn directional_light_matrix(
     direction: [f32; 3],
     extent: f32,
     near: f32,
     far: f32,
 ) -> [f32; 16] {
+    if extent <= 0.0 {
+        tracing::warn!(
+            extent,
+            "directional_light_matrix: extent <= 0 — returning identity matrix"
+        );
+        return IDENTITY_MAT4;
+    }
+    if (far - near).abs() < 1e-10 {
+        tracing::warn!(
+            near,
+            far,
+            "directional_light_matrix: far ≈ near — returning identity matrix"
+        );
+        return IDENTITY_MAT4;
+    }
+
     // Build a view matrix looking along the light direction
     let d = normalize3(direction);
 

@@ -176,11 +176,11 @@ impl GpuTimestamps {
 
         let (tx, rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |r| {
-            tx.send(r).unwrap();
+            let _ = tx.send(r);
         });
         device.poll(wgpu::Maintain::Wait);
 
-        if rx.recv().unwrap().is_err() {
+        if rx.recv().ok().and_then(|r| r.ok()).is_none() {
             return Vec::new();
         }
 

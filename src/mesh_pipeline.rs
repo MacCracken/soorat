@@ -124,6 +124,7 @@ pub struct Mesh {
 
 impl Mesh {
     /// Create a mesh from vertex and index data.
+    #[must_use]
     pub fn new(device: &wgpu::Device, vertices: &[Vertex3D], indices: &[u32]) -> Self {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("mesh_vertex_buffer"),
@@ -154,6 +155,7 @@ pub struct DepthBuffer {
 impl DepthBuffer {
     pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
+    #[must_use]
     pub fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("depth_buffer"),

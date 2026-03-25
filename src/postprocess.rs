@@ -3,6 +3,7 @@
 use crate::error::Result;
 
 /// Tone mapping mode.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToneMapMode {
     Reinhard = 0,

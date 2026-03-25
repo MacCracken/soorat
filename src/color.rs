@@ -56,16 +56,21 @@ impl Color {
     };
 
     /// Create a color from RGBA components (0.0–1.0).
+    #[must_use]
+    #[inline]
     pub const fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
         Self { r, g, b, a }
     }
 
     /// Create a color from RGB components with full opacity.
+    #[must_use]
+    #[inline]
     pub const fn rgb(r: f32, g: f32, b: f32) -> Self {
         Self { r, g, b, a: 1.0 }
     }
 
     /// Create from 8-bit RGBA (0–255).
+    #[must_use]
     pub fn from_rgba8(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self {
             r: r as f32 / 255.0,
@@ -76,6 +81,7 @@ impl Color {
     }
 
     /// Create from hex color (e.g., 0xFF0000FF for red).
+    #[must_use]
     pub fn from_hex(hex: u32) -> Self {
         Self::from_rgba8(
             ((hex >> 24) & 0xFF) as u8,
@@ -86,6 +92,8 @@ impl Color {
     }
 
     /// Convert to [f32; 4] array.
+    #[must_use]
+    #[inline]
     pub fn to_array(self) -> [f32; 4] {
         [self.r, self.g, self.b, self.a]
     }
@@ -134,11 +142,15 @@ impl Color {
     }
 
     /// Luminance (perceived brightness, Rec. 709).
+    #[must_use]
+    #[inline]
     pub fn luminance(self) -> f32 {
         0.2126 * self.r + 0.7152 * self.g + 0.0722 * self.b
     }
 
     /// Linear interpolation between two colors.
+    #[must_use]
+    #[inline]
     pub fn lerp(self, other: Self, t: f32) -> Self {
         let t = t.clamp(0.0, 1.0);
         Self {

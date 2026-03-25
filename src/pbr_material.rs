@@ -31,6 +31,7 @@ impl Default for MaterialUniforms {
 
 impl MaterialUniforms {
     /// Create material uniforms for a dielectric (non-metal).
+    #[must_use]
     pub fn dielectric(base_color: Color, roughness: f32) -> Self {
         Self {
             base_color_factor: base_color.to_array(),
@@ -41,6 +42,7 @@ impl MaterialUniforms {
     }
 
     /// Create material uniforms for a metal.
+    #[must_use]
     pub fn metal(base_color: Color, roughness: f32) -> Self {
         Self {
             base_color_factor: base_color.to_array(),
@@ -54,6 +56,7 @@ impl MaterialUniforms {
     /// Uses prakash::pbr::ior_to_f0 to compute reflectance.
     /// Always non-metallic — for metals, use `metal()` directly.
     #[cfg(feature = "optics")]
+    #[must_use]
     pub fn from_ior(base_color: Color, ior: f64, roughness: f32) -> Self {
         // IOR→F0 gives us the dielectric reflectance, but the PBR shader
         // hardcodes F0=0.04 for dielectrics via mix(0.04, albedo, metallic).

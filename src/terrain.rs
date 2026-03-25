@@ -40,6 +40,18 @@ pub struct TerrainData {
 /// `heights`: row-major grid of height values, size = (config.width+1) * (config.depth+1).
 /// Returns vertices and indices suitable for MeshPipeline.
 pub fn generate_terrain(config: &TerrainConfig, heights: &[f32]) -> TerrainData {
+    if config.width == 0 || config.depth == 0 {
+        tracing::warn!(
+            width = config.width,
+            depth = config.depth,
+            "generate_terrain: width or depth is 0 — returning empty terrain"
+        );
+        return TerrainData {
+            vertices: Vec::new(),
+            indices: Vec::new(),
+        };
+    }
+
     let cols = config.width + 1;
     let rows = config.depth + 1;
     let expected = (cols * rows) as usize;

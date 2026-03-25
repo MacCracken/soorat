@@ -85,8 +85,15 @@ impl Window {
             .formats
             .iter()
             .find(|f| f.is_srgb())
+            .or(surface_caps.formats.first())
             .copied()
-            .unwrap_or(surface_caps.formats[0]);
+            .ok_or_else(|| RenderError::SurfaceConfig("no supported surface formats".into()))?;
+
+        let alpha_mode = surface_caps
+            .alpha_modes
+            .first()
+            .copied()
+            .ok_or_else(|| RenderError::SurfaceConfig("no supported alpha modes".into()))?;
 
         let size = winit_window.inner_size();
         let width = size.width.max(1);
@@ -98,7 +105,7 @@ impl Window {
             width,
             height,
             present_mode: config.present_mode(),
-            alpha_mode: surface_caps.alpha_modes[0],
+            alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
@@ -134,8 +141,15 @@ impl Window {
             .formats
             .iter()
             .find(|f| f.is_srgb())
+            .or(surface_caps.formats.first())
             .copied()
-            .unwrap_or(surface_caps.formats[0]);
+            .ok_or_else(|| RenderError::SurfaceConfig("no supported surface formats".into()))?;
+
+        let alpha_mode = surface_caps
+            .alpha_modes
+            .first()
+            .copied()
+            .ok_or_else(|| RenderError::SurfaceConfig("no supported alpha modes".into()))?;
 
         let size = winit_window.inner_size();
         let width = size.width.max(1);
@@ -147,7 +161,7 @@ impl Window {
             width,
             height,
             present_mode: config.present_mode(),
-            alpha_mode: surface_caps.alpha_modes[0],
+            alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
@@ -264,8 +278,10 @@ impl winit::application::ApplicationHandler for App {
 
         self.window = Some(window);
 
-        if let Some(init) = self.init.take() {
-            init(self.window.as_mut().unwrap());
+        if let Some(init) = self.init.take()
+            && let Some(w) = self.window.as_mut()
+        {
+            init(w);
         }
     }
 

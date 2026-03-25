@@ -42,6 +42,7 @@ pub struct Skeleton {
 impl Skeleton {
     /// Compute the joint matrices for the current pose.
     /// Returns up to MAX_JOINTS matrices (each 4x4 column-major).
+    #[must_use]
     pub fn compute_joint_matrices(&self) -> Vec<[f32; 16]> {
         let count = self.joints.len().min(MAX_JOINTS);
         let mut world_transforms = vec![IDENTITY_MAT4; count];
@@ -173,8 +174,10 @@ fn interpolate_keyframes(keyframes: &[Keyframe], time: f32) -> Vec<f32> {
     if keyframes.len() == 1 || time <= keyframes[0].time {
         return keyframes[0].value.clone();
     }
-    if time >= keyframes.last().unwrap().time {
-        return keyframes.last().unwrap().value.clone();
+    if let Some(last) = keyframes.last()
+        && time >= last.time
+    {
+        return last.value.clone();
     }
 
     // Find the two surrounding keyframes

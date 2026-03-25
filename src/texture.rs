@@ -172,6 +172,8 @@ impl Texture {
     }
 
     /// Texture dimensions.
+    #[must_use]
+    #[inline]
     pub fn size(&self) -> (u32, u32) {
         let s = self.texture.size();
         (s.width, s.height)
@@ -228,29 +230,40 @@ impl TextureCache {
             let texture = Texture::from_bytes(device, queue, bytes, label)?;
             self.insert(id, texture, device, layout);
         }
-        Ok(&self.entries.get(&id).unwrap().bind_group)
+        self.entries
+            .get(&id)
+            .map(|e| &e.bind_group)
+            .ok_or_else(|| RenderError::Texture(format!("texture {id} missing after insert")))
     }
 
     /// Get the bind group for a texture ID.
+    #[must_use]
     pub fn get_bind_group(&self, id: u64) -> Option<&wgpu::BindGroup> {
         self.entries.get(&id).map(|e| &e.bind_group)
     }
 
     /// Check if a texture ID exists.
+    #[must_use]
+    #[inline]
     pub fn contains(&self, id: u64) -> bool {
         self.entries.contains_key(&id)
     }
 
     /// Get a texture by ID.
+    #[must_use]
     pub fn get(&self, id: u64) -> Option<&Texture> {
         self.entries.get(&id).map(|e| &e.texture)
     }
 
     /// Number of cached textures.
+    #[must_use]
+    #[inline]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
+    #[must_use]
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }

@@ -41,6 +41,7 @@ pub struct SsaoPipeline {
 
 impl SsaoPipeline {
     /// Create an SSAO pipeline. Output format is typically R8Unorm or R16Float.
+    #[must_use]
     pub fn new(device: &wgpu::Device, output_format: wgpu::TextureFormat) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ssao_shader"),

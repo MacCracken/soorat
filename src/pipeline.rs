@@ -107,6 +107,8 @@ impl SpriteBuffers {
     }
 
     /// Number of indices currently written.
+    #[must_use]
+    #[inline]
     pub fn index_count(&self) -> u32 {
         self.indices.len() as u32
     }
@@ -251,6 +253,7 @@ impl SpritePipeline {
     }
 
     /// Get the texture bind group layout for creating texture bind groups.
+    #[must_use]
     pub fn texture_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
         &self.texture_bind_group_layout
     }
