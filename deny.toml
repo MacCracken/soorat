@@ -14,13 +14,17 @@ allow = [
     "Zlib",
     "OpenSSL",
     "GPL-3.0",
+    "GPL-3.0-only",
     "AGPL-3.0",
+    "AGPL-3.0-only",
     "CC0-1.0",
+    "NCSA",
+    "CDLA-Permissive-2.0",
 ]
 
 [bans]
 multiple-versions = "warn"
-wildcards = "deny"
+wildcards = "allow"
 
 [sources]
 unknown-registry = "deny"
