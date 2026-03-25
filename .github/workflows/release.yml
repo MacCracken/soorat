@@ -55,7 +55,15 @@ jobs:
           FILE_VERSION=$(cat VERSION | tr -d '[:space:]')
           TAG_VERSION="${GITHUB_REF_NAME#v}"
           [ "$FILE_VERSION" = "$TAG_VERSION" ] || { echo "VERSION mismatch: file=$FILE_VERSION tag=$TAG_VERSION"; exit 1; }
-      - run: cargo publish
+      - name: Strip AGNOS-only deps for crates.io
+        run: |
+          # Remove agnosys dep line (git dep not allowed on crates.io)
+          sed -i '/^agnosys\s*=/d' Cargo.toml
+          # Remove drm feature line
+          sed -i '/^drm\s*=/d' Cargo.toml
+          # Regenerate lockfile without agnosys
+          cargo generate-lockfile
+      - run: cargo publish --allow-dirty
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
   release:
