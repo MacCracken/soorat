@@ -59,7 +59,9 @@ pub fn encode_pixels(
     if rgba.len() != expected {
         return Err(RenderError::Screenshot(format!(
             "pixel buffer size mismatch: expected {}x{}x4={expected}, got {}",
-            width, height, rgba.len()
+            width,
+            height,
+            rgba.len()
         )));
     }
 
@@ -68,17 +70,18 @@ pub fn encode_pixels(
     match format {
         // JPEG doesn't support alpha — strip to RGB
         ScreenshotFormat::Jpeg => {
-            let rgb: Vec<u8> = rgba.chunks_exact(4).flat_map(|px| [px[0], px[1], px[2]]).collect();
-            let img = image::RgbImage::from_raw(width, height, rgb).ok_or_else(|| {
-                RenderError::Screenshot("RGB conversion failed".into())
-            })?;
+            let rgb: Vec<u8> = rgba
+                .chunks_exact(4)
+                .flat_map(|px| [px[0], px[1], px[2]])
+                .collect();
+            let img = image::RgbImage::from_raw(width, height, rgb)
+                .ok_or_else(|| RenderError::Screenshot("RGB conversion failed".into()))?;
             img.write_to(&mut buf, image::ImageFormat::Jpeg)
                 .map_err(|e| RenderError::Screenshot(format!("encode failed: {e}")))?;
         }
         _ => {
-            let img = image::RgbaImage::from_raw(width, height, rgba.to_vec()).ok_or_else(|| {
-                RenderError::Screenshot("RGBA buffer construction failed".into())
-            })?;
+            let img = image::RgbaImage::from_raw(width, height, rgba.to_vec())
+                .ok_or_else(|| RenderError::Screenshot("RGBA buffer construction failed".into()))?;
             img.write_to(&mut buf, format.to_image_format())
                 .map_err(|e| RenderError::Screenshot(format!("encode failed: {e}")))?;
         }
@@ -104,8 +107,7 @@ pub fn capture_render_target(
 
 /// Save encoded image bytes to a file.
 pub fn save_to_file(encoded: &[u8], path: &Path) -> Result<()> {
-    std::fs::write(path, encoded)
-        .map_err(|e| RenderError::Screenshot(format!("save failed: {e}")))
+    std::fs::write(path, encoded).map_err(|e| RenderError::Screenshot(format!("save failed: {e}")))
 }
 
 // ── selah integration (feature-gated) ──────────────────────────────────────
@@ -284,9 +286,18 @@ mod tests {
     #[cfg(feature = "screenshot")]
     #[test]
     fn to_selah_format_mapping() {
-        assert_eq!(to_selah_format(ScreenshotFormat::Png), selah::ImageFormat::Png);
-        assert_eq!(to_selah_format(ScreenshotFormat::Jpeg), selah::ImageFormat::Jpeg);
-        assert_eq!(to_selah_format(ScreenshotFormat::Bmp), selah::ImageFormat::Bmp);
+        assert_eq!(
+            to_selah_format(ScreenshotFormat::Png),
+            selah::ImageFormat::Png
+        );
+        assert_eq!(
+            to_selah_format(ScreenshotFormat::Jpeg),
+            selah::ImageFormat::Jpeg
+        );
+        assert_eq!(
+            to_selah_format(ScreenshotFormat::Bmp),
+            selah::ImageFormat::Bmp
+        );
     }
 
     #[cfg(feature = "screenshot")]
@@ -304,7 +315,8 @@ mod tests {
     fn redact_capture_no_targets() {
         let rgba = vec![0u8; 2 * 2 * 4];
         let encoded = encode_pixels(2, 2, &rgba, ScreenshotFormat::Png).unwrap();
-        let (redacted, suggestions) = redact_capture(&encoded, None, ScreenshotFormat::Png).unwrap();
+        let (redacted, suggestions) =
+            redact_capture(&encoded, None, ScreenshotFormat::Png).unwrap();
         assert!(!redacted.is_empty());
         assert!(suggestions.is_empty()); // no text in a 2x2 black image
     }

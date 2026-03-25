@@ -1108,16 +1108,6 @@ dependencies = [
 [[package]]
 name = "hisab"
 version = "0.24.3"
-dependencies = [
- "glam",
- "serde",
- "thiserror 2.0.18",
- "tracing",
-]
-
-[[package]]
-name = "hisab"
-version = "0.24.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1844ed076d16ea08622e460b2c14c1234394b6e03fd035543c0efcc04ab583e7"
 dependencies = [
@@ -2347,9 +2337,9 @@ dependencies = [
 
 [[package]]
 name = "prakash"
-version = "0.23.3"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "865e8c2ab15f599023b61aa5917d9ccbf57b66fbae622dcaeeb3811b0663548f"
+checksum = "9248df330aa12e3c55bd3ddb6c999592e185309c6b6db9c1839c3d5e7577475e"
 dependencies = [
  "hisab 0.22.4",
  "serde",
@@ -2360,6 +2350,8 @@ dependencies = [
 [[package]]
 name = "pravash"
 version = "0.24.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34cc251a1d50bf03d65e228b2bae263f86514e02048ff585b4e0b50a9ab5dcfc"
 dependencies = [
  "hisab 0.24.3",
  "serde",
@@ -2917,7 +2909,7 @@ checksum = "5e36b537a76d9c1fea79f26322461dc8bd39f0ce591e0b6a156a91ed210df18d"
 dependencies = [
  "base64 0.22.1",
  "chrono",
- "hisab 0.24.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "hisab 0.24.3",
  "image",
  "ranga 0.24.3",
  "reqwest",
@@ -3104,7 +3096,7 @@ dependencies = [
 
 [[package]]
 name = "soorat"
-version = "0.23.3"
+version = "0.24.0"
 dependencies = [
  "bytemuck",
  "chrono",

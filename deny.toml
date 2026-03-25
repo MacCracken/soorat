@@ -1,9 +1,7 @@
 [advisories]
-vulnerability = "deny"
 ignore = []
 
 [licenses]
-unlicensed = "deny"
 allow = [
     "MIT",
     "Apache-2.0",
@@ -15,8 +13,9 @@ allow = [
     "Zlib",
     "OpenSSL",
     "GPL-3.0",
+    "AGPL-3.0",
+    "CC0-1.0",
 ]
-copyleft = "allow"
 
 [bans]
 multiple-versions = "warn"
@@ -27,5 +26,4 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 allow-git = []
-# pravash is a path dep (not yet published to crates.io)
 allow-org = { github = ["MacCracken"] }

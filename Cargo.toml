@@ -1,6 +1,6 @@
 [package]
 name = "soorat"
-version = "0.23.3"
+version = "0.24.0"
 edition = "2024"
 license = "GPL-3.0"
 description = "Soorat — GPU rendering engine for AGNOS"
@@ -37,7 +37,7 @@ thiserror = "2"
 tracing = "0.1"
 
 # Optics / color science (optional)
-prakash = { version = "0.23", optional = true, features = ["spectral", "pbr"] }
+prakash = { version = "1", optional = true, features = ["spectral", "pbr"] }
 
 # Image processing (optional — ranga pixel buffer integration)
 ranga = { version = "0.21", optional = true }
@@ -45,8 +45,8 @@ ranga = { version = "0.21", optional = true }
 # Physics debug rendering (optional — impetus collider wireframes)
 impetus = { version = "0.23", optional = true }
 
-# Fluid dynamics rendering (optional — pravash particle/surface visualization, not yet on crates.io)
-pravash = { path = "../pravash", optional = true, features = ["sph", "shallow"] }
+# Fluid dynamics rendering (optional — pravash particle/surface visualization)
+pravash = { version = "0.24", optional = true, features = ["sph", "shallow"] }
 
 # Screenshot capture, annotation, and redaction (optional — selah integration)
 selah = { version = "0.24", optional = true }
