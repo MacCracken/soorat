@@ -5,6 +5,80 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.3] - 2026-03-25
+
+### Added
+
+#### Screenshot (selah integration)
+- `screenshot` feature — optional dep on selah for capture, annotation, and redaction.
+- `ScreenshotFormat` enum (Png, Jpeg, Bmp) with `#[non_exhaustive]`.
+- `encode_pixels()` — encode raw RGBA8 GPU readback to image format (JPEG strips alpha to RGB).
+- `capture_render_target()` — blocking GPU readback + encode in one call.
+- `save_to_file()` — write encoded bytes to disk.
+- `capture_screenshot()` — full pipeline to `selah::Screenshot` with metadata.
+- `capture_screenshot_region()` — sub-rectangle capture with pixel-coordinate cropping.
+- `annotate_capture()` — bridge to `selah::annotate_image()`.
+- `redact_capture()` — bridge to `selah::redact_image()` with PII detection.
+- `copy_to_clipboard()` — clipboard via selah (Wayland/X11).
+- `to_selah_format()` — format conversion helper.
+- `RenderError::Screenshot` variant.
+
+#### Error Handling
+- `RenderError::Screenshot` variant for screenshot/encoding failures.
+
+### Changed
+
+#### Dependencies
+- `prakash` bumped from 0.23 to **1.0** (stable API).
+- `pravash` moved from path dep to **crates.io 0.24** (publish unblocked).
+- `selah` 0.24 added as optional dep (screenshot feature).
+- `uuid` 1 + `chrono` 0.4 added as optional deps (screenshot feature).
+
+#### Audit Hardening
+- **Eliminated all `unwrap()`/`panic!()` in library code** — 7 critical sites fixed:
+  - window.rs: `App::resumed()`, surface format/alpha mode selection.
+  - profiler.rs: GPU timestamp channel send/recv.
+  - animation.rs: keyframe last() access.
+  - texture.rs: `TextureCache::get_or_load()`.
+  - gpu_particles.rs: particle readback channel send/recv.
+- **Cycle detection** in render graph topological sort — prevents infinite recursion on circular pass dependencies.
+- **Division-by-zero guards** in `perspective_90()`, `directional_light_matrix()`, `generate_terrain()`.
+- **Safe glTF attribute indexing** — `normals[i]`/`tex_coords[i]` use `.get(i)` with fallback defaults.
+- **Integer overflow protection** — `checked_mul()`/`saturating_mul()` in buffer size calculations across batch, pipeline, render_target, screenshot, and fluid_render modules.
+- **Zero-size validation** — textures reject 0×0 with error, render targets clamp to 1×1 with warning, projection skips zero dimensions.
+- **Texture buffer validation** — `from_rgba()` checks `rgba.len() == width * height * 4`.
+- **Region bounds overflow** — `capture_screenshot_region()` uses `checked_add()`.
+
+#### Attributes Sweep
+- `#[must_use]` added to ~40 pure functions across color, math_util, sprite, texture, batch, pipeline, mesh_pipeline, pbr_material, lights, shadow, hdr, ssao, animation.
+- `#[inline]` added to ~25 hot-path functions across color, math_util, sprite, texture, batch, pipeline, lights.
+- `#[non_exhaustive]` added to `LightType`, `ToneMapMode`, `PassType`, `FluidColorMode` enums.
+
+#### Performance
+- `Color::new()` adds `debug_assert!` for finite components (NaN/Infinity caught in debug builds).
+- `InstanceBuffer::update()` uses 1.5× exponential growth instead of exact-fit (fewer GPU reallocations).
+- `GpuCapabilities` backend field uses static string match instead of `format!("{:?}")`.
+- `interpolate_keyframes()` returns `Cow<[f32]>` — zero-alloc on boundary cases (before first, after last, single keyframe). Also guards against zero-length keyframe intervals.
+
+#### Observability
+- `tracing::debug!` spans added to: texture loading, texture cache insert/hit, mesh creation, render target creation, zero-size resize skip.
+- `tracing::warn` on: degenerate perspective/shadow matrices, zero-size terrain, render graph cycles, zero-dimension render targets.
+- GPU timestamp wraparound documented (64-bit, won't wrap in practice).
+- `ComputePipeline::new()` documents buffer 0 read-write / buffers 1+ read-only convention.
+- `Window` struct documents thread safety constraints (not `Send`/`Sync`, must use on event-loop thread).
+
+#### Configuration
+- `deny.toml` migrated to cargo-deny 0.19 format.
+- `RUSTSEC-2024-0436` (paste, unmaintained) ignored — transitive via wgpu/image.
+- `CC0-1.0` and `AGPL-3.0` licenses added to allow list.
+
+### Added
+- `FrameProfiler::with_alpha()` — configurable EMA smoothing factor (default 0.05, range 0.001–1.0).
+
+### Fixed
+- JPEG encoding now strips alpha channel (RGBA→RGB) instead of failing with unsupported color type error.
+- `from_rgba8()` roundtrip precision verified with boundary value tests.
+
 ## [0.23.3] - 2026-03-23
 
 ### Added

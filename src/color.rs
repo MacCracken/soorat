@@ -58,7 +58,11 @@ impl Color {
     /// Create a color from RGBA components (0.0–1.0).
     #[must_use]
     #[inline]
-    pub const fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
+    pub fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
+        debug_assert!(
+            r.is_finite() && g.is_finite() && b.is_finite() && a.is_finite(),
+            "Color components must be finite"
+        );
         Self { r, g, b, a }
     }
 
@@ -321,6 +325,22 @@ mod tests {
         assert_eq!(zero, Color::TRANSPARENT);
         let full = Color::from_rgba8(255, 255, 255, 255);
         assert_eq!(full, Color::WHITE);
+    }
+
+    #[test]
+    fn color_rgba8_roundtrip() {
+        // Roundtrip: u8 → f32 → u8 should be lossless for all boundary values.
+        for val in [0u8, 1, 127, 128, 254, 255] {
+            let c = Color::from_rgba8(val, val, val, val);
+            let r_back = (c.r * 255.0).round() as u8;
+            let g_back = (c.g * 255.0).round() as u8;
+            let b_back = (c.b * 255.0).round() as u8;
+            let a_back = (c.a * 255.0).round() as u8;
+            assert_eq!(r_back, val, "roundtrip failed for {val}");
+            assert_eq!(g_back, val, "roundtrip failed for {val}");
+            assert_eq!(b_back, val, "roundtrip failed for {val}");
+            assert_eq!(a_back, val, "roundtrip failed for {val}");
+        }
     }
 
     #[cfg(feature = "optics")]

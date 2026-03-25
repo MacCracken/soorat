@@ -82,7 +82,10 @@ pub fn particles_to_quads(
         let c = color.to_array();
 
         // Simple XZ-plane quad (for top-down 2D fluid view)
-        let base = (i * 4) as u32;
+        let base = match (i as u64).checked_mul(4) {
+            Some(v) if v <= u32::MAX as u64 => v as u32,
+            _ => continue, // skip particle on overflow
+        };
         vertices.push(Vertex3D {
             position: [pos[0] - hs, pos[1], pos[2] - hs],
             normal: [0.0, 1.0, 0.0],
@@ -275,7 +278,10 @@ pub fn particles_to_billboards(
             }
         };
         let c = color.to_array();
-        let base = (i * 4) as u32;
+        let base = match (i as u64).checked_mul(4) {
+            Some(v) if v <= u32::MAX as u64 => v as u32,
+            _ => continue, // skip particle on overflow
+        };
 
         // Billboard corners: center ± right ± up
         vertices.push(Vertex3D {

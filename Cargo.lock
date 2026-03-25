@@ -25,6 +25,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "agnosys"
+version = "0.23.3"
+dependencies = [
+ "libc",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3096,8 +3105,9 @@ dependencies = [
 
 [[package]]
 name = "soorat"
-version = "0.24.0"
+version = "0.24.3"
 dependencies = [
+ "agnosys",
  "bytemuck",
  "chrono",
  "criterion",

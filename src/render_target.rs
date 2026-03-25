@@ -1,6 +1,6 @@
 //! Offscreen render targets.
 
-use crate::error::Result;
+use crate::error::{RenderError, Result};
 
 /// An offscreen render target (framebuffer) that can be drawn to and read back.
 pub struct RenderTarget {
@@ -19,6 +19,18 @@ impl RenderTarget {
         height: u32,
         format: wgpu::TextureFormat,
     ) -> Self {
+        let (width, height) = if width == 0 || height == 0 {
+            tracing::warn!(
+                width,
+                height,
+                "zero-size render target requested, clamping to 1x1"
+            );
+            (width.max(1), height.max(1))
+        } else {
+            (width, height)
+        };
+
+        tracing::debug!(width, height, ?format, "creating render target");
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("render_target"),
             size: wgpu::Extent3d {
@@ -60,10 +72,16 @@ impl RenderTarget {
     /// Read back the render target pixels as RGBA8 bytes.
     /// This is a blocking GPU readback — use for tests and screenshots, not in game loops.
     pub fn read_pixels(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Vec<u8>> {
-        let bytes_per_row = 4 * self.width;
+        let bytes_per_row = 4u32
+            .checked_mul(self.width)
+            .ok_or_else(|| RenderError::Screenshot("bytes_per_row overflow".into()))?;
         // wgpu requires rows aligned to 256 bytes
         let padded_bytes_per_row = (bytes_per_row + 255) & !255;
-        let buffer_size = (padded_bytes_per_row * self.height) as u64;
+        let buffer_size = u64::from(
+            padded_bytes_per_row
+                .checked_mul(self.height)
+                .ok_or_else(|| RenderError::Screenshot("buffer size overflow".into()))?,
+        );
 
         let staging = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("render_target_readback"),

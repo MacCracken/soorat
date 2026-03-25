@@ -55,7 +55,12 @@ pub fn encode_pixels(
     rgba: &[u8],
     format: ScreenshotFormat,
 ) -> Result<Vec<u8>> {
-    let expected = width as usize * height as usize * 4;
+    let expected = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|v| v.checked_mul(4))
+        .ok_or_else(|| {
+            RenderError::Screenshot(format!("pixel buffer size overflow: {width}x{height}x4"))
+        })?;
     if rgba.len() != expected {
         return Err(RenderError::Screenshot(format!(
             "pixel buffer size mismatch: expected {}x{}x4={expected}, got {}",
@@ -162,7 +167,14 @@ pub fn capture_screenshot_region(
     let rgba = target.read_pixels(device, queue)?;
     let (rx, ry, rw, rh) = region;
 
-    if rx + rw > target.width || ry + rh > target.height {
+    let rx_end = rx
+        .checked_add(rw)
+        .ok_or_else(|| RenderError::Screenshot(format!("region x overflow: {rx} + {rw}")))?;
+    let ry_end = ry
+        .checked_add(rh)
+        .ok_or_else(|| RenderError::Screenshot(format!("region y overflow: {ry} + {rh}")))?;
+
+    if rx_end > target.width || ry_end > target.height {
         return Err(RenderError::Screenshot(format!(
             "region ({rx},{ry},{rw}x{rh}) exceeds target ({}x{})",
             target.width, target.height

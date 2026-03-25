@@ -126,6 +126,11 @@ impl Mesh {
     /// Create a mesh from vertex and index data.
     #[must_use]
     pub fn new(device: &wgpu::Device, vertices: &[Vertex3D], indices: &[u32]) -> Self {
+        tracing::debug!(
+            vertex_count = vertices.len(),
+            index_count = indices.len(),
+            "creating mesh"
+        );
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("mesh_vertex_buffer"),
             contents: bytemuck::cast_slice(vertices),

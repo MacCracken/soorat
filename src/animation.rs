@@ -167,17 +167,20 @@ impl AnimationClip {
 }
 
 /// Linear interpolation between keyframes.
-fn interpolate_keyframes(keyframes: &[Keyframe], time: f32) -> Vec<f32> {
+///
+/// Returns a `Cow::Borrowed` when an exact keyframe is returned (no interpolation),
+/// avoiding allocation in the common boundary cases (before first, after last, single keyframe).
+fn interpolate_keyframes(keyframes: &[Keyframe], time: f32) -> std::borrow::Cow<'_, [f32]> {
     if keyframes.is_empty() {
-        return Vec::new();
+        return std::borrow::Cow::Borrowed(&[]);
     }
     if keyframes.len() == 1 || time <= keyframes[0].time {
-        return keyframes[0].value.clone();
+        return std::borrow::Cow::Borrowed(&keyframes[0].value);
     }
     if let Some(last) = keyframes.last()
         && time >= last.time
     {
-        return last.value.clone();
+        return std::borrow::Cow::Borrowed(&last.value);
     }
 
     // Find the two surrounding keyframes
@@ -188,14 +191,21 @@ fn interpolate_keyframes(keyframes: &[Keyframe], time: f32) -> Vec<f32> {
 
     let a = &keyframes[i];
     let b = &keyframes[i + 1];
-    let t = (time - a.time) / (b.time - a.time);
+    let dt = b.time - a.time;
+    let t = if dt.abs() > f32::EPSILON {
+        (time - a.time) / dt
+    } else {
+        0.0
+    };
 
     // Lerp each component
-    a.value
-        .iter()
-        .zip(b.value.iter())
-        .map(|(&va, &vb)| va + (vb - va) * t)
-        .collect()
+    std::borrow::Cow::Owned(
+        a.value
+            .iter()
+            .zip(b.value.iter())
+            .map(|(&va, &vb)| va + (vb - va) * t)
+            .collect(),
+    )
 }
 
 /// Load animation clips from a glTF.

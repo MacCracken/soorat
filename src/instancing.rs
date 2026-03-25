@@ -120,7 +120,8 @@ impl InstanceBuffer {
         instances: &[InstanceData],
     ) {
         if instances.len() > self.capacity {
-            self.capacity = instances.len();
+            // Exponential growth to avoid reallocating on every single-instance addition.
+            self.capacity = (instances.len() * 3 / 2).max(16);
             self.buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("instance_buffer"),
                 size: (self.capacity * std::mem::size_of::<InstanceData>()) as u64,

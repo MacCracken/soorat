@@ -33,6 +33,7 @@ impl Texture {
         bytes: &[u8],
         label: &str,
     ) -> Result<Self> {
+        tracing::debug!(label, "loading texture from bytes");
         let img = image::load_from_memory(bytes)
             .map_err(|e| RenderError::Texture(e.to_string()))?
             .to_rgba8();
@@ -86,6 +87,21 @@ impl Texture {
         label: &str,
         sampler: wgpu::Sampler,
     ) -> Result<Self> {
+        if width == 0 || height == 0 {
+            return Err(RenderError::Texture("zero-size texture".into()));
+        }
+
+        let expected = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|v| v.checked_mul(4))
+            .ok_or_else(|| RenderError::Texture("texture dimensions overflow".into()))?;
+        if rgba.len() != expected {
+            return Err(RenderError::Texture(format!(
+                "RGBA buffer size mismatch: expected {width}x{height}x4={expected}, got {}",
+                rgba.len()
+            )));
+        }
+
         let size = wgpu::Extent3d {
             width,
             height,
@@ -206,6 +222,7 @@ impl TextureCache {
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
     ) {
+        tracing::debug!(id, "texture cache insert");
         let bind_group = texture.bind_group(device, layout);
         self.entries.insert(
             id,
@@ -226,6 +243,9 @@ impl TextureCache {
         bytes: &[u8],
         label: &str,
     ) -> Result<&wgpu::BindGroup> {
+        if self.entries.contains_key(&id) {
+            tracing::debug!(id, "texture cache hit");
+        }
         if !self.entries.contains_key(&id) {
             let texture = Texture::from_bytes(device, queue, bytes, label)?;
             self.insert(id, texture, device, layout);

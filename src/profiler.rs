@@ -27,8 +27,18 @@ pub struct PassTiming {
 }
 
 impl FrameProfiler {
-    /// Create a new profiler.
+    /// Create a new profiler with default EMA smoothing (alpha = 0.05).
     pub fn new() -> Self {
+        Self::with_alpha(0.05)
+    }
+
+    /// Create a profiler with a custom EMA smoothing factor.
+    ///
+    /// `alpha` controls how quickly the average responds to changes:
+    /// - Lower values (e.g. 0.01) = smoother, slower to react
+    /// - Higher values (e.g. 0.2) = noisier, faster to react
+    /// - Typical range: 0.01–0.2
+    pub fn with_alpha(alpha: f64) -> Self {
         Self {
             frame_start: None,
             cpu_frame_ms: 0.0,
@@ -36,7 +46,7 @@ impl FrameProfiler {
             fps: 60.0,
             frame_count: 0,
             pass_times: Vec::new(),
-            alpha: 0.05,
+            alpha: alpha.clamp(0.001, 1.0),
         }
     }
 
@@ -190,6 +200,8 @@ impl GpuTimestamps {
         let mut durations = Vec::with_capacity(count / 2);
         for pair in timestamps.chunks(2) {
             if pair.len() == 2 && pair[1] >= pair[0] {
+                // Wraparound is not handled because wgpu timestamps are 64-bit
+                // nanoseconds — a u64 won't wrap for ~584 years of continuous uptime.
                 let ns = (pair[1] - pair[0]) as f64 * self.timestamp_period as f64;
                 durations.push(ns / 1_000_000.0); // convert to ms
             }

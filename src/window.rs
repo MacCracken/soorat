@@ -59,6 +59,14 @@ impl WindowConfig {
 }
 
 /// A window with an attached wgpu surface for rendering.
+///
+/// # Thread Safety
+///
+/// `Window` is **not `Send` or `Sync`** — it must be used on the thread that
+/// created it (typically the main/event-loop thread). This is a winit
+/// requirement: the underlying `winit::window::Window` is not thread-safe
+/// on most platforms. Share rendering results (textures, screenshots) across
+/// threads instead of the window itself.
 pub struct Window {
     pub gpu: GpuContext,
     pub surface: wgpu::Surface<'static>,
@@ -178,6 +186,7 @@ impl Window {
     /// Reconfigure the surface after a resize.
     pub fn resize(&mut self, width: u32, height: u32) {
         if width == 0 || height == 0 {
+            tracing::debug!(width, height, "skipping zero-size resize");
             return;
         }
         self.surface_config.width = width;

@@ -36,7 +36,15 @@ impl GpuCapabilities {
 
         Self {
             adapter_name: info.name.clone(),
-            backend: format!("{:?}", info.backend),
+            backend: match info.backend {
+                wgpu::Backend::Vulkan => "Vulkan",
+                wgpu::Backend::Metal => "Metal",
+                wgpu::Backend::Dx12 => "DX12",
+                wgpu::Backend::Gl => "GL",
+                wgpu::Backend::BrowserWebGpu => "WebGPU",
+                _ => "Unknown",
+            }
+            .to_string(),
             timestamp_query: features.contains(wgpu::Features::TIMESTAMP_QUERY),
             compute_shaders: true, // wgpu always supports compute
             max_texture_dimension_2d: limits.max_texture_dimension_2d,

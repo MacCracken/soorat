@@ -1,6 +1,6 @@
 [package]
 name = "soorat"
-version = "0.24.0"
+version = "0.24.3"
 edition = "2024"
 license = "GPL-3.0"
 description = "Soorat — GPU rendering engine for AGNOS"
@@ -19,6 +19,7 @@ ranga = ["dep:ranga"]
 physics-debug = ["dep:impetus"]
 fluids = ["dep:pravash"]
 screenshot = ["dep:selah", "dep:uuid", "dep:chrono"]
+drm = ["dep:agnosys"]
 full = ["optics", "ranga", "physics-debug", "fluids", "screenshot"]
 
 [dependencies]
@@ -52,6 +53,9 @@ pravash = { version = "0.24", optional = true, features = ["sph", "shallow"] }
 selah = { version = "0.24", optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
 chrono = { version = "0.4", optional = true }
+
+# DRM device info (optional — Linux-only, agnosys kernel interface)
+agnosys = { git = "https://github.com/MacCracken/agnosys", features = ["drm"], optional = true }
 
 # Image loading
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

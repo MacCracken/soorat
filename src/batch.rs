@@ -20,8 +20,16 @@ pub const MAX_SPRITES_PER_BATCH: usize = 16383;
 #[must_use]
 pub fn batch_to_vertices(batch: &SpriteBatch) -> (Vec<Vertex2D>, Vec<u16>) {
     let sprite_count = batch.sprites.len();
-    let mut vertices = Vec::with_capacity(sprite_count * 4);
-    let mut indices = Vec::with_capacity(sprite_count * 6);
+    let vert_cap = match sprite_count.checked_mul(4) {
+        Some(v) => v,
+        None => return (Vec::new(), Vec::new()),
+    };
+    let idx_cap = match sprite_count.checked_mul(6) {
+        Some(v) => v,
+        None => return (Vec::new(), Vec::new()),
+    };
+    let mut vertices = Vec::with_capacity(vert_cap);
+    let mut indices = Vec::with_capacity(idx_cap);
     batch_to_vertices_into(batch, &mut vertices, &mut indices);
     (vertices, indices)
 }
@@ -35,9 +43,9 @@ pub fn batch_to_vertices_into(
 ) {
     let sprite_count = batch.sprites.len().min(MAX_SPRITES_PER_BATCH);
     vertices.clear();
-    vertices.reserve(sprite_count * 4);
+    vertices.reserve(sprite_count.saturating_mul(4));
     indices.clear();
-    indices.reserve(sprite_count * 6);
+    indices.reserve(sprite_count.saturating_mul(6));
 
     for (i, sprite) in batch.sprites.iter().take(sprite_count).enumerate() {
         emit_quad_u16(sprite, i, vertices, indices);
@@ -48,8 +56,16 @@ pub fn batch_to_vertices_into(
 #[must_use]
 pub fn batch_to_vertices_u32(batch: &SpriteBatch) -> (Vec<Vertex2D>, Vec<u32>) {
     let sprite_count = batch.sprites.len();
-    let mut vertices = Vec::with_capacity(sprite_count * 4);
-    let mut indices = Vec::with_capacity(sprite_count * 6);
+    let vert_cap = match sprite_count.checked_mul(4) {
+        Some(v) => v,
+        None => return (Vec::new(), Vec::new()),
+    };
+    let idx_cap = match sprite_count.checked_mul(6) {
+        Some(v) => v,
+        None => return (Vec::new(), Vec::new()),
+    };
+    let mut vertices = Vec::with_capacity(vert_cap);
+    let mut indices = Vec::with_capacity(idx_cap);
     batch_to_vertices_u32_into(batch, &mut vertices, &mut indices);
     (vertices, indices)
 }
@@ -62,9 +78,9 @@ pub fn batch_to_vertices_u32_into(
 ) {
     let sprite_count = batch.sprites.len();
     vertices.clear();
-    vertices.reserve(sprite_count * 4);
+    vertices.reserve(sprite_count.saturating_mul(4));
     indices.clear();
-    indices.reserve(sprite_count * 6);
+    indices.reserve(sprite_count.saturating_mul(6));
 
     for (i, sprite) in batch.sprites.iter().enumerate() {
         emit_quad_u32(sprite, i, vertices, indices);

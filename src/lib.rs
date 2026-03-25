@@ -23,6 +23,7 @@ pub mod capabilities;
 pub mod color;
 pub mod compute;
 pub mod debug_draw;
+pub mod drm;
 pub mod egui_bridge;
 pub mod environment;
 pub mod error;

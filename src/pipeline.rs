@@ -54,8 +54,8 @@ pub struct SpriteBuffers {
 impl SpriteBuffers {
     /// Create persistent buffers sized for the given sprite count.
     pub fn new(device: &wgpu::Device, sprite_capacity: usize) -> Self {
-        let vert_cap = sprite_capacity * 4;
-        let idx_cap = sprite_capacity * 6;
+        let vert_cap = sprite_capacity.saturating_mul(4);
+        let idx_cap = sprite_capacity.saturating_mul(6);
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("sprite_vertex_buffer_persistent"),
             size: (vert_cap * std::mem::size_of::<Vertex2D>()) as u64,
@@ -260,6 +260,14 @@ impl SpritePipeline {
 
     /// Update the projection matrix for the current viewport size.
     pub fn update_projection(&self, queue: &wgpu::Queue, width: f32, height: f32) {
+        if width <= 0.0 || height <= 0.0 {
+            tracing::warn!(
+                width,
+                height,
+                "zero or negative viewport size, skipping projection update"
+            );
+            return;
+        }
         let proj = orthographic_projection(width, height);
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&proj));
     }

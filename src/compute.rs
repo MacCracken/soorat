@@ -8,8 +8,14 @@ pub struct ComputePipeline {
 
 impl ComputePipeline {
     /// Create a compute pipeline from WGSL source code.
+    ///
     /// `entry_point`: the compute shader entry function name.
     /// `buffer_count`: number of storage buffers in the bind group (bindings 0..n).
+    ///
+    /// Buffer 0 is created as read-write (`read_only: false`) and buffers 1+
+    /// are read-only. This matches the common pattern where a single output
+    /// buffer is written by the shader while additional input buffers are
+    /// consumed without modification.
     pub fn new(
         device: &wgpu::Device,
         wgsl_source: &str,
