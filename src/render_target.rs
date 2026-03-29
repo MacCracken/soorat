@@ -123,7 +123,10 @@ impl RenderTarget {
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-        device.poll(wgpu::Maintain::Wait);
+        let _ = device.poll(wgpu::PollType::Wait {
+            timeout: None,
+            submission_index: None,
+        });
         rx.recv()
             .map_err(|e| {
                 crate::error::RenderError::SurfaceTexture(format!("readback channel: {e}"))

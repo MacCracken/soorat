@@ -312,12 +312,12 @@ impl MeshPipeline {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("pbr_pipeline_layout"),
             bind_group_layouts: &[
-                &uniform_bind_group_layout,
-                &material_bind_group_layout,
-                &shadow_bind_group_layout,
-                &ibl_bind_group_layout,
+                Some(&uniform_bind_group_layout),
+                Some(&material_bind_group_layout),
+                Some(&shadow_bind_group_layout),
+                Some(&ibl_bind_group_layout),
             ],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -350,13 +350,13 @@ impl MeshPipeline {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DepthBuffer::FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -503,6 +503,7 @@ impl MeshPipeline {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: params.color_view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: color_load,
                         store: wgpu::StoreOp::Store,

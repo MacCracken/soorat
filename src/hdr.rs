@@ -145,8 +145,8 @@ impl BloomPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("bloom_pipeline_layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
 
         let make_pipeline = |label: &str, entry: &str| -> wgpu::RenderPipeline {
@@ -175,7 +175,7 @@ impl BloomPipeline {
                 },
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             })
         };
@@ -250,6 +250,7 @@ impl BloomPipeline {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: targets.bright_view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
@@ -270,6 +271,7 @@ impl BloomPipeline {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: targets.blur_temp_view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
@@ -290,6 +292,7 @@ impl BloomPipeline {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: targets.bloom_output_view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,

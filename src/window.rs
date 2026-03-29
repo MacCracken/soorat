@@ -197,9 +197,19 @@ impl Window {
 
     /// Get the current surface texture for rendering.
     pub fn current_texture(&self) -> Result<wgpu::SurfaceTexture> {
-        self.surface
-            .get_current_texture()
-            .map_err(|e| RenderError::SurfaceTexture(e.to_string()))
+        match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(texture) => Ok(texture),
+            wgpu::CurrentSurfaceTexture::Timeout => Err(RenderError::SurfaceTexture(
+                "surface texture timeout".into(),
+            )),
+            wgpu::CurrentSurfaceTexture::Outdated => Err(RenderError::SurfaceTexture(
+                "surface texture outdated".into(),
+            )),
+            wgpu::CurrentSurfaceTexture::Lost => {
+                Err(RenderError::SurfaceTexture("surface texture lost".into()))
+            }
+            _ => Err(RenderError::SurfaceTexture("unknown surface error".into())),
+        }
     }
 
     /// Surface format.

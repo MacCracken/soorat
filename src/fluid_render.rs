@@ -395,7 +395,7 @@ mod tests {
     #[cfg(feature = "fluids")]
     #[test]
     fn particles_to_quads_single() {
-        let p = pravash::common::FluidParticle::new([1.0, 2.0, 3.0], 1.0);
+        let p = pravash::common::FluidParticle::new([1.0, 2.0, 3.0].into(), 1.0);
         let (v, i) = particles_to_quads(
             &[p],
             0.5,
@@ -412,8 +412,8 @@ mod tests {
     #[cfg(feature = "fluids")]
     #[test]
     fn particles_velocity_color() {
-        let mut p = pravash::common::FluidParticle::new([0.0; 3], 1.0);
-        p.velocity = [10.0, 0.0, 0.0];
+        let mut p = pravash::common::FluidParticle::new([0.0; 3].into(), 1.0);
+        p.velocity = [10.0, 0.0, 0.0].into();
         let (v, _) = particles_to_quads(
             &[p],
             0.1,
@@ -439,7 +439,7 @@ mod tests {
     #[cfg(feature = "fluids")]
     #[test]
     fn billboard_single_particle() {
-        let p = pravash::common::FluidParticle::new([0.0, 1.0, 0.0], 1.0);
+        let p = pravash::common::FluidParticle::new([0.0, 1.0, 0.0].into(), 1.0);
         let (v, i) = particles_to_billboards(
             &[p],
             1.0,

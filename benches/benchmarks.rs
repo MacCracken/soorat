@@ -1,8 +1,9 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use soorat::color::Color;
 use soorat::pipeline::{batch_to_vertices, batch_to_vertices_into};
 use soorat::sprite::{Sprite, SpriteBatch};
 use soorat::vertex::Vertex2D;
+use std::hint::black_box;
 
 fn bench_color(c: &mut Criterion) {
     let mut group = c.benchmark_group("color");

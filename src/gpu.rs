@@ -24,10 +24,9 @@ impl GpuContext {
     }
 
     async fn new_inner(compatible_surface: Option<&wgpu::Surface<'_>>) -> Result<Self> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+        desc.backends = wgpu::Backends::all();
+        let instance = wgpu::Instance::new(desc);
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -36,12 +35,12 @@ impl GpuContext {
                 force_fallback_adapter: false,
             })
             .await
-            .ok_or(RenderError::AdapterNotFound)?;
+            .map_err(|_| RenderError::AdapterNotFound)?;
 
         let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor::default(), None)
+            .request_device(&wgpu::DeviceDescriptor::default())
             .await
-            .map_err(|e| RenderError::DeviceRequest(e.to_string()))?;
+            .map_err(|e: wgpu::RequestDeviceError| RenderError::DeviceRequest(e.to_string()))?;
 
         tracing::info!(
             adapter = adapter.get_info().name,

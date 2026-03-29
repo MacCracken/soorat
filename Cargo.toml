@@ -1,6 +1,6 @@
 [package]
 name = "soorat"
-version = "0.26.3"
+version = "0.29.3"
 edition = "2024"
 license = "GPL-3.0"
 description = "Soorat — GPU rendering engine for AGNOS"
@@ -24,7 +24,7 @@ full = ["optics", "ranga", "physics-debug", "fluids", "screenshot"]
 
 [dependencies]
 # GPU
-wgpu = "24"
+wgpu = "29"
 winit = "0.30"
 
 # Math (hisab re-exports glam + adds transforms, projections, spatial types)
@@ -41,13 +41,13 @@ tracing = "0.1"
 prakash = { version = "1", optional = true, features = ["spectral", "pbr"] }
 
 # Image processing (optional — ranga pixel buffer integration)
-ranga = { version = "0.21", optional = true }
+ranga = { version = "0.24", optional = true }
 
 # Physics debug rendering (optional — impetus collider wireframes)
-impetus = { version = "0.23", optional = true }
+impetus = { version = "1", optional = true }
 
 # Fluid dynamics rendering (optional — pravash particle/surface visualization)
-pravash = { version = "0.24", optional = true, features = ["sph", "shallow"] }
+pravash = { version = "1", optional = true, features = ["sph", "shallow"] }
 
 # Screenshot capture, annotation, and redaction (optional — selah integration)
 selah = { version = "0.24", optional = true }
@@ -65,7 +65,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 gltf = "1"
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 serde_json = "1"
 pollster = "0.4"
 

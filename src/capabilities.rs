@@ -48,12 +48,12 @@ impl GpuCapabilities {
             timestamp_query: features.contains(wgpu::Features::TIMESTAMP_QUERY),
             compute_shaders: true, // wgpu always supports compute
             max_texture_dimension_2d: limits.max_texture_dimension_2d,
-            max_uniform_buffer_size: limits.max_uniform_buffer_binding_size,
-            max_storage_buffer_size: limits.max_storage_buffer_binding_size,
+            max_uniform_buffer_size: limits.max_uniform_buffer_binding_size as u32,
+            max_storage_buffer_size: limits.max_storage_buffer_binding_size as u32,
             max_bind_groups: limits.max_bind_groups,
             max_vertex_buffers: limits.max_vertex_buffers,
-            max_push_constant_size: limits.max_push_constant_size,
-            multi_draw_indirect: features.contains(wgpu::Features::MULTI_DRAW_INDIRECT),
+            max_push_constant_size: 0, // push constants removed in wgpu 29, replaced by immediate_size
+            multi_draw_indirect: features.contains(wgpu::Features::MULTI_DRAW_INDIRECT_COUNT),
         }
     }
 

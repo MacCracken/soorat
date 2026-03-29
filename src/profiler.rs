@@ -188,7 +188,10 @@ impl GpuTimestamps {
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        device.poll(wgpu::Maintain::Wait);
+        let _ = device.poll(wgpu::PollType::Wait {
+            timeout: None,
+            submission_index: None,
+        });
 
         if rx.recv().ok().and_then(|r| r.ok()).is_none() {
             return Vec::new();
