@@ -13,10 +13,12 @@
 //! - **Debug**: [`debug_draw`] (wireframe lines, shapes, grid)
 //! - **Rendering**: [`instancing`], [`lod`], [`compute`], [`gpu_particles`], [`render_graph`]
 //! - **Fluids**: [`fluid_render`] (pravash integration)
+//! - **Acoustics**: [`acoustic_render`] (goonj integration — ray paths, pressure maps, directivity)
 //! - **Screenshot**: [`screenshot`] (selah integration — capture, annotate, redact)
 //! - **Loading**: [`gltf_loader`], [`texture`]
 //! - **Integration**: [`egui_bridge`] (salai editor)
 
+pub mod acoustic_render;
 pub mod animation;
 pub mod batch;
 pub mod capabilities;
@@ -75,6 +77,9 @@ pub use render_graph::{PassType, RenderGraph};
 // ── Lighting + Environment ──────────────────────────────────────────────────
 pub use environment::{EnvironmentMap, IblBindGroup};
 pub use fluid_render::{FluidColorMode, ParticleColorParams};
+
+// ── Acoustics (goonj integration) ──────────────────────────────────────────
+pub use acoustic_render::{AcousticColorMode, AcousticVisParams, DecayCurveParams};
 
 // ── Integration ─────────────────────────────────────────────────────────────
 pub use egui_bridge::ViewportSize;

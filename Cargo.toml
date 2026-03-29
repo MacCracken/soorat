@@ -18,9 +18,10 @@ optics = ["dep:prakash"]
 ranga = ["dep:ranga"]
 physics-debug = ["dep:impetus"]
 fluids = ["dep:pravash"]
+acoustics = ["dep:goonj"]
 screenshot = ["dep:selah", "dep:uuid", "dep:chrono"]
 drm = ["dep:agnosys"]
-full = ["optics", "ranga", "physics-debug", "fluids", "screenshot"]
+full = ["optics", "ranga", "physics-debug", "fluids", "acoustics", "screenshot"]
 
 [dependencies]
 # GPU
@@ -48,6 +49,9 @@ impetus = { version = "1", optional = true }
 
 # Fluid dynamics rendering (optional — pravash particle/surface visualization)
 pravash = { version = "1", optional = true, features = ["sph", "shallow"] }
+
+# Acoustic visualization (optional — goonj ray paths, pressure maps, directivity)
+goonj = { version = "1", optional = true, features = ["soorat-compat"] }
 
 # Screenshot capture, annotation, and redaction (optional — selah integration)
 selah = { version = "0.24", optional = true }
