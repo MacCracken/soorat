@@ -1,6 +1,6 @@
 [package]
 name = "soorat"
-version = "0.24.3"
+version = "0.26.3"
 edition = "2024"
 license = "GPL-3.0"
 description = "Soorat — GPU rendering engine for AGNOS"
@@ -28,7 +28,7 @@ wgpu = "24"
 winit = "0.30"
 
 # Math (hisab re-exports glam + adds transforms, projections, spatial types)
-hisab = "0.22"
+hisab = "1.1"
 
 # Core
 bytemuck = { version = "1", features = ["derive"] }

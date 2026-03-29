@@ -4,6 +4,15 @@
 
 All planned features have been implemented. Version is 0.23.3.
 
+## Goonj Integration (acoustic visualization)
+
+- [ ] **Ray path rendering**: Consume `goonj::integration::soorat::RayVisualization` to draw acoustic ray paths as line segments in 3D scenes
+- [ ] **Pressure map heatmap**: Render `goonj::integration::soorat::PressureMap` as volumetric or slice-based heatmaps showing sound pressure distribution
+- [ ] **Room mode patterns**: Visualize `goonj::integration::soorat::ModeVisualization` standing wave patterns as color-mapped surfaces
+- [ ] **Portal visualization**: Render `goonj::portal::Portal` openings with energy flow arrows between rooms
+- [ ] **Directivity balloons**: Render `goonj::directivity::DirectivityBalloon` as 3D polar patterns
+- [ ] **Coupled room decay**: Visualize `goonj::coupled::CoupledDecay` double-slope curves
+
 ## Future Considerations
 
 - [ ] Electromagnetism field visualization (science crate TBD)
