@@ -42,7 +42,7 @@ tracing = "0.1"
 prakash = { version = "1", optional = true, features = ["spectral", "pbr"] }
 
 # Image processing (optional — ranga pixel buffer integration)
-ranga = { version = "0.24", optional = true }
+ranga = { version = "0.29", optional = true }
 
 # Physics debug rendering (optional — impetus collider wireframes)
 impetus = { version = "1", optional = true }
@@ -54,7 +54,7 @@ pravash = { version = "1", optional = true, features = ["sph", "shallow"] }
 goonj = { version = "1", optional = true, features = ["soorat-compat"] }
 
 # Screenshot capture, annotation, and redaction (optional — selah integration)
-selah = { version = "0.24", optional = true }
+selah = { version = "0.29", optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
 chrono = { version = "0.4", optional = true }
 

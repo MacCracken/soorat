@@ -2644,9 +2644,9 @@ dependencies = [
 
 [[package]]
 name = "ranga"
-version = "0.24.3"
+version = "0.29.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4334ceaab2846ba8e10920fa971efea61b13329dc45e89bfb643edd0c377e884"
+checksum = "d3646d22d83773c56c975165c3bf3260182e9467c3cad00392a1fcd933601139"
 dependencies = [
  "serde",
  "serde_json",
@@ -2998,13 +2998,13 @@ dependencies = [
 
 [[package]]
 name = "selah"
-version = "0.24.3"
+version = "0.29.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e36b537a76d9c1fea79f26322461dc8bd39f0ce591e0b6a156a91ed210df18d"
+checksum = "74bd4c4fb0f6202eb626824a7396885936693c5e0c892d8ba39c0221437e9ec7"
 dependencies = [
  "base64 0.22.1",
  "chrono",
- "hisab 0.24.3",
+ "hisab 1.3.0",
  "image",
  "ranga",
  "reqwest",
