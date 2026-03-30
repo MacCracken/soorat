@@ -42,6 +42,19 @@ pub enum RenderError {
 
 pub type Result<T> = std::result::Result<T, RenderError>;
 
+impl From<mabda::GpuError> for RenderError {
+    fn from(e: mabda::GpuError) -> Self {
+        match e {
+            mabda::GpuError::AdapterNotFound => Self::AdapterNotFound,
+            mabda::GpuError::DeviceRequest(inner) => Self::DeviceRequest(inner.to_string()),
+            mabda::GpuError::SurfaceConfig(msg) => Self::SurfaceConfig(msg),
+            mabda::GpuError::Shader(msg) => Self::Shader(msg),
+            mabda::GpuError::Pipeline(msg) => Self::Pipeline(msg),
+            other => Self::Other(other.to_string().into()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

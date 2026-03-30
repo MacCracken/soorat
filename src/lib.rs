@@ -59,16 +59,18 @@ pub mod vertex;
 pub mod window;
 
 // ── Core ────────────────────────────────────────────────────────────────────
-pub use capabilities::GpuCapabilities;
+pub use capabilities::{GpuCapabilities, SooratCapabilities};
 pub use color::Color;
 pub use error::{RenderError, Result};
-pub use gpu::GpuContext;
-pub use profiler::{FrameProfiler, GpuTimestamps, PassTiming};
+pub use gpu::{GpuContext, GpuContextBuilder};
+pub use profiler::{FrameProfiler, GpuTimestamps, PassTiming, ProfileScope};
 pub use vertex::{SkinnedVertex3D, Vertex2D, Vertex3D};
 pub use window::{Window, WindowConfig};
 
 // ── Rendering ───────────────────────────────────────────────────────────────
-pub use compute::ComputePipeline;
+pub use compute::{
+    ComputePipeline, PingPongBuffer, validate_dispatch, workgroups_1d, workgroups_2d,
+};
 pub use gpu_particles::{GpuParticle, GpuParticleSystem, SimParams};
 pub use instancing::{InstanceBuffer, InstanceData};
 pub use lod::{LodChain, TerrainLod};
@@ -90,7 +92,10 @@ pub use pipeline::{
     batch_to_vertices_u32,
 };
 pub use sprite::{Sprite, SpriteBatch, UvRect};
-pub use texture::{Texture, TextureCache, create_default_sampler};
+pub use texture::{
+    CubemapTexture, Texture, TextureCache, copy_texture_to_texture, create_default_sampler,
+    mip_level_count, validate_dimensions,
+};
 
 // ── 3D Meshes (PBR) ────────────────────────────────────────────────────────
 pub use mesh_pipeline::{
@@ -119,7 +124,7 @@ pub use postprocess::{PostProcessPipeline, PostProcessUniforms, ToneMapMode};
 pub use ssao::{SsaoPipeline, SsaoUniforms};
 
 // ── Render targets ──────────────────────────────────────────────────────────
-pub use render_target::RenderTarget;
+pub use render_target::{RenderTarget, RenderTargetBuilder};
 
 // ── Screenshot (selah integration) ─────────────────────────────────────────
 pub use screenshot::{ScreenshotFormat, capture_render_target, encode_pixels, save_to_file};

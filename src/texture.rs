@@ -1,22 +1,18 @@
 //! Texture loading and management.
+//!
+//! Core [`Texture`] struct lives in soorat because its construction methods
+//! reference [`crate::color::Color`] (soorat's own color type). Standalone
+//! utilities (`mip_level_count`, `validate_dimensions`, `copy_texture_to_texture`)
+//! and [`CubemapTexture`] are re-exported from [`mabda::texture`].
 
 use crate::error::{RenderError, Result};
 use std::collections::HashMap;
 
-/// A shared sampler that can be reused across textures.
-/// Create once and pass to `Texture::from_rgba_with_sampler()` to avoid per-texture sampler allocation.
-pub fn create_default_sampler(device: &wgpu::Device) -> wgpu::Sampler {
-    device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("shared_sampler"),
-        address_mode_u: wgpu::AddressMode::ClampToEdge,
-        address_mode_v: wgpu::AddressMode::ClampToEdge,
-        address_mode_w: wgpu::AddressMode::ClampToEdge,
-        mag_filter: wgpu::FilterMode::Nearest,
-        min_filter: wgpu::FilterMode::Nearest,
-        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-        ..Default::default()
-    })
-}
+// ── Re-exports from mabda ──────────────────────────────────────────────────
+pub use mabda::texture::{
+    CubemapTexture, copy_texture_to_texture, create_default_sampler, mip_level_count,
+    validate_dimensions,
+};
 
 /// A GPU texture with view and sampler, ready for binding.
 pub struct Texture {
@@ -313,5 +309,36 @@ mod tests {
     fn texture_cache_default() {
         let cache = TextureCache::default();
         assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn mip_level_count_values() {
+        assert_eq!(mip_level_count(1, 1), 1);
+        assert_eq!(mip_level_count(2, 2), 2);
+        assert_eq!(mip_level_count(4, 4), 3);
+        assert_eq!(mip_level_count(256, 256), 9);
+        assert_eq!(mip_level_count(1024, 512), 11);
+        assert_eq!(mip_level_count(1, 512), 10);
+        assert_eq!(mip_level_count(0, 0), 1);
+    }
+
+    #[test]
+    fn validate_dimensions_within_limits() {
+        let limits = wgpu::Limits {
+            max_texture_dimension_2d: 8192,
+            ..Default::default()
+        };
+        assert!(validate_dimensions(1024, 1024, &limits).is_ok());
+        assert!(validate_dimensions(8192, 8192, &limits).is_ok());
+    }
+
+    #[test]
+    fn validate_dimensions_exceeds_limits() {
+        let limits = wgpu::Limits {
+            max_texture_dimension_2d: 8192,
+            ..Default::default()
+        };
+        assert!(validate_dimensions(8193, 1024, &limits).is_err());
+        assert!(validate_dimensions(1024, 8193, &limits).is_err());
     }
 }

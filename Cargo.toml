@@ -24,7 +24,8 @@ drm = ["dep:agnosys"]
 full = ["optics", "ranga", "physics-debug", "fluids", "acoustics", "screenshot"]
 
 [dependencies]
-# GPU
+# GPU foundation (mabda owns the wgpu lifecycle, buffers, pipelines, textures)
+mabda = { path = "../mabda", features = ["full"] }
 wgpu = "29"
 winit = "0.30"
 
