@@ -2,37 +2,37 @@
 
 > **Soorat** (Arabic/Urdu: صورت — form, image, appearance) — GPU rendering engine for the Kiran game engine and AGNOS ecosystem.
 
-All planned pre-1.0 features have been implemented. Version is 0.30.0.
+Version 1.0.0 — all planned features implemented and stable.
 
-## Goonj Integration (acoustic visualization) — DONE
+## Future Features (demand-gated)
 
-- [x] **Ray path rendering**: `ray_paths_to_lines()` — acoustic ray paths as colored line segments with energy-based color fading
-- [x] **Pressure map heatmap**: `pressure_map_slice()` — XZ-plane slices of 3D pressure grids with heat-map or signed-pressure coloring
-- [x] **Room mode patterns**: `mode_pattern_to_mesh()` — height-field mesh from standing wave patterns with computed normals
-- [x] **Portal visualization**: `portal_to_lines()` — wireframe rectangle with normal arrow for portal openings
-- [x] **Directivity balloons**: `directivity_balloon_to_mesh()` — deformed sphere mesh with gain-based radius and heat-map coloring
-- [x] **Coupled room decay**: `coupled_decay_to_lines()` — double-slope energy decay curves with early/late color blending
+> These features will be added when downstream consumers (kiran, salai, joshua) need them.
 
-## Bijli Integration (electromagnetism visualization) — DONE
+- [ ] **Multi-pass render graph scheduling** — automatic dependency resolution and pass reordering
+- [ ] **GPU-driven culling** — compute-shader frustum/occlusion culling
+- [ ] **Deferred shading** — G-buffer pass for high light counts
+- [ ] **Order-independent transparency** — weighted blended OIT or per-pixel linked lists
+- [ ] **Global illumination** — screen-space GI or light probes
+- [ ] **Volumetric rendering** — fog, clouds, participating media
+- [ ] **Particle LOD** — distance-based particle budget and quality scaling
 
-- [x] **FDTD field heatmap**: `field_slice_2d_to_mesh()` / `field_slice_3d_to_mesh()` — 2D/3D FDTD field slices as colored quad heatmaps with magnitude or signed coloring
-- [x] **Field line rendering**: `field_lines_to_lines()` — electric/magnetic field line traces as magnitude-colored polylines
-- [x] **Point charge visualization**: `charges_to_lines()` — wireframe spheres sized by charge magnitude (red=positive, blue=negative)
-- [x] **Radiation pattern**: `radiation_pattern_to_mesh()` — far-field patterns as 3D polar balloon with gain-based radius and heat-map coloring
-- [x] **Vector field arrows**: `vector_field_to_arrows()` — sampled vector fields as arrow glyphs with 4-line arrowheads
+## v1.0 Criteria — MET
 
-## Ushma Integration (thermodynamics visualization) — DONE
-
-- [x] **Thermal grid heatmap**: `thermal_grid_to_mesh()` — `ThermalGridVisualization` as colored quad heatmap with temperature or alpha-blend coloring
-- [x] **Temperature profile**: `temperature_profile_to_lines()` — 1D temperature profile as heat-mapped line strip along a 3D direction
-- [x] **Cycle diagrams**: `cycle_diagram_to_lines()` — T-s and P-v cycle diagrams as normalized colored line plots
-- [x] **Thermal network graph**: `thermal_network_to_lines()` — circular-layout node-link diagram with temperature-colored nodes and conductance-weighted edges
-- [x] **Heat flux arrows**: `heat_flux_to_arrows()` — 2D heat flux vectors as arrow glyphs on the XZ plane
+- [x] Core 2D/3D rendering stable
+- [x] PBR pipeline with shadows, HDR, bloom, SSAO
+- [x] Skinned meshes, animation, glTF loading
+- [x] All science integrations complete (goonj, bijli, ushma, pravash, prakash)
+- [x] Physics debug rendering (impetus)
+- [x] Screenshot capture (selah)
+- [x] GPU foundation delegated to mabda
+- [x] No `unwrap()`/`panic!()` in library code
+- [x] 374 tests, 29 benchmarks, clippy/fmt/doc clean
 
 ## Dependency Map
 
 ```
 soorat (rendering engine)
+  ├── mabda        — GPU foundation (device, buffers, pipelines)
   ├── wgpu         — GPU abstraction (Vulkan/Metal/DX12/WebGPU)
   ├── winit        — window management + event loop
   ├── hisab        — math (vectors, matrices, transforms)

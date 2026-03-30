@@ -13,9 +13,7 @@ allow = [
     "Unicode-DFS-2016",
     "Zlib",
     "OpenSSL",
-    "GPL-3.0",
     "GPL-3.0-only",
-    "AGPL-3.0",
     "AGPL-3.0-only",
     "CC0-1.0",
     "NCSA",
@@ -30,4 +28,6 @@ wildcards = "allow"
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# agnosys is a git dep gated behind the non-default `drm` feature —
+# only resolved when drm is active, so this may warn as unmatched
 allow-git = ["https://github.com/MacCracken/agnosys"]
