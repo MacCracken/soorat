@@ -264,8 +264,11 @@ impl LineBatch {
 }
 
 /// Debug line rendering pipeline.
+///
+/// Uses [`mabda::RenderPipeline`] for pipeline management and
+/// [`mabda::create_vertex_buffer`] for per-frame vertex uploads.
 pub struct LinePipeline {
-    render_pipeline: wgpu::RenderPipeline,
+    pipeline: mabda::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
 }
@@ -273,77 +276,41 @@ pub struct LinePipeline {
 impl LinePipeline {
     /// Create a new line pipeline for the given surface format.
     pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat) -> Result<Self> {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("line_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("line.wgsl").into()),
-        });
+        let pipeline = mabda::RenderPipelineBuilder::new(
+            device,
+            include_str!("line.wgsl"),
+            "vs_main",
+            "fs_main",
+        )
+        .label("line_pipeline")
+        .vertex_layout(LineVertex::layout())
+        .bind_group(
+            mabda::BindGroupLayoutBuilder::new()
+                .uniform_buffer(wgpu::ShaderStages::VERTEX)
+                .into_entries(),
+        )
+        .color_target(surface_format, Some(wgpu::BlendState::ALPHA_BLENDING))
+        .topology(wgpu::PrimitiveTopology::LineList)
+        .depth_stencil(wgpu::DepthStencilState {
+            format: DepthBuffer::FORMAT,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        })
+        .build()?;
 
-        let uniform_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("line_uniform_layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("line_pipeline_layout"),
-            bind_group_layouts: &[Some(&uniform_bind_group_layout)],
-            immediate_size: 0,
-        });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("line_pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[LineVertex::layout()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::LineList,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DepthBuffer::FORMAT,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::LessEqual),
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("line_uniform_buffer"),
-            size: 64, // mat4x4<f32>
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let uniform_buffer = mabda::create_uniform_buffer(
+            device,
+            bytemuck::cast_slice(&[0.0_f32; 16]),
+            "line_uniform_buffer",
+        );
 
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("line_uniform_bind_group"),
-            layout: &uniform_bind_group_layout,
+            layout: pipeline
+                .bind_group_layout(0)
+                .expect("line pipeline has bind group 0"),
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: uniform_buffer.as_entire_binding(),
@@ -351,13 +318,14 @@ impl LinePipeline {
         });
 
         Ok(Self {
-            render_pipeline,
+            pipeline,
             uniform_buffer,
             uniform_bind_group,
         })
     }
 
     /// Update the view-projection matrix.
+    #[inline]
     pub fn update_view_proj(&self, queue: &wgpu::Queue, view_proj: &[f32; 16]) {
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(view_proj));
     }
@@ -375,11 +343,7 @@ impl LinePipeline {
             return;
         }
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("line_vertex_buffer"),
-            contents: bytemuck::cast_slice(&batch.vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let vertex_buffer = mabda::create_vertex_buffer(device, &batch.vertices, "line_vertices");
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("line_encoder"),
@@ -408,7 +372,7 @@ impl LinePipeline {
                 ..Default::default()
             });
 
-            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_pipeline(self.pipeline.raw());
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             render_pass.draw(0..batch.vertices.len() as u32, 0..1);
@@ -427,12 +391,8 @@ impl LinePipeline {
         if batch.is_empty() {
             return;
         }
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("line_vertex_buffer"),
-            contents: bytemuck::cast_slice(&batch.vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        render_pass.set_pipeline(&self.render_pipeline);
+        let vertex_buffer = mabda::create_vertex_buffer(device, &batch.vertices, "line_vertices");
+        render_pass.set_pipeline(self.pipeline.raw());
         render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
         render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
         render_pass.draw(0..batch.vertices.len() as u32, 0..1);
