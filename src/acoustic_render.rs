@@ -43,7 +43,9 @@ impl Default for AcousticVisParams {
 
 // ── CPU-only helpers (no feature gate) ──────────────────────────────────────
 
-use crate::color::{signed_value_color, visualization_heat_map};
+use crate::color::visualization_heat_map;
+#[cfg(feature = "acoustics")]
+use crate::color::signed_value_color;
 
 /// Acoustic heat map exposed for general use.
 #[must_use]
@@ -418,6 +420,7 @@ pub fn portal_to_lines(
     );
 }
 
+#[cfg(feature = "acoustics")]
 use crate::math_util::normal_to_basis;
 
 // ── 5. Directivity balloons ────────────────────────────────────────────────
@@ -690,6 +693,8 @@ pub fn coupled_decay_to_lines(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::color::signed_value_color;
+    use crate::math_util::normal_to_basis;
 
     // ── Heat map tests ─────────────────────────────────────────────────────
 

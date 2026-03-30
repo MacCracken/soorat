@@ -41,7 +41,10 @@ impl Default for EmVisParams {
 
 // ── CPU-only helpers (no feature gate) ──────────────────────────────────────
 
-use crate::color::{signed_value_color, visualization_heat_map};
+use crate::color::visualization_heat_map;
+#[cfg(feature = "em")]
+use crate::color::signed_value_color;
+#[cfg(feature = "em")]
 use crate::math_util::normal_to_basis;
 
 /// EM heat map exposed for general use.
@@ -602,6 +605,8 @@ pub fn vector_field_to_arrows(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::color::signed_value_color;
+    use crate::math_util::normal_to_basis;
 
     // ── Heat map tests ─────────────────────────────────────────────────────
 
