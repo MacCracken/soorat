@@ -1,6 +1,6 @@
 [package]
 name = "soorat"
-version = "0.29.3"
+version = "0.30.0"
 edition = "2024"
 license = "GPL-3.0"
 description = "Soorat — GPU rendering engine for AGNOS"
@@ -19,9 +19,11 @@ ranga = ["dep:ranga"]
 physics-debug = ["dep:impetus"]
 fluids = ["dep:pravash"]
 acoustics = ["dep:goonj"]
+em = ["dep:bijli"]
+thermo = ["dep:ushma"]
 screenshot = ["dep:selah", "dep:uuid", "dep:chrono"]
 drm = ["dep:agnosys"]
-full = ["optics", "ranga", "physics-debug", "fluids", "acoustics", "screenshot"]
+full = ["optics", "ranga", "physics-debug", "fluids", "acoustics", "em", "thermo", "screenshot"]
 
 [dependencies]
 # GPU foundation (mabda owns the wgpu lifecycle, buffers, pipelines, textures)
@@ -53,6 +55,12 @@ pravash = { version = "1", optional = true, features = ["sph", "shallow"] }
 
 # Acoustic visualization (optional — goonj ray paths, pressure maps, directivity)
 goonj = { version = "1", optional = true, features = ["soorat-compat"] }
+
+# Electromagnetism visualization (optional — bijli FDTD, field lines, charges)
+bijli = { version = "1", optional = true, features = ["soorat-compat"] }
+
+# Thermodynamics visualization (optional — ushma thermal grids, cycles, flux)
+ushma = { version = "1", optional = true, features = ["soorat-compat"] }
 
 # Screenshot capture, annotation, and redaction (optional — selah integration)
 selah = { version = "0.29", optional = true }

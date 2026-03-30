@@ -14,6 +14,8 @@
 //! - **Rendering**: [`instancing`], [`lod`], [`compute`], [`gpu_particles`], [`render_graph`]
 //! - **Fluids**: [`fluid_render`] (pravash integration)
 //! - **Acoustics**: [`acoustic_render`] (goonj integration — ray paths, pressure maps, directivity)
+//! - **Electromagnetism**: [`em_render`] (bijli integration — FDTD heatmaps, field lines, charges, radiation)
+//! - **Thermodynamics**: [`thermo_render`] (ushma integration — thermal grids, profiles, cycles, flux)
 //! - **Screenshot**: [`screenshot`] (selah integration — capture, annotate, redact)
 //! - **Loading**: [`gltf_loader`], [`texture`]
 //! - **Integration**: [`egui_bridge`] (salai editor)
@@ -27,6 +29,7 @@ pub mod compute;
 pub mod debug_draw;
 pub mod drm;
 pub mod egui_bridge;
+pub mod em_render;
 pub mod environment;
 pub mod error;
 pub mod fluid_render;
@@ -54,6 +57,7 @@ pub mod ssao;
 pub mod terrain;
 pub mod text;
 pub mod texture;
+pub mod thermo_render;
 pub mod ui;
 pub mod vertex;
 pub mod window;
@@ -82,6 +86,12 @@ pub use fluid_render::{FluidColorMode, ParticleColorParams};
 
 // ── Acoustics (goonj integration) ──────────────────────────────────────────
 pub use acoustic_render::{AcousticColorMode, AcousticVisParams, DecayCurveParams};
+
+// ── Electromagnetism (bijli integration) ───────────────────────────────────
+pub use em_render::{EmColorMode, EmVisParams};
+
+// ── Thermodynamics (ushma integration) ─────────────────────────────────────
+pub use thermo_render::{CycleDiagramParams, ThermalColorMode, ThermalVisParams};
 
 // ── Integration ─────────────────────────────────────────────────────────────
 pub use egui_bridge::ViewportSize;

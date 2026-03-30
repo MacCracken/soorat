@@ -2,7 +2,7 @@
 
 > **Soorat** (Arabic/Urdu: صورت — form, image, appearance) — GPU rendering engine for the Kiran game engine and AGNOS ecosystem.
 
-All planned pre-1.0 features have been implemented. Version is 0.29.3.
+All planned pre-1.0 features have been implemented. Version is 0.30.0.
 
 ## Goonj Integration (acoustic visualization) — DONE
 
@@ -13,25 +13,21 @@ All planned pre-1.0 features have been implemented. Version is 0.29.3.
 - [x] **Directivity balloons**: `directivity_balloon_to_mesh()` — deformed sphere mesh with gain-based radius and heat-map coloring
 - [x] **Coupled room decay**: `coupled_decay_to_lines()` — double-slope energy decay curves with early/late color blending
 
-## Bijli Integration (electromagnetism visualization)
+## Bijli Integration (electromagnetism visualization) — DONE
 
-> Blocked on: bijli `integration/soorat.rs` module (see bijli roadmap)
+- [x] **FDTD field heatmap**: `field_slice_2d_to_mesh()` / `field_slice_3d_to_mesh()` — 2D/3D FDTD field slices as colored quad heatmaps with magnitude or signed coloring
+- [x] **Field line rendering**: `field_lines_to_lines()` — electric/magnetic field line traces as magnitude-colored polylines
+- [x] **Point charge visualization**: `charges_to_lines()` — wireframe spheres sized by charge magnitude (red=positive, blue=negative)
+- [x] **Radiation pattern**: `radiation_pattern_to_mesh()` — far-field patterns as 3D polar balloon with gain-based radius and heat-map coloring
+- [x] **Vector field arrows**: `vector_field_to_arrows()` — sampled vector fields as arrow glyphs with 4-line arrowheads
 
-- [ ] **FDTD field heatmap**: Render `Fdtd2d`/`Fdtd3d` field slices as 2D/3D heatmaps
-- [ ] **Field line rendering**: Draw electric/magnetic field line traces as colored polylines
-- [ ] **Point charge visualization**: Render charge positions with field halos (size/color by magnitude)
-- [ ] **Radiation pattern**: Render far-field patterns as 3D polar balloon or 2D polar plot
-- [ ] **Vector field arrows**: Render sampled vector fields as arrow glyphs or streamlines
+## Ushma Integration (thermodynamics visualization) — DONE
 
-## Ushma Integration (thermodynamics visualization)
-
-> Blocked on: ushma `integration/soorat.rs` module (see ushma roadmap)
-
-- [ ] **Thermal grid heatmap**: Render `ThermalGrid2D` temperature distributions as colored heatmaps
-- [ ] **Temperature profile**: Render `ThermalGrid1D` as a line or ribbon in 3D space
-- [ ] **Cycle diagrams**: Render T-s and P-v cycle diagrams as colored line plots
-- [ ] **Thermal network graph**: Render node-link diagrams with temperature-colored nodes
-- [ ] **Heat flux arrows**: Render thermal gradient vector fields as arrow glyphs
+- [x] **Thermal grid heatmap**: `thermal_grid_to_mesh()` — `ThermalGridVisualization` as colored quad heatmap with temperature or alpha-blend coloring
+- [x] **Temperature profile**: `temperature_profile_to_lines()` — 1D temperature profile as heat-mapped line strip along a 3D direction
+- [x] **Cycle diagrams**: `cycle_diagram_to_lines()` — T-s and P-v cycle diagrams as normalized colored line plots
+- [x] **Thermal network graph**: `thermal_network_to_lines()` — circular-layout node-link diagram with temperature-colored nodes and conductance-weighted edges
+- [x] **Heat flux arrows**: `heat_flux_to_arrows()` — 2D heat flux vectors as arrow glyphs on the XZ plane
 
 ## Dependency Map
 
@@ -48,8 +44,8 @@ soorat (rendering engine)
   ├── impetus      — physics (collider debug wireframes)       [optional: physics-debug]
   ├── pravash      — fluid dynamics (particle/surface render)  [optional: fluids]
   ├── goonj        — acoustics (ray paths, pressure, modes)    [optional: acoustics]
-  ├── bijli        — electromagnetism (fields, FDTD, charges)  [optional: em] (planned)
-  └── ushma        — thermodynamics (thermal grids, cycles)    [optional: thermo] (planned)
+  ├── bijli        — electromagnetism (fields, FDTD, charges)  [optional: em]
+  └── ushma        — thermodynamics (thermal grids, cycles)    [optional: thermo]
 ```
 
 ## Context for Agent
@@ -58,4 +54,4 @@ Soorat is consumed by:
 - **kiran** (`src/gpu.rs`) — `SooratRenderer` implements kiran's `Renderer` trait
 - **salai** (`src/viewport.rs`) — uses `draw_into_pass()` APIs + egui_bridge for 3D viewport
 
-Current: 278 tests, 29 benchmarks, 40 modules, 9 WGSL shaders.
+Current: 374 tests, 29 benchmarks, 42 modules, 9 WGSL shaders.

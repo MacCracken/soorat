@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0] - 2026-03-29
+
+### Added
+
+#### Electromagnetism Visualization (bijli integration)
+- `em` feature — optional dep on bijli for electromagnetic field visualization.
+- `EmColorMode` enum (Magnitude, Signed) with `#[non_exhaustive]`.
+- `EmVisParams` — color mode, base color, alpha configuration.
+- `field_slice_2d_to_mesh()` — render `FieldSlice2D` (FDTD 2D) as colored quad heatmap on XZ plane.
+- `field_slice_3d_to_mesh()` — render `FieldSlice3D` (FDTD 3D) Z-slice as colored quad heatmap.
+- `field_lines_to_lines()` — draw `FieldLineVisualization` as magnitude-colored polylines.
+- `charges_to_lines()` — draw `ChargeVisualization` as wireframe spheres (red=positive, blue=negative, sized by magnitude).
+- `radiation_pattern_to_mesh()` — render `RadiationPattern` as 3D polar balloon with gain-based radius deformation.
+- `vector_field_to_arrows()` — render `VectorFieldSample` as arrow glyphs with 4-line arrowheads.
+- `em_heat_map()` — public heat map color helper for EM data.
+
+#### Thermodynamics Visualization (ushma integration)
+- `thermo` feature — optional dep on ushma for thermal visualization.
+- `ThermalColorMode` enum (Temperature, AlphaBlend) with `#[non_exhaustive]`.
+- `ThermalVisParams` — color mode, base color, alpha configuration.
+- `CycleDiagramParams` — origin, scale, T-s/P-v colors.
+- `thermal_grid_to_mesh()` — render `ThermalGridVisualization` as colored quad heatmap with temperature or alpha-blend coloring.
+- `temperature_profile_to_lines()` — draw `TemperatureProfile` as heat-mapped line strip along a 3D direction.
+- `cycle_diagram_to_lines()` — draw `CycleDiagramData` T-s and P-v diagrams as normalized colored line plots.
+- `thermal_network_to_lines()` — draw `ThermalNetworkVisualization` as circular node-link diagram with temperature-colored nodes.
+- `heat_flux_to_arrows()` — draw `HeatFluxField` as arrow glyphs on the XZ plane.
+- `thermal_heat_map()` — public heat map color helper for thermal data.
+
+### Changed
+
+#### Dependencies
+- `bijli` 1 added as optional dep (em feature, soorat-compat).
+- `ushma` 1 added as optional dep (thermo feature, soorat-compat).
+- `full` feature now includes `em` and `thermo`.
+
 ## [0.24.3] - 2026-03-25
 
 ### Added
