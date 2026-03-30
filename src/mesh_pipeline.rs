@@ -216,181 +216,107 @@ pub struct MeshDrawParams<'a> {
 }
 
 /// 3D mesh rendering pipeline with PBR shading (Cook-Torrance/GGX/Fresnel-Schlick).
+///
+/// Uses [`mabda::RenderPipeline`] for pipeline management and
+/// [`mabda::create_uniform_buffer`] for uniform buffer creation.
 pub struct MeshPipeline {
-    render_pipeline: wgpu::RenderPipeline,
+    pipeline: mabda::RenderPipeline,
     camera_buffer: wgpu::Buffer,
     light_buffer: wgpu::Buffer,
     material_buffer: wgpu::Buffer,
     shadow_pass_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
-    material_bind_group_layout: wgpu::BindGroupLayout,
-    shadow_bind_group_layout: wgpu::BindGroupLayout,
-    ibl_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl MeshPipeline {
     /// Create a new PBR mesh pipeline for the given surface format.
     pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat) -> Result<Self> {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("pbr_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("pbr.wgsl").into()),
-        });
-
         // Group 0: camera + light_array + material + shadow uniforms
-        let uniform_entry = |binding: u32, vis: wgpu::ShaderStages| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: vis,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        };
-        let uniform_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("pbr_uniform_layout"),
-                entries: &[
-                    uniform_entry(0, wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT), // camera
-                    uniform_entry(1, wgpu::ShaderStages::FRAGMENT), // light_array
-                    uniform_entry(2, wgpu::ShaderStages::FRAGMENT), // material
-                    uniform_entry(3, wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT), // shadow
-                ],
-            });
+        let group0_entries = mabda::BindGroupLayoutBuilder::new()
+            .uniform_buffer(wgpu::ShaderStages::VERTEX_FRAGMENT) // camera
+            .uniform_buffer(wgpu::ShaderStages::FRAGMENT) // light_array
+            .uniform_buffer(wgpu::ShaderStages::FRAGMENT) // material
+            .uniform_buffer(wgpu::ShaderStages::VERTEX_FRAGMENT) // shadow
+            .into_entries();
 
         // Group 1: textures (base color + sampler)
-        let material_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("pbr_material_layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            });
+        let group1_entries = mabda::BindGroupLayoutBuilder::new()
+            .texture_2d(wgpu::ShaderStages::FRAGMENT)
+            .sampler(wgpu::ShaderStages::FRAGMENT)
+            .into_entries();
 
         // Group 2: shadow map (depth texture + comparison sampler)
-        let shadow_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("pbr_shadow_layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Depth,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
-                        count: None,
-                    },
-                ],
-            });
+        let group2_entries = mabda::BindGroupLayoutBuilder::new()
+            .texture_depth_2d(wgpu::ShaderStages::FRAGMENT)
+            .comparison_sampler(wgpu::ShaderStages::FRAGMENT)
+            .into_entries();
 
         // Group 3: IBL (irradiance cubemap + prefiltered cubemap + BRDF LUT)
-        let ibl_bind_group_layout = crate::environment::IblBindGroup::layout(device);
+        let group3_entries = mabda::BindGroupLayoutBuilder::new()
+            .texture_cube(wgpu::ShaderStages::FRAGMENT)
+            .sampler(wgpu::ShaderStages::FRAGMENT)
+            .texture_cube(wgpu::ShaderStages::FRAGMENT)
+            .sampler(wgpu::ShaderStages::FRAGMENT)
+            .texture_2d(wgpu::ShaderStages::FRAGMENT)
+            .sampler(wgpu::ShaderStages::FRAGMENT)
+            .into_entries();
 
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("pbr_pipeline_layout"),
-            bind_group_layouts: &[
-                Some(&uniform_bind_group_layout),
-                Some(&material_bind_group_layout),
-                Some(&shadow_bind_group_layout),
-                Some(&ibl_bind_group_layout),
-            ],
-            immediate_size: 0,
-        });
+        let pipeline = mabda::RenderPipelineBuilder::new(
+            device,
+            include_str!("pbr.wgsl"),
+            "vs_main",
+            "fs_main",
+        )
+        .label("mesh_pipeline")
+        .vertex_layout(Vertex3D::layout())
+        .bind_group(group0_entries)
+        .bind_group(group1_entries)
+        .bind_group(group2_entries)
+        .bind_group(group3_entries)
+        .color_target(surface_format, Some(wgpu::BlendState::ALPHA_BLENDING))
+        .cull_mode(Some(wgpu::Face::Back))
+        .depth_stencil(wgpu::DepthStencilState {
+            format: DepthBuffer::FORMAT,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::Less),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        })
+        .build()?;
 
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("mesh_pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[Vertex3D::layout()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DepthBuffer::FORMAT,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        let cam_defaults = CameraUniforms::default();
+        let camera_buffer = mabda::create_uniform_buffer(
+            device,
+            bytemuck::bytes_of(&cam_defaults),
+            "camera_uniform_buffer",
+        );
 
-        let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("camera_uniform_buffer"),
-            size: std::mem::size_of::<CameraUniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let light_defaults = crate::lights::LightArrayUniforms::default();
+        let light_buffer = mabda::create_uniform_buffer(
+            device,
+            bytemuck::bytes_of(&light_defaults),
+            "light_array_uniform_buffer",
+        );
 
-        let light_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("light_array_uniform_buffer"),
-            size: std::mem::size_of::<crate::lights::LightArrayUniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let mat_defaults = crate::pbr_material::MaterialUniforms::default();
+        let material_buffer = mabda::create_uniform_buffer(
+            device,
+            bytemuck::bytes_of(&mat_defaults),
+            "material_uniform_buffer",
+        );
 
-        let material_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("material_uniform_buffer"),
-            size: std::mem::size_of::<crate::pbr_material::MaterialUniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let shadow_pass_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("shadow_pass_uniform_buffer"),
-            size: std::mem::size_of::<ShadowPassUniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let shadow_defaults = ShadowPassUniforms::default();
+        let shadow_pass_buffer = mabda::create_uniform_buffer(
+            device,
+            bytemuck::bytes_of(&shadow_defaults),
+            "shadow_pass_uniform_buffer",
+        );
 
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("pbr_uniform_bind_group"),
-            layout: &uniform_bind_group_layout,
+            layout: pipeline
+                .bind_group_layout(0)
+                .expect("mesh pipeline has bind group 0"),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -412,21 +338,20 @@ impl MeshPipeline {
         });
 
         Ok(Self {
-            render_pipeline,
+            pipeline,
             camera_buffer,
             light_buffer,
             material_buffer,
             shadow_pass_buffer,
             uniform_bind_group,
-            material_bind_group_layout,
-            shadow_bind_group_layout,
-            ibl_bind_group_layout,
         })
     }
 
     /// Get the material bind group layout for creating material bind groups.
     pub fn material_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
-        &self.material_bind_group_layout
+        self.pipeline
+            .bind_group_layout(1)
+            .expect("mesh pipeline has bind group 1")
     }
 
     /// Update camera uniforms (view-projection + model matrix).
@@ -455,12 +380,16 @@ impl MeshPipeline {
 
     /// Get the shadow bind group layout for creating shadow bind groups.
     pub fn shadow_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
-        &self.shadow_bind_group_layout
+        self.pipeline
+            .bind_group_layout(2)
+            .expect("mesh pipeline has bind group 2")
     }
 
     /// Get the IBL bind group layout for creating IBL bind groups.
     pub fn ibl_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
-        &self.ibl_bind_group_layout
+        self.pipeline
+            .bind_group_layout(3)
+            .expect("mesh pipeline has bind group 3")
     }
 
     /// Create a shadow bind group from a shadow map.
@@ -471,7 +400,7 @@ impl MeshPipeline {
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("shadow_bind_group"),
-            layout: &self.shadow_bind_group_layout,
+            layout: self.shadow_bind_group_layout(),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -520,7 +449,7 @@ impl MeshPipeline {
                 ..Default::default()
             });
 
-            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_pipeline(self.pipeline.raw());
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
             render_pass.set_bind_group(1, params.material_bind_group, &[]);
             render_pass.set_bind_group(2, params.shadow_bind_group, &[]);
@@ -546,7 +475,7 @@ impl MeshPipeline {
         shadow_bind_group: &'a wgpu::BindGroup,
         ibl_bind_group: &'a wgpu::BindGroup,
     ) {
-        render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_pipeline(self.pipeline.raw());
         render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
         render_pass.set_bind_group(1, material_bind_group, &[]);
         render_pass.set_bind_group(2, shadow_bind_group, &[]);

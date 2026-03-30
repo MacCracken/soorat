@@ -35,99 +35,45 @@ impl PostProcessUniforms {
 }
 
 /// Post-processing pipeline — renders a full-screen quad with tone mapping.
+///
+/// Uses [`mabda::RenderPipeline`] for pipeline management and
+/// [`mabda::create_uniform_buffer`] for uniform buffer creation.
 pub struct PostProcessPipeline {
-    render_pipeline: wgpu::RenderPipeline,
+    pipeline: mabda::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
-    bind_group_layout: wgpu::BindGroupLayout,
     uniform_bind_group: Option<wgpu::BindGroup>,
 }
 
 impl PostProcessPipeline {
     /// Create a post-process pipeline for the given output format.
     pub fn new(device: &wgpu::Device, output_format: wgpu::TextureFormat) -> Result<Self> {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("postprocess_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("postprocess.wgsl").into()),
-        });
+        let pipeline = mabda::RenderPipelineBuilder::new(
+            device,
+            include_str!("postprocess.wgsl"),
+            "vs_main",
+            "fs_no_bloom",
+        )
+        .label("postprocess_pipeline")
+        .bind_group(
+            mabda::BindGroupLayoutBuilder::new()
+                .texture_2d(wgpu::ShaderStages::FRAGMENT)
+                .sampler(wgpu::ShaderStages::FRAGMENT)
+                .uniform_buffer(wgpu::ShaderStages::FRAGMENT)
+                .into_entries(),
+        )
+        .color_target(output_format, None)
+        .build()?;
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("postprocess_layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("postprocess_pipeline_layout"),
-            bind_group_layouts: &[Some(&bind_group_layout)],
-            immediate_size: 0,
-        });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("postprocess_pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[], // full-screen triangle from vertex_index
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_no_bloom"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: output_format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("postprocess_uniform_buffer"),
-            size: std::mem::size_of::<PostProcessUniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let defaults = PostProcessUniforms::default();
+        let uniform_buffer = mabda::create_uniform_buffer(
+            device,
+            bytemuck::bytes_of(&defaults),
+            "postprocess_uniform_buffer",
+        );
 
         Ok(Self {
-            render_pipeline,
+            pipeline,
             uniform_buffer,
-            bind_group_layout,
             uniform_bind_group: None,
         })
     }
@@ -139,24 +85,29 @@ impl PostProcessPipeline {
         input_view: &wgpu::TextureView,
         sampler: &wgpu::Sampler,
     ) {
-        self.uniform_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("postprocess_bind_group"),
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(input_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.uniform_buffer.as_entire_binding(),
-                },
-            ],
-        }));
+        self.uniform_bind_group = Some(
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("postprocess_bind_group"),
+                layout: self
+                    .pipeline
+                    .bind_group_layout(0)
+                    .expect("postprocess pipeline has bind group 0"),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(input_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.uniform_buffer.as_entire_binding(),
+                    },
+                ],
+            }),
+        );
     }
 
     /// Update post-process parameters.
@@ -195,7 +146,7 @@ impl PostProcessPipeline {
                 ..Default::default()
             });
 
-            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_pipeline(self.pipeline.raw());
             render_pass.set_bind_group(0, bind_group, &[]);
             render_pass.draw(0..3, 0..1); // full-screen triangle
         }

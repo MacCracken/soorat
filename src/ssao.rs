@@ -33,121 +33,47 @@ impl SsaoUniforms {
 
 /// SSAO pipeline — renders screen-space ambient occlusion to a single-channel texture.
 /// Input: depth buffer + normal buffer. Output: occlusion texture (R channel, 0=occluded, 1=open).
+///
+/// Uses [`mabda::RenderPipeline`] for pipeline management and
+/// [`mabda::create_uniform_buffer`] for uniform buffer creation.
 pub struct SsaoPipeline {
-    render_pipeline: wgpu::RenderPipeline,
+    pipeline: mabda::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
-    bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl SsaoPipeline {
     /// Create an SSAO pipeline. Output format is typically R8Unorm or R16Float.
-    #[must_use]
-    pub fn new(device: &wgpu::Device, output_format: wgpu::TextureFormat) -> Self {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("ssao_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("ssao.wgsl").into()),
-        });
+    pub fn new(device: &wgpu::Device, output_format: wgpu::TextureFormat) -> mabda::Result<Self> {
+        let pipeline = mabda::RenderPipelineBuilder::new(
+            device,
+            include_str!("ssao.wgsl"),
+            "vs_main",
+            "fs_main",
+        )
+        .label("ssao_pipeline")
+        .bind_group(
+            mabda::BindGroupLayoutBuilder::new()
+                .texture_depth_2d(wgpu::ShaderStages::FRAGMENT)
+                .sampler(wgpu::ShaderStages::FRAGMENT)
+                .texture_2d(wgpu::ShaderStages::FRAGMENT)
+                .sampler(wgpu::ShaderStages::FRAGMENT)
+                .uniform_buffer(wgpu::ShaderStages::FRAGMENT)
+                .into_entries(),
+        )
+        .color_target(output_format, None)
+        .build()?;
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("ssao_layout"),
-            entries: &[
-                // depth texture
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                // depth sampler
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                // normal texture
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                // normal sampler
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                // uniforms
-                wgpu::BindGroupLayoutEntry {
-                    binding: 4,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
+        let defaults = SsaoUniforms::default();
+        let uniform_buffer = mabda::create_uniform_buffer(
+            device,
+            bytemuck::bytes_of(&defaults),
+            "ssao_uniform_buffer",
+        );
 
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("ssao_pipeline_layout"),
-            bind_group_layouts: &[Some(&bind_group_layout)],
-            immediate_size: 0,
-        });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("ssao_pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: output_format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("ssao_uniform_buffer"),
-            size: std::mem::size_of::<SsaoUniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        Self {
-            render_pipeline,
+        Ok(Self {
+            pipeline,
             uniform_buffer,
-            bind_group_layout,
-        }
+        })
     }
 
     /// Update SSAO uniforms (radius, bias, intensity, sample count, projection matrices).
@@ -166,7 +92,10 @@ impl SsaoPipeline {
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("ssao_bind_group"),
-            layout: &self.bind_group_layout,
+            layout: self
+                .pipeline
+                .bind_group_layout(0)
+                .expect("ssao pipeline has bind group 0"),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -219,7 +148,7 @@ impl SsaoPipeline {
                 depth_stencil_attachment: None,
                 ..Default::default()
             });
-            pass.set_pipeline(&self.render_pipeline);
+            pass.set_pipeline(self.pipeline.raw());
             pass.set_bind_group(0, bind_group, &[]);
             pass.draw(0..3, 0..1);
         }

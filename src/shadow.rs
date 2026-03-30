@@ -163,6 +163,11 @@ pub fn directional_light_matrix(
 }
 
 /// Shadow pass pipeline — renders depth-only from the light's perspective.
+///
+/// Note: This pipeline uses `fragment: None` (depth-only rendering), which is
+/// not supported by `mabda::RenderPipelineBuilder`. The uniform buffer is
+/// created via [`mabda::create_uniform_buffer`], and the bind group layout
+/// uses [`mabda::BindGroupLayoutBuilder`].
 pub struct ShadowPipeline {
     render_pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
@@ -176,19 +181,9 @@ impl ShadowPipeline {
             source: wgpu::ShaderSource::Wgsl(include_str!("shadow.wgsl").into()),
         });
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("shadow_uniform_layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
+        let bind_group_layout = mabda::BindGroupLayoutBuilder::new()
+            .uniform_buffer(wgpu::ShaderStages::VERTEX)
+            .build(device, "shadow_uniform_layout");
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("shadow_pipeline_layout"),
@@ -196,6 +191,7 @@ impl ShadowPipeline {
             immediate_size: 0,
         });
 
+        // Depth-only pipeline (fragment: None) — cannot use mabda::RenderPipelineBuilder
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("shadow_pipeline"),
             layout: Some(&pipeline_layout),
@@ -227,12 +223,12 @@ impl ShadowPipeline {
             cache: None,
         });
 
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("shadow_uniform_buffer"),
-            size: std::mem::size_of::<ShadowUniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let defaults = ShadowUniforms::default();
+        let uniform_buffer = mabda::create_uniform_buffer(
+            device,
+            bytemuck::bytes_of(&defaults),
+            "shadow_uniform_buffer",
+        );
 
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("shadow_uniform_bind_group"),

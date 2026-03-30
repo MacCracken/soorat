@@ -95,109 +95,52 @@ pub struct BloomTargets<'a> {
 
 /// Bloom pipeline — orchestrates threshold extraction + separable Gaussian blur.
 /// Requires 2 intermediate textures (same format as HDR framebuffer).
+///
+/// Uses [`mabda::RenderPipeline`] for pipeline management and
+/// [`mabda::create_uniform_buffer`] for uniform buffer creation.
 pub struct BloomPipeline {
-    threshold_pipeline: wgpu::RenderPipeline,
-    blur_h_pipeline: wgpu::RenderPipeline,
-    blur_v_pipeline: wgpu::RenderPipeline,
+    threshold_pipeline: mabda::RenderPipeline,
+    blur_h_pipeline: mabda::RenderPipeline,
+    blur_v_pipeline: mabda::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
-    bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl BloomPipeline {
-    #[must_use]
-    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("bloom_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("bloom.wgsl").into()),
-        });
+    /// Create a bloom pipeline. Returns `None` if pipeline creation fails.
+    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Option<Self> {
+        let shader_src = include_str!("bloom.wgsl");
+        let bind_entries = mabda::BindGroupLayoutBuilder::new()
+            .texture_2d(wgpu::ShaderStages::FRAGMENT)
+            .sampler(wgpu::ShaderStages::FRAGMENT)
+            .uniform_buffer(wgpu::ShaderStages::FRAGMENT)
+            .into_entries();
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("bloom_layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
+        let make_pipeline =
+            |label: &str, fs_entry: &str| -> Result<mabda::RenderPipeline, mabda::GpuError> {
+                mabda::RenderPipelineBuilder::new(device, shader_src, "vs_main", fs_entry)
+                    .label(label)
+                    .bind_group(bind_entries.clone())
+                    .color_target(format, None)
+                    .build()
+            };
 
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("bloom_pipeline_layout"),
-            bind_group_layouts: &[Some(&bind_group_layout)],
-            immediate_size: 0,
-        });
+        let threshold_pipeline = make_pipeline("bloom_threshold", "fs_threshold").ok()?;
+        let blur_h_pipeline = make_pipeline("bloom_blur_h", "fs_blur_h").ok()?;
+        let blur_v_pipeline = make_pipeline("bloom_blur_v", "fs_blur_v").ok()?;
 
-        let make_pipeline = |label: &str, entry: &str| -> wgpu::RenderPipeline {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(label),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vs_main"),
-                    buffers: &[],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some(entry),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            })
-        };
+        let defaults = BloomUniforms::default();
+        let uniform_buffer = mabda::create_uniform_buffer(
+            device,
+            bytemuck::bytes_of(&defaults),
+            "bloom_uniform_buffer",
+        );
 
-        let threshold_pipeline = make_pipeline("bloom_threshold", "fs_threshold");
-        let blur_h_pipeline = make_pipeline("bloom_blur_h", "fs_blur_h");
-        let blur_v_pipeline = make_pipeline("bloom_blur_v", "fs_blur_v");
-
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("bloom_uniform_buffer"),
-            size: std::mem::size_of::<BloomUniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        Self {
+        Some(Self {
             threshold_pipeline,
             blur_h_pipeline,
             blur_v_pipeline,
             uniform_buffer,
-            bind_group_layout,
-        }
+        })
     }
 
     /// Create a bind group for a bloom pass input.
@@ -209,7 +152,10 @@ impl BloomPipeline {
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("bloom_bind_group"),
-            layout: &self.bind_group_layout,
+            layout: self
+                .threshold_pipeline
+                .bind_group_layout(0)
+                .expect("bloom pipeline has bind group 0"),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -259,7 +205,7 @@ impl BloomPipeline {
                 depth_stencil_attachment: None,
                 ..Default::default()
             });
-            pass.set_pipeline(&self.threshold_pipeline);
+            pass.set_pipeline(self.threshold_pipeline.raw());
             pass.set_bind_group(0, targets.hdr_bind_group, &[]);
             pass.draw(0..3, 0..1);
         }
@@ -280,7 +226,7 @@ impl BloomPipeline {
                 depth_stencil_attachment: None,
                 ..Default::default()
             });
-            pass.set_pipeline(&self.blur_h_pipeline);
+            pass.set_pipeline(self.blur_h_pipeline.raw());
             pass.set_bind_group(0, targets.bright_bind_group, &[]);
             pass.draw(0..3, 0..1);
         }
@@ -301,7 +247,7 @@ impl BloomPipeline {
                 depth_stencil_attachment: None,
                 ..Default::default()
             });
-            pass.set_pipeline(&self.blur_v_pipeline);
+            pass.set_pipeline(self.blur_v_pipeline.raw());
             pass.set_bind_group(0, targets.blur_temp_bind_group, &[]);
             pass.draw(0..3, 0..1);
         }

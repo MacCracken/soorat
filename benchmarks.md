@@ -5,77 +5,77 @@ Three-point tracking: **baseline** (first run) / **previous** / **latest**
 | Point | Date | Commit |
 |-------|------|--------|
 | Baseline | 2026-03-24T01:43:33Z | `67abd0e` |
-| Previous | 2026-03-30T03:22:05Z | `2323745` |
-| Latest | 2026-03-30T03:44:09Z | `2323745` |
+| Previous | 2026-03-30T03:44:09Z | `2323745` |
+| Latest | 2026-03-30T04:03:06Z | `3ed0855` |
 
 ## color
 
 | Benchmark | Baseline | Previous | Latest |
 |-----------|----------|----------|--------|
-| `from_hex` | 1.44 ns | 996.00 ps | 1.00 ns |
-| `from_rgba8` | 1.89 ns | 3.48 ns | 3.50 ns |
-| `lerp` | 2.77 ns | 1.36 ns | 1.20 ns |
-| `luminance` | 1.37 ns | 767.20 ps | 804.40 ps |
-| `to_array` | 2.10 ns | 548.40 ps | 542.70 ps |
+| `from_hex` | 1.44 ns | 1.00 ns | 984.20 ps |
+| `from_rgba8` | 1.89 ns | 3.50 ns | 3.45 ns |
+| `lerp` | 2.77 ns | 1.20 ns | 1.36 ns |
+| `luminance` | 1.37 ns | 804.40 ps | 835.00 ps |
+| `to_array` | 2.10 ns | 542.70 ps | 561.30 ps |
 
 ## sprite
 
 | Benchmark | Baseline | Previous | Latest |
 |-----------|----------|----------|--------|
-| `create` | 3.04 ns | 2.31 ns | 2.26 ns |
-| `create_full_builder` | 3.31 ns | 3.67 ns | 3.81 ns |
-| `center_bounds` | 474.20 ps | 263.00 ps | 279.60 ps |
-| `batch_push_100` | 790.76 ns | 842.54 ns | 854.18 ns |
-| `batch_push_100_prealloc` | 758.53 ns | 839.04 ns | 853.58 ns |
-| `batch_sort_100` | 71.03 ns | 97.22 ns | 116.59 ns |
-| `batch_push_1000` | 7.89 µs | 8.61 µs | 8.84 µs |
-| `batch_sort_1000` | 530.06 ns | 597.57 ns | 625.13 ns |
+| `create` | 3.04 ns | 2.26 ns | 2.21 ns |
+| `create_full_builder` | 3.31 ns | 3.81 ns | 3.68 ns |
+| `center_bounds` | 474.20 ps | 279.60 ps | 260.50 ps |
+| `batch_push_100` | 790.76 ns | 854.18 ns | 844.95 ns |
+| `batch_push_100_prealloc` | 758.53 ns | 853.58 ns | 838.04 ns |
+| `batch_sort_100` | 71.03 ns | 116.59 ns | 83.12 ns |
+| `batch_push_1000` | 7.89 µs | 8.84 µs | 8.72 µs |
+| `batch_sort_1000` | 530.06 ns | 625.13 ns | 584.55 ns |
 
 ## vertex
 
 | Benchmark | Baseline | Previous | Latest |
 |-----------|----------|----------|--------|
-| `bytemuck_cast_100` | 750.50 ps | 806.80 ps | 813.30 ps |
-| `quad_generation_100` | 694.53 ns | 742.41 ns | 720.98 ns |
+| `bytemuck_cast_100` | 750.50 ps | 813.30 ps | 795.90 ps |
+| `quad_generation_100` | 694.53 ns | 720.98 ns | 790.97 ns |
 
 ## pipeline
 
 | Benchmark | Baseline | Previous | Latest |
 |-----------|----------|----------|--------|
-| `batch_to_vertices_100` | 1.24 µs | 1.35 µs | 1.35 µs |
-| `batch_to_vertices_1000` | 11.53 µs | 13.54 µs | 13.42 µs |
-| `batch_to_vertices_rotated_100` | 1.71 µs | 2.14 µs | 2.07 µs |
-| `batch_to_vertices_into_1000` | 11.23 µs | 15.26 µs | 13.67 µs |
+| `batch_to_vertices_100` | 1.24 µs | 1.35 µs | 1.41 µs |
+| `batch_to_vertices_1000` | 11.53 µs | 13.42 µs | 13.57 µs |
+| `batch_to_vertices_rotated_100` | 1.71 µs | 2.07 µs | 2.10 µs |
+| `batch_to_vertices_into_1000` | 11.23 µs | 13.67 µs | 13.81 µs |
 
 ## debug_draw
 
 | Benchmark | Baseline | Previous | Latest |
 |-----------|----------|----------|--------|
-| `wire_box_100` | 3.92 µs | 4.94 µs | 4.53 µs |
-| `wire_sphere_100` | 23.24 µs | 30.47 µs | 28.62 µs |
-| `grid_10x10` | 93.47 ns | 120.52 ns | 112.83 ns |
+| `wire_box_100` | 3.92 µs | 4.53 µs | 4.54 µs |
+| `wire_sphere_100` | 23.24 µs | 28.62 µs | 31.41 µs |
+| `grid_10x10` | 93.47 ns | 112.83 ns | 135.96 ns |
 
 ## terrain
 
 | Benchmark | Baseline | Previous | Latest |
 |-----------|----------|----------|--------|
-| `generate_32x32` | — | 13.87 µs | 13.86 µs |
-| `generate_64x64` | — | 59.92 µs | 53.56 µs |
+| `generate_32x32` | — | 13.86 µs | 14.26 µs |
+| `generate_64x64` | — | 53.56 µs | 55.98 µs |
 
 ## animation
 
 | Benchmark | Baseline | Previous | Latest |
 |-----------|----------|----------|--------|
-| `compute_joints_16` | — | 479.65 ns | 444.14 ns |
-| `compute_joints_64` | — | 2.24 µs | 1.83 µs |
+| `compute_joints_16` | — | 444.14 ns | 433.68 ns |
+| `compute_joints_64` | — | 1.83 µs | 1.77 µs |
 
 ## shadow
 
 | Benchmark | Baseline | Previous | Latest |
 |-----------|----------|----------|--------|
-| `directional_matrix` | — | 54.86 ns | 53.22 ns |
-| `cascade_splits_4` | — | 41.37 ns | 38.30 ns |
-| `point_shadow_6_faces` | — | 270.47 ns | 245.78 ns |
+| `directional_matrix` | — | 53.22 ns | 53.02 ns |
+| `cascade_splits_4` | — | 38.30 ns | 38.29 ns |
+| `point_shadow_6_faces` | — | 245.78 ns | 245.34 ns |
 
 ---
 

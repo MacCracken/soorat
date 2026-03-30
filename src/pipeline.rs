@@ -132,115 +132,52 @@ pub struct SpriteBatchDrawParams<'a> {
 }
 
 /// Sprite rendering pipeline — holds the wgpu pipeline, bind group layouts, and buffers.
+///
+/// Uses [`mabda::RenderPipeline`] for pipeline management and
+/// [`mabda::create_uniform_buffer`] for uniform buffer creation.
 pub struct SpritePipeline {
-    render_pipeline: wgpu::RenderPipeline,
+    pipeline: mabda::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
-    texture_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl SpritePipeline {
     /// Create a new sprite pipeline for the given surface format.
     pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat) -> Result<Self> {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("sprite_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("sprite.wgsl").into()),
-        });
-
-        // Uniform bind group layout (group 0): projection matrix
-        let uniform_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("sprite_uniform_layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
-        // Texture bind group layout (group 1): texture + sampler
-        let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("sprite_texture_layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("sprite_pipeline_layout"),
-            bind_group_layouts: &[
-                Some(&uniform_bind_group_layout),
-                Some(&texture_bind_group_layout),
-            ],
-            immediate_size: 0,
-        });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("sprite_pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[Vertex2D::layout()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                unclipped_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        let pipeline = mabda::RenderPipelineBuilder::new(
+            device,
+            include_str!("sprite.wgsl"),
+            "vs_main",
+            "fs_main",
+        )
+        .label("sprite_pipeline")
+        .vertex_layout(Vertex2D::layout())
+        .bind_group(
+            mabda::BindGroupLayoutBuilder::new()
+                .uniform_buffer(wgpu::ShaderStages::VERTEX)
+                .into_entries(),
+        )
+        .bind_group(
+            mabda::BindGroupLayoutBuilder::new()
+                .texture_2d(wgpu::ShaderStages::FRAGMENT)
+                .sampler(wgpu::ShaderStages::FRAGMENT)
+                .into_entries(),
+        )
+        .color_target(surface_format, Some(wgpu::BlendState::ALPHA_BLENDING))
+        .build()?;
 
         // Create uniform buffer with identity projection (updated per frame)
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("sprite_uniform_buffer"),
-            size: 64, // mat4x4<f32> = 16 * 4 bytes
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let uniform_buffer = mabda::create_uniform_buffer(
+            device,
+            bytemuck::cast_slice(&[0.0_f32; 16]),
+            "sprite_uniform_buffer",
+        );
 
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("sprite_uniform_bind_group"),
-            layout: &uniform_bind_group_layout,
+            layout: pipeline
+                .bind_group_layout(0)
+                .expect("sprite pipeline has bind group 0"),
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: uniform_buffer.as_entire_binding(),
@@ -248,17 +185,18 @@ impl SpritePipeline {
         });
 
         Ok(Self {
-            render_pipeline,
+            pipeline,
             uniform_buffer,
             uniform_bind_group,
-            texture_bind_group_layout,
         })
     }
 
     /// Get the texture bind group layout for creating texture bind groups.
     #[must_use]
     pub fn texture_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
-        &self.texture_bind_group_layout
+        self.pipeline
+            .bind_group_layout(1)
+            .expect("sprite pipeline has bind group 1")
     }
 
     /// Update the projection matrix for the current viewport size.
@@ -307,7 +245,7 @@ impl SpritePipeline {
             let mut render_pass = Self::begin_pass(&mut encoder, view, clear_color);
 
             if !batch.is_empty() {
-                render_pass.set_pipeline(&self.render_pipeline);
+                render_pass.set_pipeline(self.pipeline.raw());
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 render_pass.set_bind_group(1, texture_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
@@ -350,7 +288,7 @@ impl SpritePipeline {
             let mut render_pass = Self::begin_pass(&mut encoder, view, clear_color);
 
             if index_count > 0 {
-                render_pass.set_pipeline(&self.render_pipeline);
+                render_pass.set_pipeline(self.pipeline.raw());
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 render_pass.set_bind_group(1, texture_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, buffers.vertex_buffer.slice(..));
@@ -392,7 +330,7 @@ impl SpritePipeline {
             let mut render_pass = Self::begin_pass(&mut encoder, params.view, params.clear_color);
 
             if !params.batch.is_empty() {
-                render_pass.set_pipeline(&self.render_pipeline);
+                render_pass.set_pipeline(self.pipeline.raw());
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                 render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
@@ -491,7 +429,7 @@ impl SpritePipeline {
         }
         let (vertices, indices) = batch_to_vertices(batch);
         let (vertex_buffer, index_buffer) = Self::upload_buffers(device, &vertices, &indices);
-        render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_pipeline(self.pipeline.raw());
         render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
         render_pass.set_bind_group(1, texture_bind_group, &[]);
         render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));

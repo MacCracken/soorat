@@ -3,7 +3,6 @@
 use crate::color::Color;
 use crate::error::Result;
 use crate::mesh_pipeline::DepthBuffer;
-use wgpu::util::DeviceExt;
 
 /// A vertex for debug line rendering: 3D position + RGBA color.
 #[repr(C)]
