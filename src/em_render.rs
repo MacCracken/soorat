@@ -41,38 +41,13 @@ impl Default for EmVisParams {
 
 // ── CPU-only helpers (no feature gate) ──────────────────────────────────────
 
-/// EM heat map: scalar \[0,1\] → blue→cyan→green→yellow→red.
-fn heat_map(t: f32) -> Color {
-    let t = t.clamp(0.0, 1.0);
-    if t < 0.25 {
-        let s = t / 0.25;
-        Color::new(0.0, s, 1.0, 1.0)
-    } else if t < 0.5 {
-        let s = (t - 0.25) / 0.25;
-        Color::new(0.0, 1.0, 1.0 - s, 1.0)
-    } else if t < 0.75 {
-        let s = (t - 0.5) / 0.25;
-        Color::new(s, 1.0, 0.0, 1.0)
-    } else {
-        let s = (t - 0.75) / 0.25;
-        Color::new(1.0, 1.0 - s, 0.0, 1.0)
-    }
-}
-
-/// Signed field color: blue for negative, red for positive, black at zero.
-fn signed_field_color(v: f32) -> Color {
-    let v = v.clamp(-1.0, 1.0);
-    if v >= 0.0 {
-        Color::new(v, 0.0, 0.0, 1.0)
-    } else {
-        Color::new(0.0, 0.0, -v, 1.0)
-    }
-}
+use crate::color::{signed_value_color, visualization_heat_map};
+use crate::math_util::normal_to_basis;
 
 /// EM heat map exposed for general use.
 #[must_use]
 pub fn em_heat_map(t: f32) -> Color {
-    heat_map(t)
+    visualization_heat_map(t)
 }
 
 // ── 1. FDTD field heatmap ─────────────────────────────────────────────────
@@ -81,6 +56,7 @@ pub fn em_heat_map(t: f32) -> Color {
 ///
 /// Each grid cell becomes a colored quad on the XZ plane at `y_pos`.
 /// Field values are normalized to \[0,1\] for color mapping.
+#[must_use]
 #[cfg(feature = "em")]
 pub fn field_slice_2d_to_mesh(
     slice: &bijli::integration::soorat::FieldSlice2D,
@@ -123,7 +99,7 @@ pub fn field_slice_2d_to_mesh(
             let color = match params.color_mode {
                 EmColorMode::Magnitude => {
                     let t = ((v - min_val) / range) as f32;
-                    let mut c = heat_map(t);
+                    let mut c = visualization_heat_map(t);
                     c.a = params.alpha;
                     c
                 }
@@ -133,7 +109,7 @@ pub fn field_slice_2d_to_mesh(
                     } else {
                         0.0
                     };
-                    let mut c = signed_field_color(t);
+                    let mut c = signed_value_color(t);
                     c.a = params.alpha;
                     c
                 }
@@ -197,6 +173,7 @@ pub fn field_slice_2d_to_mesh(
 /// Generate a mesh for a 3D FDTD field at a specific Z-slice as a colored heatmap.
 ///
 /// `z_index` selects which Z-layer to render (0..dimensions\[2\]).
+#[must_use]
 #[cfg(feature = "em")]
 pub fn field_slice_3d_to_mesh(
     slice: &bijli::integration::soorat::FieldSlice3D,
@@ -249,7 +226,7 @@ pub fn field_slice_3d_to_mesh(
             let color = match params.color_mode {
                 EmColorMode::Magnitude => {
                     let t = ((v - min_val) / range) as f32;
-                    let mut c = heat_map(t);
+                    let mut c = visualization_heat_map(t);
                     c.a = params.alpha;
                     c
                 }
@@ -259,7 +236,7 @@ pub fn field_slice_3d_to_mesh(
                     } else {
                         0.0
                     };
-                    let mut c = signed_field_color(t);
+                    let mut c = signed_value_color(t);
                     c.a = params.alpha;
                     c
                 }
@@ -362,7 +339,7 @@ pub fn field_lines_to_lines(
                 0.0
             };
             let t = (mag / max_mag) as f32;
-            let color = heat_map(t);
+            let color = visualization_heat_map(t);
 
             batch.line(p0, p1, color);
         }
@@ -405,6 +382,7 @@ pub fn charges_to_lines(
 /// The pattern is rendered as a deformed sphere where the radius at each
 /// angle is proportional to the pattern magnitude. `base_radius` is the
 /// minimum radius, `gain_scale` controls deformation amplitude.
+#[must_use]
 #[cfg(feature = "em")]
 pub fn radiation_pattern_to_mesh(
     pattern: &bijli::integration::soorat::RadiationPattern,
@@ -455,7 +433,7 @@ pub fn radiation_pattern_to_mesh(
 
             // Color by normalized gain
             let t = gain.clamp(0.0, 1.0);
-            let c = heat_map(t).to_array();
+            let c = visualization_heat_map(t).to_array();
 
             vertices.push(Vertex3D {
                 position: pos,
@@ -556,7 +534,7 @@ pub fn vector_field_to_arrows(
                 let vz = v[2] as f32;
                 let mag = (vx * vx + vy * vy + vz * vz).sqrt();
 
-                if mag < f32::EPSILON {
+                if !mag.is_finite() || mag < f32::EPSILON {
                     continue;
                 }
 
@@ -576,7 +554,7 @@ pub fn vector_field_to_arrows(
                 let tip = [base[0] + dx * len, base[1] + dy * len, base[2] + dz * len];
 
                 let t = (mag / max_mag).clamp(0.0, 1.0);
-                let color = heat_map(t);
+                let color = visualization_heat_map(t);
 
                 // Shaft
                 batch.line(base, tip, color);
@@ -621,29 +599,6 @@ pub fn vector_field_to_arrows(
     }
 }
 
-/// Compute a right/up basis from a direction vector.
-fn normal_to_basis(n: [f32; 3]) -> ([f32; 3], [f32; 3]) {
-    let ref_vec = if n[1].abs() < 0.99 {
-        [0.0, 1.0, 0.0]
-    } else {
-        [1.0, 0.0, 0.0]
-    };
-
-    let rx = n[1] * ref_vec[2] - n[2] * ref_vec[1];
-    let ry = n[2] * ref_vec[0] - n[0] * ref_vec[2];
-    let rz = n[0] * ref_vec[1] - n[1] * ref_vec[0];
-    let rlen = (rx * rx + ry * ry + rz * rz).sqrt().max(f32::EPSILON);
-    let right = [rx / rlen, ry / rlen, rz / rlen];
-
-    let ux = right[1] * n[2] - right[2] * n[1];
-    let uy = right[2] * n[0] - right[0] * n[2];
-    let uz = right[0] * n[1] - right[1] * n[0];
-    let ulen = (ux * ux + uy * uy + uz * uz).sqrt().max(f32::EPSILON);
-    let up = [ux / ulen, uy / ulen, uz / ulen];
-
-    (right, up)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -652,18 +607,18 @@ mod tests {
 
     #[test]
     fn heat_map_endpoints() {
-        let cold = heat_map(0.0);
+        let cold = visualization_heat_map(0.0);
         assert_eq!(cold.b, 1.0);
-        let hot = heat_map(1.0);
+        let hot = visualization_heat_map(1.0);
         assert_eq!(hot.r, 1.0);
         assert_eq!(hot.g, 0.0);
     }
 
     #[test]
     fn heat_map_clamps() {
-        let under = heat_map(-1.0);
+        let under = visualization_heat_map(-1.0);
         assert_eq!(under.b, 1.0);
-        let over = heat_map(2.0);
+        let over = visualization_heat_map(2.0);
         assert_eq!(over.r, 1.0);
     }
 
@@ -671,7 +626,7 @@ mod tests {
     fn heat_map_gradient_smooth() {
         for i in 0..=100 {
             let t = i as f32 / 100.0;
-            let c = heat_map(t);
+            let c = visualization_heat_map(t);
             assert!(c.r >= 0.0 && c.r <= 1.0);
             assert!(c.g >= 0.0 && c.g <= 1.0);
             assert!(c.b >= 0.0 && c.b <= 1.0);
@@ -681,21 +636,21 @@ mod tests {
 
     #[test]
     fn signed_field_color_zero() {
-        let c = signed_field_color(0.0);
+        let c = signed_value_color(0.0);
         assert_eq!(c.r, 0.0);
         assert_eq!(c.b, 0.0);
     }
 
     #[test]
     fn signed_field_color_positive() {
-        let c = signed_field_color(1.0);
+        let c = signed_value_color(1.0);
         assert_eq!(c.r, 1.0);
         assert_eq!(c.b, 0.0);
     }
 
     #[test]
     fn signed_field_color_negative() {
-        let c = signed_field_color(-1.0);
+        let c = signed_value_color(-1.0);
         assert_eq!(c.r, 0.0);
         assert_eq!(c.b, 1.0);
     }
@@ -989,6 +944,47 @@ mod tests {
             vector_field_to_arrows(&field, 1.0, &mut batch);
             // Only 1 non-zero vector × 4 lines = 4
             assert_eq!(batch.line_count(), 4);
+        }
+
+        #[test]
+        fn field_slice_2d_mismatched_dimensions() {
+            // Adversarial: dimensions say [3,3] but values has only 4 elements
+            let slice = bijli::integration::soorat::FieldSlice2D {
+                values: vec![0.0, 0.5, 0.3, 1.0],
+                dimensions: [3, 3],
+                origin: [0.0, 0.0],
+                spacing: 1.0,
+                component: "Ez".to_string(),
+                step: 0,
+            };
+            // Must not panic — out-of-bounds indices fall back to 0.0
+            let (v, i) = field_slice_2d_to_mesh(&slice, 0.0, &EmVisParams::default());
+            // Should still produce geometry for the 3x3 grid
+            assert_eq!(v.len(), 3 * 3 * 4);
+            assert_eq!(i.len(), 3 * 3 * 6);
+            // No NaN in vertex positions
+            for vert in &v {
+                for &p in &vert.position {
+                    assert!(!p.is_nan(), "vertex position contains NaN");
+                }
+            }
+        }
+
+        #[test]
+        fn vector_field_nan_magnitude() {
+            // Adversarial: NaN in vector components must not panic
+            let field = bijli::integration::soorat::VectorFieldSample {
+                vectors: vec![[f64::NAN, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, f64::NAN, 0.0]],
+                dimensions: [3, 1, 1],
+                origin: [0.0; 3],
+                spacing: 1.0,
+                max_magnitude: 1.0,
+            };
+            let mut batch = LineBatch::new();
+            // Must not panic
+            vector_field_to_arrows(&field, 1.0, &mut batch);
+            // At least the valid vector [1,0,0] should produce arrows
+            assert!(batch.line_count() >= 4);
         }
     }
 }

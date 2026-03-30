@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+#### Correctness (Sprint 1)
+- **Eliminated all `expect()`/`assert_eq!()` in library code** — 15 panic sites across 8 files converted to `Result` propagation.
+- **PBR specular denominator** — clamped entire `4.0 * NdotV * NdotL` denominator to prevent specular spikes at grazing angles.
+- **Shadow coord z check** — objects behind shadow light now correctly marked as lit (`coords.z < 0.0`).
+- **Animation parent-joint logic** — broken `any(|_| false)` replaced with correct parent search in glTF skeleton loading.
+- **`from_ior()` dead parameter** — computed Fresnel reflectance (F0) now stored for shader access.
+- **`flatten_mat4` doc** — corrected to reflect column-major flatten (no transpose).
+- **Division-by-zero guards** — `UvRect::from_pixel_rect`, `BloomUniforms::new`, `BitmapFont::glyph_uv`, cascade splits, terrain generation.
+- **Checked integer casts** — `batch.rs` u16/u32 indices, `mesh_pipeline.rs` index count, `terrain.rs` saturating_add.
+- **NaN guard** — `vector_field_to_arrows` now skips non-finite magnitudes.
+
+#### Code Quality (Sprint 2)
+- **Extracted shared viz helpers** — `visualization_heat_map()`, `signed_value_color()`, `normal_to_basis()` deduplicated from 4→1 copies.
+- **TextureCache triple lookup** — replaced `contains_key`×2 + `get` with single `entry()` call.
+- **Error chain preservation** — `From<mabda::GpuError>` now uses `format!("{other:#}")` for full context.
+- **gltf_loader label allocation** — `format!()` in loop replaced with reusable `write!` buffer.
+
+### Changed
+
+#### Attributes (Sprint 2)
+- `#[must_use]` added to ~50 pure functions across 17 files.
+- `#[inline]` added to ~15 hot-path functions.
+- `#[non_exhaustive]` added to `AnimationProperty` enum.
+- `#[deprecated]` added to `Material` re-export (use `MaterialUniforms` for PBR).
+
+#### Observability (Sprint 2)
+- `tracing::debug!` spans added to 22 functions across 12 files (all pipelines, glTF loading, screenshot, DRM, particles, render graph).
+
+### Added
+
+#### Tests (Sprint 3)
+- 34 new tests (374 → 408): math edge cases (9), div-by-zero regression (6), error conversion (5), render graph cycles (1), animation crash (3), primitive zero-input (3), feature-gated adversarial (5), additional edge cases (2).
+
 ## [1.0.0] - 2026-03-29
 
 ### Added

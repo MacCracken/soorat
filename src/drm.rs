@@ -47,6 +47,7 @@ pub struct ConnectorSummary {
 /// feature disabled or on non-Linux, returns an empty vec.
 #[must_use]
 pub fn list_cards() -> Vec<CardInfo> {
+    tracing::debug!("listing drm cards");
     #[cfg(feature = "drm")]
     {
         _list_cards_impl()

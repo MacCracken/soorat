@@ -105,4 +105,8 @@ mod tests {
     fn ping_pong_types() {
         let _size = std::mem::size_of::<PingPongBuffer>();
     }
+
+    // NOTE: `workgroups_1d(n, 0)` will panic due to division by zero in mabda's
+    // implementation. This is a known mabda issue — callers must ensure
+    // workgroup_size > 0. No test here because it would panic unconditionally.
 }

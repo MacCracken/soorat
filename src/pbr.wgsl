@@ -154,7 +154,7 @@ fn geometry_smith(n_dot_v: f32, n_dot_l: f32, roughness: f32) -> f32 {
 // ── Shadow sampling (PCF 3x3) ──────────────────────────────────────────────
 
 fn sample_shadow(coords: vec3<f32>) -> f32 {
-    if coords.x < 0.0 || coords.x > 1.0 || coords.y < 0.0 || coords.y > 1.0 || coords.z > 1.0 {
+    if coords.x < 0.0 || coords.x > 1.0 || coords.y < 0.0 || coords.y > 1.0 || coords.z > 1.0 || coords.z < 0.0 {
         return 1.0;
     }
     let shadow_size = max(shadow_uniforms.shadow_map_size.x, 512.0);
@@ -231,7 +231,7 @@ fn compute_light_contribution(
     let d = distribution_ggx(n_dot_h, roughness);
     let f = fresnel_schlick(f0, h_dot_v);
     let g = geometry_smith(n_dot_v, n_dot_l, roughness);
-    let specular = (d * g) * f / (4.0 * n_dot_v * max(n_dot_l, 0.001));
+    let specular = (d * g) * f / max(4.0 * n_dot_v * n_dot_l, 0.001);
 
     // Energy conservation
     let k_s = f;

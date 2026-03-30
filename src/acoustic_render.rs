@@ -43,38 +43,12 @@ impl Default for AcousticVisParams {
 
 // ── CPU-only helpers (no feature gate) ──────────────────────────────────────
 
-/// Acoustic heat map: scalar [0,1] → blue→cyan→green→yellow→red.
-fn heat_map(t: f32) -> Color {
-    let t = t.clamp(0.0, 1.0);
-    if t < 0.25 {
-        let s = t / 0.25;
-        Color::new(0.0, s, 1.0, 1.0)
-    } else if t < 0.5 {
-        let s = (t - 0.25) / 0.25;
-        Color::new(0.0, 1.0, 1.0 - s, 1.0)
-    } else if t < 0.75 {
-        let s = (t - 0.5) / 0.25;
-        Color::new(s, 1.0, 0.0, 1.0)
-    } else {
-        let s = (t - 0.75) / 0.25;
-        Color::new(1.0, 1.0 - s, 0.0, 1.0)
-    }
-}
-
-/// Signed pressure color: blue for negative, red for positive, black at zero.
-fn signed_pressure_color(v: f32) -> Color {
-    let v = v.clamp(-1.0, 1.0);
-    if v >= 0.0 {
-        Color::new(v, 0.0, 0.0, 1.0)
-    } else {
-        Color::new(0.0, 0.0, -v, 1.0)
-    }
-}
+use crate::color::{signed_value_color, visualization_heat_map};
 
 /// Acoustic heat map exposed for general use.
 #[must_use]
 pub fn acoustic_heat_map(t: f32) -> Color {
-    heat_map(t)
+    visualization_heat_map(t)
 }
 
 // ── 1. Ray path rendering ──────────────────────────────────────────────────
@@ -118,6 +92,7 @@ pub fn ray_paths_to_lines(
 ///
 /// `y_index` selects which Y-layer to render (0..dimensions\[1\]).
 /// Each grid cell becomes a colored quad.
+#[must_use]
 #[cfg(feature = "acoustics")]
 pub fn pressure_map_slice(
     pressure: &goonj::integration::soorat::PressureMap,
@@ -166,7 +141,7 @@ pub fn pressure_map_slice(
             let color = match params.color_mode {
                 AcousticColorMode::Pressure | AcousticColorMode::Energy => {
                     let t = (v - min_val) / range;
-                    let mut c = heat_map(t);
+                    let mut c = visualization_heat_map(t);
                     c.a = params.alpha;
                     c
                 }
@@ -176,7 +151,7 @@ pub fn pressure_map_slice(
                     } else {
                         0.0
                     };
-                    let mut c = signed_pressure_color(t);
+                    let mut c = signed_value_color(t);
                     c.a = params.alpha;
                     c
                 }
@@ -243,6 +218,7 @@ pub fn pressure_map_slice(
 ///
 /// The 2D pattern is mapped onto an XZ plane, with Y = pattern value × `height_scale`.
 /// Vertex colors are heat-mapped from the absolute pattern value.
+#[must_use]
 #[cfg(feature = "acoustics")]
 pub fn mode_pattern_to_mesh(
     mode: &goonj::integration::soorat::ModeVisualization,
@@ -287,12 +263,12 @@ pub fn mode_pattern_to_mesh(
                 AcousticColorMode::Pressure | AcousticColorMode::Energy => {
                     // Map [-1, 1] → [0, 1] for heat map
                     let t = (v * 0.5 + 0.5).clamp(0.0, 1.0);
-                    let mut c = heat_map(t);
+                    let mut c = visualization_heat_map(t);
                     c.a = params.alpha;
                     c
                 }
                 AcousticColorMode::SignedPressure => {
-                    let mut c = signed_pressure_color(v);
+                    let mut c = signed_value_color(v);
                     c.a = params.alpha;
                     c
                 }
@@ -442,31 +418,7 @@ pub fn portal_to_lines(
     );
 }
 
-/// Compute a right/up basis from a normal vector.
-fn normal_to_basis(n: [f32; 3]) -> ([f32; 3], [f32; 3]) {
-    // Pick a reference that isn't parallel to n
-    let ref_vec = if n[1].abs() < 0.99 {
-        [0.0, 1.0, 0.0]
-    } else {
-        [1.0, 0.0, 0.0]
-    };
-
-    // right = normalize(cross(n, ref_vec))
-    let rx = n[1] * ref_vec[2] - n[2] * ref_vec[1];
-    let ry = n[2] * ref_vec[0] - n[0] * ref_vec[2];
-    let rz = n[0] * ref_vec[1] - n[1] * ref_vec[0];
-    let rlen = (rx * rx + ry * ry + rz * rz).sqrt().max(f32::EPSILON);
-    let right = [rx / rlen, ry / rlen, rz / rlen];
-
-    // up = normalize(cross(right, n))
-    let ux = right[1] * n[2] - right[2] * n[1];
-    let uy = right[2] * n[0] - right[0] * n[2];
-    let uz = right[0] * n[1] - right[1] * n[0];
-    let ulen = (ux * ux + uy * uy + uz * uz).sqrt().max(f32::EPSILON);
-    let up = [ux / ulen, uy / ulen, uz / ulen];
-
-    (right, up)
-}
+use crate::math_util::normal_to_basis;
 
 // ── 5. Directivity balloons ────────────────────────────────────────────────
 
@@ -476,6 +428,7 @@ fn normal_to_basis(n: [f32; 3]) -> ([f32; 3], [f32; 3]) {
 /// at each vertex direction. `base_radius` controls the minimum radius,
 /// `gain_scale` controls how much gain deforms the surface.
 /// `front` is the source's main radiation axis.
+#[must_use]
 #[cfg(feature = "acoustics")]
 pub fn directivity_balloon_to_mesh(
     balloon: &goonj::directivity::DirectivityBalloon,
@@ -530,7 +483,7 @@ pub fn directivity_balloon_to_mesh(
 
             // Color by gain
             let t = gain.clamp(0.0, 1.0);
-            let c = heat_map(t).to_array();
+            let c = visualization_heat_map(t).to_array();
 
             vertices.push(Vertex3D {
                 position: pos,
@@ -742,18 +695,18 @@ mod tests {
 
     #[test]
     fn heat_map_endpoints() {
-        let cold = heat_map(0.0);
+        let cold = visualization_heat_map(0.0);
         assert_eq!(cold.b, 1.0);
-        let hot = heat_map(1.0);
+        let hot = visualization_heat_map(1.0);
         assert_eq!(hot.r, 1.0);
         assert_eq!(hot.g, 0.0);
     }
 
     #[test]
     fn heat_map_clamps() {
-        let under = heat_map(-1.0);
+        let under = visualization_heat_map(-1.0);
         assert_eq!(under.b, 1.0);
-        let over = heat_map(2.0);
+        let over = visualization_heat_map(2.0);
         assert_eq!(over.r, 1.0);
     }
 
@@ -761,7 +714,7 @@ mod tests {
     fn heat_map_gradient_smooth() {
         for i in 0..=100 {
             let t = i as f32 / 100.0;
-            let c = heat_map(t);
+            let c = visualization_heat_map(t);
             assert!(c.r >= 0.0 && c.r <= 1.0);
             assert!(c.g >= 0.0 && c.g <= 1.0);
             assert!(c.b >= 0.0 && c.b <= 1.0);
@@ -771,21 +724,21 @@ mod tests {
 
     #[test]
     fn signed_pressure_color_zero() {
-        let c = signed_pressure_color(0.0);
+        let c = signed_value_color(0.0);
         assert_eq!(c.r, 0.0);
         assert_eq!(c.b, 0.0);
     }
 
     #[test]
     fn signed_pressure_color_positive() {
-        let c = signed_pressure_color(1.0);
+        let c = signed_value_color(1.0);
         assert_eq!(c.r, 1.0);
         assert_eq!(c.b, 0.0);
     }
 
     #[test]
     fn signed_pressure_color_negative() {
-        let c = signed_pressure_color(-1.0);
+        let c = signed_value_color(-1.0);
         assert_eq!(c.r, 0.0);
         assert_eq!(c.b, 1.0);
     }
@@ -1110,6 +1063,27 @@ mod tests {
                         y1 >= y0 - 0.001,
                         "decay should be monotonic: y0={y0}, y1={y1} at segment {i}"
                     );
+                }
+            }
+        }
+
+        #[test]
+        fn pressure_map_single_cell() {
+            // Adversarial: 1x1x1 grid must work correctly
+            let map = goonj::integration::soorat::PressureMap {
+                values: vec![0.5],
+                dimensions: [1, 1, 1],
+                origin: hisab::Vec3::ZERO,
+                spacing: 1.0,
+                frequency_hz: 1000.0,
+            };
+            let (v, i) = pressure_map_slice(&map, 0, &AcousticVisParams::default());
+            assert_eq!(v.len(), 4); // 1 cell × 4 verts
+            assert_eq!(i.len(), 6); // 1 cell × 6 indices
+            // No NaN in vertex data
+            for vert in &v {
+                for &p in &vert.position {
+                    assert!(!p.is_nan(), "vertex position contains NaN");
                 }
             }
         }

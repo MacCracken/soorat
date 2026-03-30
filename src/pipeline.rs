@@ -53,6 +53,7 @@ pub struct SpriteBuffers {
 
 impl SpriteBuffers {
     /// Create persistent buffers sized for the given sprite count.
+    #[must_use]
     pub fn new(device: &wgpu::Device, sprite_capacity: usize) -> Self {
         let vert_cap = sprite_capacity.saturating_mul(4);
         let idx_cap = sprite_capacity.saturating_mul(6);
@@ -144,6 +145,7 @@ pub struct SpritePipeline {
 impl SpritePipeline {
     /// Create a new sprite pipeline for the given surface format.
     pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat) -> Result<Self> {
+        tracing::debug!(?surface_format, "creating sprite pipeline");
         let pipeline = mabda::RenderPipelineBuilder::new(
             device,
             include_str!("sprite.wgsl"),
@@ -175,9 +177,11 @@ impl SpritePipeline {
 
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("sprite_uniform_bind_group"),
-            layout: pipeline
-                .bind_group_layout(0)
-                .expect("sprite pipeline has bind group 0"),
+            layout: pipeline.bind_group_layout(0).ok_or_else(|| {
+                crate::error::RenderError::Pipeline(
+                    "sprite pipeline missing bind group layout 0".into(),
+                )
+            })?,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: uniform_buffer.as_entire_binding(),
@@ -192,11 +196,12 @@ impl SpritePipeline {
     }
 
     /// Get the texture bind group layout for creating texture bind groups.
-    #[must_use]
-    pub fn texture_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
-        self.pipeline
-            .bind_group_layout(1)
-            .expect("sprite pipeline has bind group 1")
+    pub fn texture_bind_group_layout(&self) -> Result<&wgpu::BindGroupLayout> {
+        self.pipeline.bind_group_layout(1).ok_or_else(|| {
+            crate::error::RenderError::Pipeline(
+                "sprite pipeline missing bind group layout 1".into(),
+            )
+        })
     }
 
     /// Update the projection matrix for the current viewport size.
@@ -227,6 +232,11 @@ impl SpritePipeline {
         clear_color: Option<Color>,
     ) -> FrameStats {
         let mut stats = FrameStats::default();
+        tracing::debug!(
+            sprite_count = batch.sprites.len(),
+            has_clear = clear_color.is_some(),
+            "drawing sprites"
+        );
 
         if batch.is_empty() && clear_color.is_none() {
             return stats;
@@ -272,6 +282,11 @@ impl SpritePipeline {
     ) -> FrameStats {
         let mut stats = FrameStats::default();
         let index_count = buffers.index_count();
+        tracing::debug!(
+            index_count,
+            has_clear = clear_color.is_some(),
+            "drawing sprites with buffers"
+        );
 
         if index_count == 0 && clear_color.is_none() {
             return stats;
@@ -312,6 +327,11 @@ impl SpritePipeline {
         params: &SpriteBatchDrawParams<'_>,
     ) -> FrameStats {
         let mut stats = FrameStats::default();
+        tracing::debug!(
+            sprite_count = params.batch.sprites.len(),
+            has_clear = params.clear_color.is_some(),
+            "drawing sprites batched"
+        );
 
         if params.batch.is_empty() && params.clear_color.is_none() {
             return stats;
@@ -424,6 +444,10 @@ impl SpritePipeline {
         texture_bind_group: &'a wgpu::BindGroup,
         device: &wgpu::Device,
     ) {
+        tracing::debug!(
+            sprite_count = batch.sprites.len(),
+            "drawing sprites into pass"
+        );
         if batch.is_empty() {
             return;
         }
@@ -606,6 +630,22 @@ mod tests {
     #[test]
     fn max_sprites_constant() {
         assert_eq!(MAX_SPRITES_PER_BATCH, 16383);
+    }
+
+    #[test]
+    fn batch_u32_overflow_protection() {
+        // Verify the u32 checked cast works with a reasonable count
+        let mut batch = SpriteBatch::new();
+        for i in 0..100 {
+            batch.push(Sprite::new(i as f32, 0.0, 1.0, 1.0));
+        }
+        let (verts, indices) = batch_to_vertices_u32(&batch);
+        assert_eq!(verts.len(), 400);
+        assert_eq!(indices.len(), 600);
+        // All indices must be valid
+        for &idx in &indices {
+            assert!((idx as usize) < verts.len());
+        }
     }
 
     #[test]

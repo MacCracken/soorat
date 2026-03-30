@@ -21,7 +21,11 @@ fn main() {
                     .expect("Failed to create sprite pipeline");
                 let white = Texture::white_pixel(&window.gpu.device, &window.gpu.queue)
                     .expect("Failed to create white pixel texture");
-                let bg = white.bind_group(&window.gpu.device, p.texture_bind_group_layout());
+                let bg = white.bind_group(
+                    &window.gpu.device,
+                    p.texture_bind_group_layout()
+                        .expect("Failed to get texture bind group layout"),
+                );
                 (p, bg)
             });
 

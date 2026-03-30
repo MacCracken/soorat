@@ -20,27 +20,12 @@ pub enum FluidColorMode {
     Pressure,
 }
 
-/// Convert a scalar value [0,1] to a color gradient (blue → cyan → green → yellow → red).
-fn heat_map(t: f32) -> Color {
-    let t = t.clamp(0.0, 1.0);
-    if t < 0.25 {
-        let s = t / 0.25;
-        Color::new(0.0, s, 1.0, 1.0)
-    } else if t < 0.5 {
-        let s = (t - 0.25) / 0.25;
-        Color::new(0.0, 1.0, 1.0 - s, 1.0)
-    } else if t < 0.75 {
-        let s = (t - 0.5) / 0.25;
-        Color::new(s, 1.0, 0.0, 1.0)
-    } else {
-        let s = (t - 0.75) / 0.25;
-        Color::new(1.0, 1.0 - s, 0.0, 1.0)
-    }
-}
+use crate::color::visualization_heat_map;
 
 /// Generate XZ-plane quads for SPH particles.
 /// Each particle becomes a small axis-aligned quad positioned at its world coordinates.
 /// `particle_size`: world-space size of each particle quad.
+#[must_use]
 #[cfg(feature = "fluids")]
 pub fn particles_to_quads(
     particles: &[pravash::common::FluidParticle],
@@ -68,15 +53,15 @@ pub fn particles_to_quads(
             FluidColorMode::Velocity => {
                 let speed = p.speed() as f32;
                 let t = (speed / max_velocity.max(0.001)).clamp(0.0, 1.0);
-                heat_map(t)
+                visualization_heat_map(t)
             }
             FluidColorMode::Density => {
                 let t = (p.density / max_density.max(0.001)) as f32;
-                heat_map(t.clamp(0.0, 1.0))
+                visualization_heat_map(t.clamp(0.0, 1.0))
             }
             FluidColorMode::Pressure => {
                 let t = (p.pressure / max_pressure.max(0.001)) as f32;
-                heat_map(t.clamp(0.0, 1.0))
+                visualization_heat_map(t.clamp(0.0, 1.0))
             }
         };
         let c = color.to_array();
@@ -125,6 +110,7 @@ pub fn particles_to_quads(
 /// Generate a mesh from a pravash ShallowWater height field.
 /// The mesh is an XZ-plane grid with Y = water height.
 /// Normals are computed from neighboring heights.
+#[must_use]
 #[cfg(feature = "fluids")]
 pub fn shallow_water_to_mesh(
     water: &pravash::shallow::ShallowWater,
@@ -230,6 +216,7 @@ impl Default for ParticleColorParams {
 /// Generate camera-facing billboard quads for particles.
 /// Unlike `particles_to_quads` (XZ-plane), these orient toward the camera.
 /// `camera_right`/`camera_up`: camera basis vectors in world space.
+#[must_use]
 #[cfg(feature = "fluids")]
 pub fn particles_to_billboards(
     particles: &[pravash::common::FluidParticle],
@@ -268,14 +255,14 @@ pub fn particles_to_billboards(
             FluidColorMode::Solid => params.base_color,
             FluidColorMode::Velocity => {
                 let speed = p.speed() as f32;
-                heat_map((speed / params.max_velocity.max(0.001)).clamp(0.0, 1.0))
+                visualization_heat_map((speed / params.max_velocity.max(0.001)).clamp(0.0, 1.0))
             }
-            FluidColorMode::Density => {
-                heat_map(((p.density / params.max_density.max(0.001)) as f32).clamp(0.0, 1.0))
-            }
-            FluidColorMode::Pressure => {
-                heat_map(((p.pressure / params.max_pressure.max(0.001)) as f32).clamp(0.0, 1.0))
-            }
+            FluidColorMode::Density => visualization_heat_map(
+                ((p.density / params.max_density.max(0.001)) as f32).clamp(0.0, 1.0),
+            ),
+            FluidColorMode::Pressure => visualization_heat_map(
+                ((p.pressure / params.max_pressure.max(0.001)) as f32).clamp(0.0, 1.0),
+            ),
         };
         let c = color.to_array();
         let base = match (i as u64).checked_mul(4) {
@@ -338,9 +325,10 @@ pub fn particles_to_billboards(
 
 // ── CPU-only helpers (no feature gate) ──────────────────────────────────────
 
-/// Heat map color for visualization (exposed for general use).
-pub fn visualization_heat_map(t: f32) -> Color {
-    heat_map(t)
+/// Fluid heat map exposed for general use.
+#[must_use]
+pub fn fluid_heat_map(t: f32) -> Color {
+    visualization_heat_map(t)
 }
 
 #[cfg(test)]
@@ -349,24 +337,24 @@ mod tests {
 
     #[test]
     fn heat_map_endpoints() {
-        let cold = heat_map(0.0);
+        let cold = visualization_heat_map(0.0);
         assert_eq!(cold.b, 1.0); // blue
-        let hot = heat_map(1.0);
+        let hot = visualization_heat_map(1.0);
         assert_eq!(hot.r, 1.0); // red
         assert_eq!(hot.g, 0.0);
     }
 
     #[test]
     fn heat_map_midpoint() {
-        let mid = heat_map(0.5);
+        let mid = visualization_heat_map(0.5);
         assert_eq!(mid.g, 1.0); // green
     }
 
     #[test]
     fn heat_map_clamps() {
-        let under = heat_map(-1.0);
+        let under = visualization_heat_map(-1.0);
         assert_eq!(under.b, 1.0);
-        let over = heat_map(2.0);
+        let over = visualization_heat_map(2.0);
         assert_eq!(over.r, 1.0);
     }
 
@@ -375,7 +363,7 @@ mod tests {
         // Should produce valid colors at all points
         for i in 0..=100 {
             let t = i as f32 / 100.0;
-            let c = heat_map(t);
+            let c = visualization_heat_map(t);
             assert!(c.r >= 0.0 && c.r <= 1.0);
             assert!(c.g >= 0.0 && c.g <= 1.0);
             assert!(c.b >= 0.0 && c.b <= 1.0);

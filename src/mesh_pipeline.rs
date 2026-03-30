@@ -48,6 +48,7 @@ impl CameraUniforms {
 
 /// Compute inverse-transpose of upper-left 3x3 from a 4x4 column-major matrix.
 /// Returns 3 rows of the resulting 3x3 matrix.
+#[inline]
 fn inverse_transpose_3x3(m: &[f32; 16]) -> ([f32; 3], [f32; 3], [f32; 3]) {
     // Extract upper-left 3x3 (column-major)
     let a = [m[0], m[1], m[2]];
@@ -143,10 +144,18 @@ impl Mesh {
             usage: wgpu::BufferUsages::INDEX,
         });
 
+        let index_count = u32::try_from(indices.len()).unwrap_or_else(|_| {
+            tracing::warn!(
+                len = indices.len(),
+                "mesh index count exceeds u32::MAX, clamping"
+            );
+            u32::MAX
+        });
+
         Self {
             vertex_buffer,
             index_buffer,
-            index_count: indices.len() as u32,
+            index_count,
         }
     }
 }
@@ -231,6 +240,7 @@ pub struct MeshPipeline {
 impl MeshPipeline {
     /// Create a new PBR mesh pipeline for the given surface format.
     pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat) -> Result<Self> {
+        tracing::debug!(?surface_format, "creating mesh pipeline");
         // Group 0: camera + light_array + material + shadow uniforms
         let group0_entries = mabda::BindGroupLayoutBuilder::new()
             .uniform_buffer(wgpu::ShaderStages::VERTEX_FRAGMENT) // camera
@@ -314,9 +324,11 @@ impl MeshPipeline {
 
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("pbr_uniform_bind_group"),
-            layout: pipeline
-                .bind_group_layout(0)
-                .expect("mesh pipeline has bind group 0"),
+            layout: pipeline.bind_group_layout(0).ok_or_else(|| {
+                crate::error::RenderError::Pipeline(
+                    "mesh pipeline missing bind group layout 0".into(),
+                )
+            })?,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -348,10 +360,10 @@ impl MeshPipeline {
     }
 
     /// Get the material bind group layout for creating material bind groups.
-    pub fn material_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
-        self.pipeline
-            .bind_group_layout(1)
-            .expect("mesh pipeline has bind group 1")
+    pub fn material_bind_group_layout(&self) -> Result<&wgpu::BindGroupLayout> {
+        self.pipeline.bind_group_layout(1).ok_or_else(|| {
+            crate::error::RenderError::Pipeline("mesh pipeline missing bind group layout 1".into())
+        })
     }
 
     /// Update camera uniforms (view-projection + model matrix).
@@ -379,17 +391,17 @@ impl MeshPipeline {
     }
 
     /// Get the shadow bind group layout for creating shadow bind groups.
-    pub fn shadow_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
-        self.pipeline
-            .bind_group_layout(2)
-            .expect("mesh pipeline has bind group 2")
+    pub fn shadow_bind_group_layout(&self) -> Result<&wgpu::BindGroupLayout> {
+        self.pipeline.bind_group_layout(2).ok_or_else(|| {
+            crate::error::RenderError::Pipeline("mesh pipeline missing bind group layout 2".into())
+        })
     }
 
     /// Get the IBL bind group layout for creating IBL bind groups.
-    pub fn ibl_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
-        self.pipeline
-            .bind_group_layout(3)
-            .expect("mesh pipeline has bind group 3")
+    pub fn ibl_bind_group_layout(&self) -> Result<&wgpu::BindGroupLayout> {
+        self.pipeline.bind_group_layout(3).ok_or_else(|| {
+            crate::error::RenderError::Pipeline("mesh pipeline missing bind group layout 3".into())
+        })
     }
 
     /// Create a shadow bind group from a shadow map.
@@ -397,10 +409,10 @@ impl MeshPipeline {
         &self,
         device: &wgpu::Device,
         shadow_map: &crate::shadow::ShadowMap,
-    ) -> wgpu::BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
+    ) -> Result<wgpu::BindGroup> {
+        Ok(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("shadow_bind_group"),
-            layout: self.shadow_bind_group_layout(),
+            layout: self.shadow_bind_group_layout()?,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -411,12 +423,17 @@ impl MeshPipeline {
                     resource: wgpu::BindingResource::Sampler(&shadow_map.sampler),
                 },
             ],
-        })
+        }))
     }
 
     /// Draw a mesh with PBR shading, shadow mapping, and IBL.
     /// Use `EnvironmentMap::solid_color` for a black cubemap when IBL is not desired.
     pub fn draw(&self, device: &wgpu::Device, queue: &wgpu::Queue, params: &MeshDrawParams<'_>) {
+        tracing::debug!(
+            index_count = params.mesh.index_count,
+            has_clear = params.clear_color.is_some(),
+            "drawing mesh"
+        );
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("mesh_encoder"),
         });
@@ -582,5 +599,48 @@ mod tests {
     #[test]
     fn depth_buffer_format() {
         assert_eq!(DepthBuffer::FORMAT, wgpu::TextureFormat::Depth32Float);
+    }
+
+    #[test]
+    fn camera_uniforms_set_model_singular() {
+        // Adversarial: zero-determinant matrix must not produce NaN in normal matrix
+        let mut cam = CameraUniforms::default();
+        // All-zero matrix has determinant 0
+        let zero_model = [0.0_f32; 16];
+        cam.set_model(zero_model);
+        for &v in &cam.normal_matrix_0 {
+            assert!(!v.is_nan(), "normal_matrix_0 contains NaN");
+        }
+        for &v in &cam.normal_matrix_1 {
+            assert!(!v.is_nan(), "normal_matrix_1 contains NaN");
+        }
+        for &v in &cam.normal_matrix_2 {
+            assert!(!v.is_nan(), "normal_matrix_2 contains NaN");
+        }
+
+        // Singular but non-zero: two identical columns
+        let mut singular = IDENTITY_MAT4;
+        singular[4] = singular[0]; // col1 = col0
+        singular[5] = singular[1];
+        singular[6] = singular[2];
+        cam.set_model(singular);
+        for &v in &cam.normal_matrix_0 {
+            assert!(
+                !v.is_nan(),
+                "normal_matrix_0 contains NaN for singular matrix"
+            );
+        }
+        for &v in &cam.normal_matrix_1 {
+            assert!(
+                !v.is_nan(),
+                "normal_matrix_1 contains NaN for singular matrix"
+            );
+        }
+        for &v in &cam.normal_matrix_2 {
+            assert!(
+                !v.is_nan(),
+                "normal_matrix_2 contains NaN for singular matrix"
+            );
+        }
     }
 }

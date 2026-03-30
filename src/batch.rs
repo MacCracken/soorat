@@ -95,6 +95,7 @@ fn emit_quad_u16(
     indices: &mut Vec<u16>,
 ) {
     let c = sprite.color.to_array();
+    debug_assert!(i < 16384, "u16 index overflow: sprite index {i} >= 16384");
     let base = (i * 4) as u16;
     let (positions, uvs) = sprite_quad(sprite);
 
@@ -118,7 +119,9 @@ fn emit_quad_u32(
     indices: &mut Vec<u32>,
 ) {
     let c = sprite.color.to_array();
-    let base = (i * 4) as u32;
+    let Some(base) = i.checked_mul(4).and_then(|v| u32::try_from(v).ok()) else {
+        return;
+    };
     let (positions, uvs) = sprite_quad(sprite);
 
     for j in 0..4 {

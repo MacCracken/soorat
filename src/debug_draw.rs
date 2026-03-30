@@ -13,6 +13,7 @@ pub struct LineVertex {
 }
 
 impl LineVertex {
+    #[must_use]
     pub fn layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
@@ -51,6 +52,7 @@ impl LineBatch {
     }
 
     /// Add a line segment between two points.
+    #[inline]
     pub fn line(&mut self, a: [f32; 3], b: [f32; 3], color: Color) {
         let c = color.to_array();
         self.vertices.push(LineVertex {
@@ -64,6 +66,7 @@ impl LineBatch {
     }
 
     /// Draw a wireframe box (12 edges).
+    #[inline]
     pub fn wire_box(&mut self, min: [f32; 3], max: [f32; 3], color: Color) {
         let [x0, y0, z0] = min;
         let [x1, y1, z1] = max;
@@ -88,6 +91,7 @@ impl LineBatch {
     }
 
     /// Draw a wireframe circle in the XZ plane.
+    #[inline]
     pub fn wire_circle(&mut self, center: [f32; 3], radius: f32, segments: u32, color: Color) {
         if segments == 0 {
             return;
@@ -116,6 +120,7 @@ impl LineBatch {
     }
 
     /// Draw a wireframe sphere (3 circles: XZ, XY, YZ planes).
+    #[inline]
     pub fn wire_sphere(&mut self, center: [f32; 3], radius: f32, segments: u32, color: Color) {
         if segments == 0 {
             return;
@@ -253,10 +258,12 @@ impl LineBatch {
         self.vertices.clear();
     }
 
+    #[must_use]
     pub fn line_count(&self) -> usize {
         self.vertices.len() / 2
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.vertices.is_empty()
     }
@@ -275,6 +282,7 @@ pub struct LinePipeline {
 impl LinePipeline {
     /// Create a new line pipeline for the given surface format.
     pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat) -> Result<Self> {
+        tracing::debug!(?surface_format, "creating line pipeline");
         let pipeline = mabda::RenderPipelineBuilder::new(
             device,
             include_str!("line.wgsl"),
@@ -307,9 +315,11 @@ impl LinePipeline {
 
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("line_uniform_bind_group"),
-            layout: pipeline
-                .bind_group_layout(0)
-                .expect("line pipeline has bind group 0"),
+            layout: pipeline.bind_group_layout(0).ok_or_else(|| {
+                crate::error::RenderError::Pipeline(
+                    "line pipeline missing bind group layout 0".into(),
+                )
+            })?,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: uniform_buffer.as_entire_binding(),
@@ -338,6 +348,7 @@ impl LinePipeline {
         depth: &DepthBuffer,
         batch: &LineBatch,
     ) {
+        tracing::debug!(vertex_count = batch.vertices.len(), "drawing lines");
         if batch.is_empty() {
             return;
         }
@@ -387,6 +398,10 @@ impl LinePipeline {
         batch: &LineBatch,
         device: &wgpu::Device,
     ) {
+        tracing::debug!(
+            vertex_count = batch.vertices.len(),
+            "drawing lines into pass"
+        );
         if batch.is_empty() {
             return;
         }

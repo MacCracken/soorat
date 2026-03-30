@@ -39,6 +39,7 @@ pub struct TerrainData {
 /// Generate terrain mesh data from a heightmap.
 /// `heights`: row-major grid of height values, size = (config.width+1) * (config.depth+1).
 /// Returns vertices and indices suitable for MeshPipeline.
+#[must_use]
 pub fn generate_terrain(config: &TerrainConfig, heights: &[f32]) -> TerrainData {
     if config.width == 0 || config.depth == 0 {
         tracing::warn!(
@@ -52,8 +53,8 @@ pub fn generate_terrain(config: &TerrainConfig, heights: &[f32]) -> TerrainData 
         };
     }
 
-    let cols = config.width + 1;
-    let rows = config.depth + 1;
+    let cols = config.width.saturating_add(1);
+    let rows = config.depth.saturating_add(1);
     let expected = (cols * rows) as usize;
 
     let cell_w = config.world_width / config.width as f32;
@@ -127,12 +128,14 @@ pub fn generate_terrain(config: &TerrainConfig, heights: &[f32]) -> TerrainData 
 }
 
 /// Upload terrain data to GPU as a Mesh.
+#[must_use]
 pub fn create_terrain_mesh(device: &wgpu::Device, config: &TerrainConfig, heights: &[f32]) -> Mesh {
     let data = generate_terrain(config, heights);
     Mesh::new(device, &data.vertices, &data.indices)
 }
 
 /// Generate a flat heightmap (all zeros).
+#[must_use]
 pub fn flat_heightmap(width: u32, depth: u32) -> Vec<f32> {
     vec![0.0; ((width + 1) * (depth + 1)) as usize]
 }
@@ -286,5 +289,28 @@ mod tests {
         for &idx in &data.indices {
             assert!(idx < max_vertex);
         }
+    }
+
+    #[test]
+    fn generate_terrain_zero_size() {
+        // Division-by-zero regression: zero width/depth must not panic
+        let cfg = TerrainConfig {
+            width: 0,
+            depth: 0,
+            ..Default::default()
+        };
+        let data = generate_terrain(&cfg, &[]);
+        assert!(data.vertices.is_empty());
+        assert!(data.indices.is_empty());
+
+        // Also test one dimension zero
+        let cfg_w0 = TerrainConfig {
+            width: 0,
+            depth: 4,
+            ..Default::default()
+        };
+        let data_w0 = generate_terrain(&cfg_w0, &[]);
+        assert!(data_w0.vertices.is_empty());
+        assert!(data_w0.indices.is_empty());
     }
 }

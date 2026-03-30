@@ -67,28 +67,12 @@ impl Default for CycleDiagramParams {
 
 // ── CPU-only helpers (no feature gate) ──────────────────────────────────────
 
-/// Thermal heat map: scalar \[0,1\] → blue→cyan→green→yellow→red.
-fn heat_map(t: f32) -> Color {
-    let t = t.clamp(0.0, 1.0);
-    if t < 0.25 {
-        let s = t / 0.25;
-        Color::new(0.0, s, 1.0, 1.0)
-    } else if t < 0.5 {
-        let s = (t - 0.25) / 0.25;
-        Color::new(0.0, 1.0, 1.0 - s, 1.0)
-    } else if t < 0.75 {
-        let s = (t - 0.5) / 0.25;
-        Color::new(s, 1.0, 0.0, 1.0)
-    } else {
-        let s = (t - 0.75) / 0.25;
-        Color::new(1.0, 1.0 - s, 0.0, 1.0)
-    }
-}
+use crate::color::visualization_heat_map;
 
 /// Thermal heat map exposed for general use.
 #[must_use]
 pub fn thermal_heat_map(t: f32) -> Color {
-    heat_map(t)
+    visualization_heat_map(t)
 }
 
 // ── 1. Thermal grid heatmap ───────────────────────────────────────────────
@@ -97,6 +81,7 @@ pub fn thermal_heat_map(t: f32) -> Color {
 ///
 /// Each grid cell becomes a colored quad on the XZ plane at `y_pos`.
 /// Temperature values are normalized to \[0,1\] using min/max for color mapping.
+#[must_use]
 #[cfg(feature = "thermo")]
 pub fn thermal_grid_to_mesh(
     grid: &ushma::integration::soorat::ThermalGridVisualization,
@@ -130,7 +115,7 @@ pub fn thermal_grid_to_mesh(
             let t = ((v - grid.min_temp) / range) as f32;
             let color = match params.color_mode {
                 ThermalColorMode::Temperature => {
-                    let mut c = heat_map(t);
+                    let mut c = visualization_heat_map(t);
                     c.a = params.alpha;
                     c
                 }
@@ -236,7 +221,7 @@ pub fn temperature_profile_to_lines(
         ];
 
         // Blend color between the two endpoints
-        let color = heat_map((norm0 + norm1) * 0.5);
+        let color = visualization_heat_map((norm0 + norm1) * 0.5);
         batch.line(p0, p1, color);
     }
 }
@@ -397,7 +382,7 @@ pub fn thermal_network_to_lines(
         // Color blend between the two node temperatures
         let ta = ((network.node_temperatures[a] - min_t) / range) as f32;
         let tb = ((network.node_temperatures[b] - min_t) / range) as f32;
-        let color = heat_map((ta + tb) * 0.5);
+        let color = visualization_heat_map((ta + tb) * 0.5);
 
         batch.line(positions[a], positions[b], color);
 
@@ -426,7 +411,7 @@ pub fn thermal_network_to_lines(
     // Draw nodes as small wireframe crosses
     for (i, pos) in positions.iter().enumerate() {
         let t = ((network.node_temperatures[i] - min_t) / range) as f32;
-        let color = heat_map(t);
+        let color = visualization_heat_map(t);
         let s = node_size;
 
         batch.line(
@@ -492,7 +477,7 @@ pub fn heat_flux_to_arrows(
             let tip = [base[0] + dir_x * len, y_pos, base[2] + dir_z * len];
 
             let t = (mag / max_mag).clamp(0.0, 1.0);
-            let color = heat_map(t);
+            let color = visualization_heat_map(t);
 
             // Shaft
             batch.line(base, tip, color);
@@ -536,18 +521,18 @@ mod tests {
 
     #[test]
     fn heat_map_endpoints() {
-        let cold = heat_map(0.0);
+        let cold = visualization_heat_map(0.0);
         assert_eq!(cold.b, 1.0);
-        let hot = heat_map(1.0);
+        let hot = visualization_heat_map(1.0);
         assert_eq!(hot.r, 1.0);
         assert_eq!(hot.g, 0.0);
     }
 
     #[test]
     fn heat_map_clamps() {
-        let under = heat_map(-1.0);
+        let under = visualization_heat_map(-1.0);
         assert_eq!(under.b, 1.0);
-        let over = heat_map(2.0);
+        let over = visualization_heat_map(2.0);
         assert_eq!(over.r, 1.0);
     }
 
@@ -555,7 +540,7 @@ mod tests {
     fn heat_map_gradient_smooth() {
         for i in 0..=100 {
             let t = i as f32 / 100.0;
-            let c = heat_map(t);
+            let c = visualization_heat_map(t);
             assert!(c.r >= 0.0 && c.r <= 1.0);
             assert!(c.g >= 0.0 && c.g <= 1.0);
             assert!(c.b >= 0.0 && c.b <= 1.0);
@@ -795,6 +780,46 @@ mod tests {
             let mut batch = LineBatch::new();
             heat_flux_to_arrows(&flux, 0.0, 1.0, &mut batch);
             assert!(batch.is_empty());
+        }
+
+        #[test]
+        fn thermal_grid_equal_temps() {
+            // Adversarial: min_temp == max_temp (zero range) must not produce NaN/panic
+            let grid = ushma::integration::soorat::ThermalGridVisualization {
+                values: vec![350.0, 350.0, 350.0, 350.0],
+                dimensions: [2, 2],
+                origin: [0.0, 0.0],
+                spacing: [1.0, 1.0],
+                min_temp: 350.0,
+                max_temp: 350.0,
+            };
+            let (v, i) = thermal_grid_to_mesh(&grid, 0.0, &ThermalVisParams::default());
+            assert_eq!(v.len(), 4 * 4);
+            assert_eq!(i.len(), 4 * 6);
+            // No NaN in vertex colors or positions
+            for vert in &v {
+                for &p in &vert.position {
+                    assert!(!p.is_nan(), "vertex position contains NaN");
+                }
+                for &c in &vert.color {
+                    assert!(!c.is_nan(), "vertex color contains NaN");
+                }
+            }
+        }
+
+        #[test]
+        fn heat_flux_single_cell() {
+            // Adversarial: 1x1 grid must work correctly
+            let flux = ushma::integration::soorat::HeatFluxField {
+                fluxes: vec![[100.0, 50.0]],
+                dimensions: [1, 1],
+                spacing: [1.0, 1.0],
+                max_magnitude: 111.8,
+            };
+            let mut batch = LineBatch::new();
+            heat_flux_to_arrows(&flux, 0.0, 1.0, &mut batch);
+            // 1 non-zero vector × (1 shaft + 2 arrowhead) = 3
+            assert_eq!(batch.line_count(), 3);
         }
     }
 }

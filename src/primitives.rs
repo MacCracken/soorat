@@ -4,6 +4,7 @@
 use crate::vertex::Vertex3D;
 
 /// Generate a unit cube centered at origin (side length 1.0).
+#[must_use]
 pub fn cube() -> (Vec<Vertex3D>, Vec<u32>) {
     let mut vertices = Vec::with_capacity(24);
     let mut indices = Vec::with_capacity(36);
@@ -96,6 +97,7 @@ pub fn cube() -> (Vec<Vertex3D>, Vec<u32>) {
 }
 
 /// Generate a UV sphere centered at origin with radius 0.5.
+#[must_use]
 pub fn sphere(segments: u32, rings: u32) -> (Vec<Vertex3D>, Vec<u32>) {
     let segments = segments.max(3);
     let rings = rings.max(2);
@@ -136,6 +138,7 @@ pub fn sphere(segments: u32, rings: u32) -> (Vec<Vertex3D>, Vec<u32>) {
 }
 
 /// Generate an XZ plane centered at origin (side length 1.0).
+#[must_use]
 pub fn plane(subdivisions: u32) -> (Vec<Vertex3D>, Vec<u32>) {
     let divs = subdivisions.max(1);
     let cols = divs + 1;
@@ -171,6 +174,7 @@ pub fn plane(subdivisions: u32) -> (Vec<Vertex3D>, Vec<u32>) {
 }
 
 /// Generate a cylinder along the Y axis, centered at origin (radius 0.5, height 1.0).
+#[must_use]
 pub fn cylinder(segments: u32) -> (Vec<Vertex3D>, Vec<u32>) {
     let segments = segments.max(3);
     let mut vertices = Vec::new();
@@ -318,5 +322,37 @@ mod tests {
         let (v, i) = sphere(1, 1); // should clamp to 3, 2
         assert!(!v.is_empty());
         assert!(!i.is_empty());
+    }
+
+    #[test]
+    fn sphere_zero_segments() {
+        // segments=0, rings=0 — should clamp to minimums and produce valid data
+        let (v, i) = sphere(0, 0);
+        assert!(!v.is_empty(), "sphere(0,0) should produce vertices");
+        for &idx in &i {
+            assert!(idx < v.len() as u32, "index out of bounds in sphere(0,0)");
+        }
+    }
+
+    #[test]
+    fn plane_zero_subdivisions() {
+        // subdivisions=0 — should clamp to 1 and produce valid data
+        let (v, i) = plane(0);
+        assert!(!v.is_empty(), "plane(0) should produce vertices");
+        assert!(!i.is_empty(), "plane(0) should produce indices");
+        for &idx in &i {
+            assert!(idx < v.len() as u32, "index out of bounds in plane(0)");
+        }
+    }
+
+    #[test]
+    fn cylinder_zero_segments() {
+        // segments=0 — should clamp to 3 and produce valid data
+        let (v, i) = cylinder(0);
+        assert!(!v.is_empty(), "cylinder(0) should produce vertices");
+        assert!(!i.is_empty(), "cylinder(0) should produce indices");
+        for &idx in &i {
+            assert!(idx < v.len() as u32, "index out of bounds in cylinder(0)");
+        }
     }
 }

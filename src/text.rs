@@ -26,7 +26,13 @@ pub struct BitmapFont {
 
 impl BitmapFont {
     /// Get the UV rect for a character.
+    #[must_use]
+    #[inline]
     pub fn glyph_uv(&self, ch: char) -> UvRect {
+        if self.atlas_width == 0 || self.atlas_height == 0 || self.columns == 0 {
+            return UvRect::default();
+        }
+
         let code = ch as u32;
         let index =
             if code >= self.first_char as u32 && code < self.first_char as u32 + self.glyph_count {
@@ -131,10 +137,12 @@ impl TextBatch {
         self.batch.clear();
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.batch.is_empty()
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.batch.len()
     }
@@ -241,5 +249,22 @@ mod tests {
         assert_eq!(tb.batch.sprites[0].x, 100.0);
         assert_eq!(tb.batch.sprites[1].x, 108.0); // 100 + 8
         assert_eq!(tb.batch.sprites[0].y, 50.0);
+    }
+
+    #[test]
+    fn glyph_uv_zero_atlas() {
+        // Division-by-zero regression: zero atlas dimensions must not panic
+        let font = BitmapFont {
+            texture_id: 1,
+            glyph_width: 8,
+            glyph_height: 16,
+            columns: 16,
+            atlas_width: 0,
+            atlas_height: 0,
+            first_char: 32,
+            glyph_count: 96,
+        };
+        let uv = font.glyph_uv('A');
+        assert_eq!(uv, UvRect::default());
     }
 }

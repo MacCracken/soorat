@@ -75,6 +75,7 @@ impl Color {
 
     /// Create from 8-bit RGBA (0–255).
     #[must_use]
+    #[inline]
     pub fn from_rgba8(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self {
             r: r as f32 / 255.0,
@@ -86,6 +87,7 @@ impl Color {
 
     /// Create from hex color (e.g., 0xFF0000FF for red).
     #[must_use]
+    #[inline]
     pub fn from_hex(hex: u32) -> Self {
         Self::from_rgba8(
             ((hex >> 24) & 0xFF) as u8,
@@ -103,6 +105,8 @@ impl Color {
     }
 
     /// Convert to wgpu::Color.
+    #[must_use]
+    #[inline]
     pub fn to_wgpu(self) -> wgpu::Color {
         wgpu::Color {
             r: self.r as f64,
@@ -114,6 +118,7 @@ impl Color {
 
     /// Create from a prakash Rgb color (f64 optics precision → f32 GPU).
     #[cfg(feature = "optics")]
+    #[must_use]
     pub fn from_prakash(rgb: prakash::spectral::Rgb, alpha: f32) -> Self {
         let clamped = rgb.clamp();
         Self {
@@ -126,12 +131,14 @@ impl Color {
 
     /// Convert to prakash Rgb (f32 → f64, drops alpha).
     #[cfg(feature = "optics")]
+    #[must_use]
     pub fn to_prakash(self) -> prakash::spectral::Rgb {
         prakash::spectral::Rgb::new(self.r as f64, self.g as f64, self.b as f64)
     }
 
     /// Create from a color temperature in Kelvin (via prakash blackbody radiation).
     #[cfg(feature = "optics")]
+    #[must_use]
     pub fn from_temperature(kelvin: f64) -> Self {
         let rgb = prakash::spectral::color_temperature_to_rgb(kelvin);
         Self::from_prakash(rgb, 1.0)
@@ -139,6 +146,7 @@ impl Color {
 
     /// Create from a wavelength in nanometers (via prakash spectral math).
     #[cfg(feature = "optics")]
+    #[must_use]
     pub fn from_wavelength(nm: f64) -> Option<Self> {
         prakash::spectral::wavelength_to_rgb(nm)
             .ok()
@@ -163,6 +171,44 @@ impl Color {
             b: self.b + (other.b - self.b) * t,
             a: self.a + (other.a - self.a) * t,
         }
+    }
+}
+
+/// Visualization heat map: scalar \[0,1\] → blue→cyan→green→yellow→red gradient.
+///
+/// Standard 5-stop gradient used across all physics visualization modules.
+/// Values outside \[0,1\] are clamped.
+#[must_use]
+#[inline]
+pub fn visualization_heat_map(t: f32) -> Color {
+    let t = t.clamp(0.0, 1.0);
+    if t < 0.25 {
+        let s = t / 0.25;
+        Color::new(0.0, s, 1.0, 1.0)
+    } else if t < 0.5 {
+        let s = (t - 0.25) / 0.25;
+        Color::new(0.0, 1.0, 1.0 - s, 1.0)
+    } else if t < 0.75 {
+        let s = (t - 0.5) / 0.25;
+        Color::new(s, 1.0, 0.0, 1.0)
+    } else {
+        let s = (t - 0.75) / 0.25;
+        Color::new(1.0, 1.0 - s, 0.0, 1.0)
+    }
+}
+
+/// Signed value color: blue for negative, red for positive, black at zero.
+///
+/// Maps a value in \[-1,1\] to a diverging color scale. Values outside range
+/// are clamped.
+#[must_use]
+#[inline]
+pub fn signed_value_color(v: f32) -> Color {
+    let v = v.clamp(-1.0, 1.0);
+    if v >= 0.0 {
+        Color::new(v, 0.0, 0.0, 1.0)
+    } else {
+        Color::new(0.0, 0.0, -v, 1.0)
     }
 }
 

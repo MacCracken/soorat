@@ -29,7 +29,13 @@ impl UvRect {
     };
 
     /// Create a UV rect from pixel coordinates and atlas dimensions.
+    ///
+    /// Returns [`Self::FULL`] if `atlas_w` or `atlas_h` is zero (avoids division by zero).
+    #[must_use]
     pub fn from_pixel_rect(x: u32, y: u32, w: u32, h: u32, atlas_w: u32, atlas_h: u32) -> Self {
+        if atlas_w == 0 || atlas_h == 0 {
+            return Self::FULL;
+        }
         Self {
             u_min: x as f32 / atlas_w as f32,
             v_min: y as f32 / atlas_h as f32,
@@ -88,6 +94,7 @@ impl Default for Sprite {
 }
 
 impl Sprite {
+    #[must_use]
     pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
         Self {
             x,
@@ -328,5 +335,17 @@ mod tests {
         batch.sort_by_z();
         assert_eq!(batch.sprites[0].z_order, 1);
         assert_eq!(batch.sprites[999].z_order, 1000);
+    }
+
+    #[test]
+    fn uvrect_zero_atlas() {
+        // Division-by-zero regression: zero atlas dimensions must not panic
+        let uv = UvRect::from_pixel_rect(0, 0, 10, 10, 0, 0);
+        assert_eq!(uv, UvRect::FULL);
+        // Also test one dimension zero
+        let uv_w0 = UvRect::from_pixel_rect(0, 0, 10, 10, 0, 256);
+        assert_eq!(uv_w0, UvRect::FULL);
+        let uv_h0 = UvRect::from_pixel_rect(0, 0, 10, 10, 256, 0);
+        assert_eq!(uv_h0, UvRect::FULL);
     }
 }

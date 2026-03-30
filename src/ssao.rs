@@ -23,6 +23,7 @@ impl Default for SsaoUniforms {
 }
 
 impl SsaoUniforms {
+    #[must_use]
     pub fn new(radius: f32, bias: f32, intensity: f32, sample_count: u32) -> Self {
         Self {
             params: [radius, bias, intensity, sample_count as f32],
@@ -44,6 +45,7 @@ pub struct SsaoPipeline {
 impl SsaoPipeline {
     /// Create an SSAO pipeline. Output format is typically R8Unorm or R16Float.
     pub fn new(device: &wgpu::Device, output_format: wgpu::TextureFormat) -> mabda::Result<Self> {
+        tracing::debug!(?output_format, "creating ssao pipeline");
         let pipeline = mabda::RenderPipelineBuilder::new(
             device,
             include_str!("ssao.wgsl"),
@@ -89,13 +91,14 @@ impl SsaoPipeline {
         depth_sampler: &wgpu::Sampler,
         normal_view: &wgpu::TextureView,
         normal_sampler: &wgpu::Sampler,
-    ) -> wgpu::BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
+    ) -> crate::error::Result<wgpu::BindGroup> {
+        Ok(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("ssao_bind_group"),
-            layout: self
-                .pipeline
-                .bind_group_layout(0)
-                .expect("ssao pipeline has bind group 0"),
+            layout: self.pipeline.bind_group_layout(0).ok_or_else(|| {
+                crate::error::RenderError::Pipeline(
+                    "ssao pipeline missing bind group layout 0".into(),
+                )
+            })?,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -118,7 +121,7 @@ impl SsaoPipeline {
                     resource: self.uniform_buffer.as_entire_binding(),
                 },
             ],
-        })
+        }))
     }
 
     /// Render SSAO to an output texture.
@@ -129,6 +132,7 @@ impl SsaoPipeline {
         output_view: &wgpu::TextureView,
         bind_group: &wgpu::BindGroup,
     ) {
+        tracing::debug!("rendering ssao pass");
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("ssao_encoder"),
         });

@@ -22,6 +22,7 @@ impl SooratCapabilities for GpuCapabilities {
 /// Soorat-specific WebGPU compatibility checks.
 pub mod soorat_webgpu {
     /// Check if soorat's current uniform sizes are WebGPU-compatible.
+    #[must_use]
     pub fn check_soorat_uniforms() -> Vec<(&'static str, u32, bool)> {
         let checks = vec![
             (

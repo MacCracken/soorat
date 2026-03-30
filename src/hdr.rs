@@ -13,7 +13,9 @@ pub struct HdrFramebuffer {
 impl HdrFramebuffer {
     pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
+    #[must_use]
     pub fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {
+        tracing::debug!(width, height, "creating hdr framebuffer");
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("hdr_framebuffer"),
             size: wgpu::Extent3d {
@@ -63,6 +65,7 @@ pub struct BloomUniforms {
 }
 
 impl BloomUniforms {
+    #[must_use]
     pub fn new(
         threshold: f32,
         soft_threshold: f32,
@@ -70,9 +73,14 @@ impl BloomUniforms {
         width: u32,
         height: u32,
     ) -> Self {
+        let texel_size = if width == 0 || height == 0 {
+            [0.0, 0.0, 0.0, 0.0]
+        } else {
+            [1.0 / width as f32, 1.0 / height as f32, 0.0, 0.0]
+        };
         Self {
             params: [threshold, soft_threshold, intensity, 0.0],
-            texel_size: [1.0 / width as f32, 1.0 / height as f32, 0.0, 0.0],
+            texel_size,
         }
     }
 }
@@ -108,6 +116,7 @@ pub struct BloomPipeline {
 impl BloomPipeline {
     /// Create a bloom pipeline. Returns `None` if pipeline creation fails.
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Option<Self> {
+        tracing::debug!(?format, "creating bloom pipeline");
         let shader_src = include_str!("bloom.wgsl");
         let bind_entries = mabda::BindGroupLayoutBuilder::new()
             .texture_2d(wgpu::ShaderStages::FRAGMENT)
@@ -149,13 +158,17 @@ impl BloomPipeline {
         device: &wgpu::Device,
         input_view: &wgpu::TextureView,
         sampler: &wgpu::Sampler,
-    ) -> wgpu::BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
+    ) -> crate::error::Result<wgpu::BindGroup> {
+        Ok(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("bloom_bind_group"),
             layout: self
                 .threshold_pipeline
                 .bind_group_layout(0)
-                .expect("bloom pipeline has bind group 0"),
+                .ok_or_else(|| {
+                    crate::error::RenderError::Pipeline(
+                        "bloom pipeline missing bind group layout 0".into(),
+                    )
+                })?,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -170,7 +183,7 @@ impl BloomPipeline {
                     resource: self.uniform_buffer.as_entire_binding(),
                 },
             ],
-        })
+        }))
     }
 
     /// Update bloom uniforms.
@@ -185,6 +198,7 @@ impl BloomPipeline {
     /// `final_target`: output view for the final blurred bloom.
     /// Run the full bloom pipeline: threshold → blur_h → blur_v.
     pub fn render(&self, device: &wgpu::Device, queue: &wgpu::Queue, targets: &BloomTargets<'_>) {
+        tracing::debug!("rendering bloom passes");
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("bloom_encoder"),
         });
@@ -289,5 +303,16 @@ mod tests {
         let u = BloomUniforms::default();
         let bytes = bytemuck::bytes_of(&u);
         assert_eq!(bytes.len(), 32);
+    }
+
+    #[test]
+    fn bloom_uniforms_zero_dimensions() {
+        // Division-by-zero regression: zero width/height must not produce Inf texel_size
+        let u = BloomUniforms::new(0.5, 0.5, 1.0, 0, 0);
+        assert!(!u.texel_size[0].is_infinite(), "texel_size[0] is Inf");
+        assert!(!u.texel_size[1].is_infinite(), "texel_size[1] is Inf");
+        assert!(!u.texel_size[0].is_nan(), "texel_size[0] is NaN");
+        assert!(!u.texel_size[1].is_nan(), "texel_size[1] is NaN");
+        assert_eq!(u.texel_size, [0.0, 0.0, 0.0, 0.0]);
     }
 }

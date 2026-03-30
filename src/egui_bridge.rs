@@ -28,10 +28,12 @@ pub struct ViewportSize {
 }
 
 impl ViewportSize {
+    #[must_use]
     pub fn new(width: u32, height: u32) -> Self {
         Self { width, height }
     }
 
+    #[must_use]
     pub fn aspect_ratio(&self) -> f32 {
         if self.height == 0 {
             1.0
@@ -41,6 +43,7 @@ impl ViewportSize {
     }
 
     /// Check if the viewport needs a resize (dimensions changed).
+    #[must_use]
     pub fn needs_resize(&self, new_width: u32, new_height: u32) -> bool {
         self.width != new_width || self.height != new_height
     }

@@ -17,6 +17,7 @@ pub struct UiPanel {
 }
 
 impl UiPanel {
+    #[must_use]
     pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
         Self {
             x,
@@ -29,16 +30,19 @@ impl UiPanel {
         }
     }
 
+    #[must_use]
     pub fn with_color(mut self, color: Color) -> Self {
         self.color = color;
         self
     }
 
+    #[must_use]
     pub fn with_texture(mut self, id: u64) -> Self {
         self.texture_id = id;
         self
     }
 
+    #[must_use]
     pub fn with_z_order(mut self, z: i32) -> Self {
         self.z_order = z;
         self
@@ -57,6 +61,7 @@ pub struct UiLabel {
 }
 
 impl UiLabel {
+    #[must_use]
     pub fn new(text: impl Into<String>, x: f32, y: f32) -> Self {
         Self {
             text: text.into(),
@@ -68,16 +73,19 @@ impl UiLabel {
         }
     }
 
+    #[must_use]
     pub fn with_scale(mut self, scale: f32) -> Self {
         self.scale = scale;
         self
     }
 
+    #[must_use]
     pub fn with_color(mut self, color: Color) -> Self {
         self.color = color;
         self
     }
 
+    #[must_use]
     pub fn with_z_order(mut self, z: i32) -> Self {
         self.z_order = z;
         self
@@ -127,6 +135,7 @@ impl UiBatch {
         self.text.clear();
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.panels.is_empty() && self.text.is_empty()
     }

@@ -17,6 +17,7 @@ pub struct LodChain {
 impl LodChain {
     /// Create a LOD chain from distances (sorted nearest → farthest).
     /// Each distance is the max range for that LOD level.
+    #[must_use]
     pub fn new(distances: &[f32]) -> Self {
         let levels = distances
             .iter()
@@ -31,6 +32,8 @@ impl LodChain {
 
     /// Select the appropriate LOD level for a given squared distance from camera.
     /// Returns the mesh_index for the best LOD, or the last (lowest detail) if beyond all ranges.
+    #[must_use]
+    #[inline]
     pub fn select(&self, distance_sq: f32) -> usize {
         for level in &self.levels {
             if distance_sq <= level.max_distance_sq {
@@ -42,6 +45,8 @@ impl LodChain {
     }
 
     /// Select LOD from camera and object positions (computes distance internally).
+    #[must_use]
+    #[inline]
     pub fn select_from_positions(&self, camera_pos: [f32; 3], object_pos: [f32; 3]) -> usize {
         let dx = camera_pos[0] - object_pos[0];
         let dy = camera_pos[1] - object_pos[1];
@@ -50,6 +55,7 @@ impl LodChain {
     }
 
     /// Number of LOD levels.
+    #[must_use]
     pub fn level_count(&self) -> usize {
         self.levels.len()
     }
@@ -64,15 +70,23 @@ pub struct TerrainLod {
 }
 
 impl TerrainLod {
-    pub fn new(resolutions: Vec<u32>, distances: Vec<f32>) -> Self {
-        assert_eq!(resolutions.len(), distances.len());
-        Self {
+    pub fn new(resolutions: Vec<u32>, distances: Vec<f32>) -> crate::error::Result<Self> {
+        if resolutions.len() != distances.len() {
+            return Err(crate::error::RenderError::Pipeline(format!(
+                "TerrainLod: resolutions length ({}) != distances length ({})",
+                resolutions.len(),
+                distances.len(),
+            )));
+        }
+        Ok(Self {
             resolutions,
             distances,
-        }
+        })
     }
 
     /// Select terrain resolution for a given distance from camera.
+    #[must_use]
+    #[inline]
     pub fn select_resolution(&self, distance: f32) -> u32 {
         for (i, &d) in self.distances.iter().enumerate() {
             if distance <= d {
@@ -123,7 +137,7 @@ mod tests {
 
     #[test]
     fn terrain_lod_select() {
-        let lod = TerrainLod::new(vec![64, 32, 16, 8], vec![50.0, 100.0, 200.0, 500.0]);
+        let lod = TerrainLod::new(vec![64, 32, 16, 8], vec![50.0, 100.0, 200.0, 500.0]).unwrap();
         assert_eq!(lod.select_resolution(30.0), 64);
         assert_eq!(lod.select_resolution(75.0), 32);
         assert_eq!(lod.select_resolution(150.0), 16);
@@ -132,7 +146,19 @@ mod tests {
 
     #[test]
     fn terrain_lod_beyond() {
-        let lod = TerrainLod::new(vec![64, 8], vec![50.0, 200.0]);
+        let lod = TerrainLod::new(vec![64, 8], vec![50.0, 200.0]).unwrap();
         assert_eq!(lod.select_resolution(999.0), 8);
+    }
+
+    #[test]
+    fn terrain_lod_mismatched_lengths() {
+        // Adversarial: different-length vecs must return Err, not panic
+        let result = TerrainLod::new(vec![64, 32, 16], vec![50.0, 100.0]);
+        assert!(result.is_err());
+        let result2 = TerrainLod::new(vec![64], vec![50.0, 100.0, 200.0]);
+        assert!(result2.is_err());
+        // Equal lengths should succeed
+        let result3 = TerrainLod::new(vec![64, 32], vec![50.0, 100.0]);
+        assert!(result3.is_ok());
     }
 }

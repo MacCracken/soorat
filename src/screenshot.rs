@@ -55,6 +55,7 @@ pub fn encode_pixels(
     rgba: &[u8],
     format: ScreenshotFormat,
 ) -> Result<Vec<u8>> {
+    tracing::debug!(width, height, ?format, "encoding pixels");
     let expected = (width as usize)
         .checked_mul(height as usize)
         .and_then(|v| v.checked_mul(4))
@@ -106,6 +107,12 @@ pub fn capture_render_target(
     queue: &wgpu::Queue,
     format: ScreenshotFormat,
 ) -> Result<Vec<u8>> {
+    tracing::debug!(
+        width = target.width,
+        height = target.height,
+        ?format,
+        "capturing render target"
+    );
     let rgba = target.read_pixels(device, queue)?;
     encode_pixels(target.width, target.height, &rgba, format)
 }
@@ -140,6 +147,12 @@ pub fn capture_screenshot(
     queue: &wgpu::Queue,
     format: ScreenshotFormat,
 ) -> Result<selah::Screenshot> {
+    tracing::debug!(
+        width = target.width,
+        height = target.height,
+        ?format,
+        "capturing screenshot"
+    );
     let encoded = capture_render_target(target, device, queue, format)?;
 
     Ok(selah::Screenshot {
@@ -164,6 +177,13 @@ pub fn capture_screenshot_region(
     region: (u32, u32, u32, u32),
     format: ScreenshotFormat,
 ) -> Result<selah::Screenshot> {
+    tracing::debug!(
+        region_x = region.0,
+        region_y = region.1,
+        region_w = region.2,
+        region_h = region.3,
+        "capturing screenshot region"
+    );
     let rgba = target.read_pixels(device, queue)?;
     let (rx, ry, rw, rh) = region;
 

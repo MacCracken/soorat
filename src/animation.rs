@@ -114,6 +114,7 @@ pub struct AnimationChannel {
 }
 
 /// What property the animation channel targets.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnimationProperty {
     Translation,
@@ -244,22 +245,13 @@ pub fn load_gltf_animations(bytes: &[u8]) -> Result<(Vec<Skeleton>, Vec<Animatio
                 IDENTITY_MAT4
             };
 
-            // Find parent index within the joints list
+            // Find parent: the joint in our list whose children contain this joint
             let parent = gltf_joints
                 .iter()
-                .position(|j| {
-                    gltf_joint
+                .position(|candidate| {
+                    candidate
                         .children()
-                        .any(|_| false) // check if this joint's parent is another joint
-                        || j.index() == gltf_joint.index()
-                })
-                .and_then(|_| {
-                    // Search for this joint's parent in the joint list
-                    gltf_joints.iter().position(|candidate| {
-                        candidate
-                            .children()
-                            .any(|child| child.index() == gltf_joint.index())
-                    })
+                        .any(|child| child.index() == gltf_joint.index())
                 })
                 .map(|idx| idx as i32)
                 .unwrap_or(-1);
@@ -451,5 +443,44 @@ mod tests {
     fn load_invalid_gltf_animations() {
         let result = load_gltf_animations(b"not gltf");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn interpolate_keyframes_empty() {
+        let kf: Vec<Keyframe> = vec![];
+        let v = interpolate_keyframes(&kf, 0.5);
+        assert!(v.is_empty(), "empty keyframes should return empty result");
+    }
+
+    #[test]
+    fn skeleton_single_joint() {
+        let skeleton = Skeleton {
+            joints: vec![Joint {
+                parent: -1,
+                inverse_bind: IDENTITY_MAT4,
+                translation: [1.0, 2.0, 3.0],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+                scale: [1.0, 1.0, 1.0],
+            }],
+        };
+        let matrices = skeleton.compute_joint_matrices();
+        assert_eq!(matrices.len(), 1);
+        // With identity inverse bind, joint matrix = world transform
+        // Translation should appear in column 3
+        assert_eq!(matrices[0][12], 1.0);
+        assert_eq!(matrices[0][13], 2.0);
+        assert_eq!(matrices[0][14], 3.0);
+    }
+
+    #[test]
+    fn animation_property_values() {
+        // Verify all enum variants exist and are distinct
+        let t = AnimationProperty::Translation;
+        let r = AnimationProperty::Rotation;
+        let s = AnimationProperty::Scale;
+        assert_ne!(t, r);
+        assert_ne!(r, s);
+        assert_ne!(t, s);
+        assert_eq!(t, AnimationProperty::Translation);
     }
 }

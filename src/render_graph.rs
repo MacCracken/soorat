@@ -94,7 +94,13 @@ impl RenderGraph {
     /// Get the topologically sorted execution order (respecting dependencies).
     /// Returns pass names in execution order. Disabled passes are excluded.
     /// Circular dependencies are detected and skipped with a warning.
+    #[must_use]
     pub fn execution_order(&self) -> Vec<&str> {
+        tracing::debug!(
+            pass_count = self.nodes.len(),
+            enabled = self.enabled_count(),
+            "computing render graph execution order"
+        );
         let mut visited = vec![false; self.nodes.len()];
         let mut rec_stack = vec![false; self.nodes.len()];
         let mut order = Vec::with_capacity(self.nodes.len());
@@ -142,6 +148,7 @@ impl RenderGraph {
     }
 
     /// Get a pass node by name.
+    #[must_use]
     pub fn get_pass(&self, name: impl AsRef<str>) -> Option<&RenderPassNode> {
         self.name_to_index
             .get(name.as_ref())
@@ -149,11 +156,13 @@ impl RenderGraph {
     }
 
     /// Number of passes.
+    #[must_use]
     pub fn pass_count(&self) -> usize {
         self.nodes.len()
     }
 
     /// Number of enabled passes.
+    #[must_use]
     pub fn enabled_count(&self) -> usize {
         self.nodes.iter().filter(|n| n.enabled).count()
     }
@@ -284,5 +293,21 @@ mod tests {
     fn pass_type_values() {
         assert_ne!(PassType::Shadow, PassType::Geometry);
         assert_ne!(PassType::Bloom, PassType::Ssao);
+    }
+
+    #[test]
+    fn cycle_detection() {
+        let mut graph = RenderGraph::new();
+        graph
+            .add_pass("a", PassType::Geometry)
+            .add_pass("b", PassType::PostProcess)
+            .add_dependency("a", "b")
+            .add_dependency("b", "a");
+
+        let order = graph.execution_order();
+        // Cycle should be detected and skipped — the cyclic node(s) may be omitted
+        // or the graph should still return without panicking.
+        // At minimum, it must not infinite-loop or panic.
+        assert!(order.len() <= 2, "cycle should not produce duplicates");
     }
 }

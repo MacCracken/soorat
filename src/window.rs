@@ -30,6 +30,7 @@ impl Default for WindowConfig {
 }
 
 impl WindowConfig {
+    #[must_use]
     pub fn new(title: impl Into<String>, width: u32, height: u32) -> Self {
         Self {
             title: title.into(),
@@ -40,6 +41,7 @@ impl WindowConfig {
     }
 
     /// Aspect ratio as f32. Returns 1.0 if height is 0.
+    #[must_use]
     pub fn aspect_ratio(&self) -> f32 {
         if self.height == 0 {
             1.0
@@ -49,6 +51,7 @@ impl WindowConfig {
     }
 
     /// Present mode based on vsync setting.
+    #[must_use]
     pub fn present_mode(&self) -> wgpu::PresentMode {
         if self.vsync {
             wgpu::PresentMode::AutoVsync

@@ -64,7 +64,7 @@ pub mod window;
 
 // ── Core ────────────────────────────────────────────────────────────────────
 pub use capabilities::{GpuCapabilities, SooratCapabilities};
-pub use color::Color;
+pub use color::{Color, visualization_heat_map};
 pub use error::{RenderError, Result};
 pub use gpu::{GpuContext, GpuContextBuilder};
 pub use profiler::{FrameProfiler, GpuTimestamps, PassTiming, ProfileScope};
@@ -146,4 +146,5 @@ pub use ui::{UiBatch, UiLabel, UiPanel};
 
 // ── Materials ───────────────────────────────────────────────────────────────
 /// Deprecated: use `MaterialUniforms` for PBR. Retained for simple texture+bind group use.
+#[deprecated(since = "1.0.0", note = "use MaterialUniforms for PBR")]
 pub use material::Material;

@@ -27,6 +27,7 @@ impl Default for PostProcessUniforms {
 }
 
 impl PostProcessUniforms {
+    #[must_use]
     pub fn new(exposure: f32, tone_map: ToneMapMode) -> Self {
         Self {
             params: [exposure, 1.0, 0.0, tone_map as u32 as f32],
@@ -47,6 +48,7 @@ pub struct PostProcessPipeline {
 impl PostProcessPipeline {
     /// Create a post-process pipeline for the given output format.
     pub fn new(device: &wgpu::Device, output_format: wgpu::TextureFormat) -> Result<Self> {
+        tracing::debug!(?output_format, "creating postprocess pipeline");
         let pipeline = mabda::RenderPipelineBuilder::new(
             device,
             include_str!("postprocess.wgsl"),
@@ -84,33 +86,34 @@ impl PostProcessPipeline {
         device: &wgpu::Device,
         input_view: &wgpu::TextureView,
         sampler: &wgpu::Sampler,
-    ) {
-        self.uniform_bind_group = Some(
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("postprocess_bind_group"),
-                layout: self
-                    .pipeline
-                    .bind_group_layout(0)
-                    .expect("postprocess pipeline has bind group 0"),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(input_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: self.uniform_buffer.as_entire_binding(),
-                    },
-                ],
-            }),
-        );
+    ) -> Result<()> {
+        self.uniform_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("postprocess_bind_group"),
+            layout: self.pipeline.bind_group_layout(0).ok_or_else(|| {
+                crate::error::RenderError::Pipeline(
+                    "postprocess pipeline missing bind group layout 0".into(),
+                )
+            })?,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(input_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.uniform_buffer.as_entire_binding(),
+                },
+            ],
+        }));
+        Ok(())
     }
 
     /// Update post-process parameters.
+    #[inline]
     pub fn update_uniforms(&self, queue: &wgpu::Queue, uniforms: &PostProcessUniforms) {
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(uniforms));
     }
@@ -122,6 +125,7 @@ impl PostProcessPipeline {
         queue: &wgpu::Queue,
         output_view: &wgpu::TextureView,
     ) {
+        tracing::debug!("rendering postprocess pass");
         let Some(bind_group) = &self.uniform_bind_group else {
             return;
         };

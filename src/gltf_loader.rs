@@ -21,6 +21,7 @@ pub struct MeshData {
 
 /// Load mesh data from glTF bytes (without GPU upload).
 pub fn load_gltf_meshes(bytes: &[u8]) -> Result<(Vec<MeshData>, Vec<Vec<u8>>)> {
+    tracing::debug!(byte_len = bytes.len(), "loading gltf meshes");
     let gltf = gltf::Gltf::from_slice(bytes).map_err(|e| RenderError::Model(e.to_string()))?;
 
     let blob = gltf.blob.as_deref().unwrap_or(&[]);
@@ -107,6 +108,7 @@ pub fn load_gltf_meshes(bytes: &[u8]) -> Result<(Vec<MeshData>, Vec<Vec<u8>>)> {
 
 /// Load a glTF model and upload to GPU.
 pub fn load_model(device: &wgpu::Device, queue: &wgpu::Queue, bytes: &[u8]) -> Result<Model> {
+    tracing::debug!(byte_len = bytes.len(), "loading gltf model");
     let (mesh_datas, image_datas) = load_gltf_meshes(bytes)?;
 
     let mut meshes = Vec::with_capacity(mesh_datas.len());
@@ -118,12 +120,15 @@ pub fn load_model(device: &wgpu::Device, queue: &wgpu::Queue, bytes: &[u8]) -> R
     }
 
     let mut textures = Vec::with_capacity(image_datas.len());
+    let mut label_buf = String::new();
     for (i, img_bytes) in image_datas.iter().enumerate() {
         if img_bytes.is_empty() {
             textures.push(Texture::white_pixel(device, queue)?);
         } else {
-            let label = format!("gltf_texture_{i}");
-            textures.push(Texture::from_bytes(device, queue, img_bytes, &label)?);
+            use std::fmt::Write;
+            label_buf.clear();
+            let _ = write!(label_buf, "gltf_texture_{i}");
+            textures.push(Texture::from_bytes(device, queue, img_bytes, &label_buf)?);
         }
     }
 

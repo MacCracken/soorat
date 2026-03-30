@@ -59,6 +59,7 @@ pub struct GpuParticleSystem {
 impl GpuParticleSystem {
     /// Create a particle system with the given capacity.
     pub fn new(device: &wgpu::Device, capacity: u32) -> Self {
+        tracing::debug!(capacity, "creating gpu particle system");
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("gpu_particles_shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("gpu_particles.wgsl").into()),
@@ -158,6 +159,11 @@ impl GpuParticleSystem {
 
     /// Run the compute simulation step with default gravity/damping.
     pub fn simulate(&self, device: &wgpu::Device, queue: &wgpu::Queue, delta_time: f32) {
+        tracing::debug!(
+            particle_count = self.particle_count,
+            delta_time,
+            "simulating particles"
+        );
         self.simulate_with_params(
             device,
             queue,
@@ -200,11 +206,16 @@ impl GpuParticleSystem {
     /// Generate instance data from current particle state for rendering.
     /// Call after `simulate()`. Reads particle buffer back to CPU.
     /// For high-performance, use a GPU-only path with indirect draw instead.
+    #[must_use]
     pub fn to_instance_data(
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Vec<InstanceData> {
+        tracing::debug!(
+            particle_count = self.particle_count,
+            "reading particle instance data"
+        );
         // For now, use a staging buffer readback
         let size = (self.particle_count as u64) * std::mem::size_of::<GpuParticle>() as u64;
         if size == 0 {

@@ -7,6 +7,7 @@
 
 use crate::error::{RenderError, Result};
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 // ── Re-exports from mabda ──────────────────────────────────────────────────
 pub use mabda::texture::{
@@ -239,17 +240,21 @@ impl TextureCache {
         bytes: &[u8],
         label: &str,
     ) -> Result<&wgpu::BindGroup> {
-        if self.entries.contains_key(&id) {
-            tracing::debug!(id, "texture cache hit");
+        match self.entries.entry(id) {
+            Entry::Occupied(e) => {
+                tracing::debug!(id, "texture cache hit");
+                Ok(&e.into_mut().bind_group)
+            }
+            Entry::Vacant(e) => {
+                let texture = Texture::from_bytes(device, queue, bytes, label)?;
+                let bind_group = texture.bind_group(device, layout);
+                let cached = e.insert(CachedTexture {
+                    texture,
+                    bind_group,
+                });
+                Ok(&cached.bind_group)
+            }
         }
-        if !self.entries.contains_key(&id) {
-            let texture = Texture::from_bytes(device, queue, bytes, label)?;
-            self.insert(id, texture, device, layout);
-        }
-        self.entries
-            .get(&id)
-            .map(|e| &e.bind_group)
-            .ok_or_else(|| RenderError::Texture(format!("texture {id} missing after insert")))
     }
 
     /// Get the bind group for a texture ID.

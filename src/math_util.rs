@@ -112,7 +112,11 @@ pub fn look_at(pos: [f32; 3], dir: [f32; 3], up: [f32; 3]) -> [f32; 16] {
     ]
 }
 
-/// Flatten a `[[f32; 4]; 4]` (row-major glTF style) to column-major `[f32; 16]`.
+/// Flatten a `[[f32; 4]; 4]` to `[f32; 16]` (preserving memory layout, no transpose).
+///
+/// glTF stores matrices column-major; the `gltf` crate returns `[[f32; 4]; 4]`
+/// where each inner array is a column. This flattens to a contiguous `[f32; 16]`
+/// suitable for GPU uniform upload.
 #[must_use]
 #[inline]
 pub fn flatten_mat4(m: [[f32; 4]; 4]) -> [f32; 16] {
@@ -158,6 +162,38 @@ pub fn compose_trs(t: [f32; 3], r: [f32; 4], s: [f32; 3]) -> [f32; 16] {
     ]
 }
 
+/// Compute a right/up orthonormal basis from a normal (direction) vector.
+///
+/// Given a direction `n`, returns `(right, up)` such that `right`, `up`, and `n`
+/// form an approximately orthogonal frame. Used for portal rendering, arrowheads,
+/// and any geometry that needs a tangent frame from a single direction.
+#[must_use]
+#[inline]
+pub fn normal_to_basis(n: [f32; 3]) -> ([f32; 3], [f32; 3]) {
+    // Pick a reference that isn't parallel to n
+    let ref_vec = if n[1].abs() < 0.99 {
+        [0.0, 1.0, 0.0]
+    } else {
+        [1.0, 0.0, 0.0]
+    };
+
+    // right = normalize(cross(n, ref_vec))
+    let rx = n[1] * ref_vec[2] - n[2] * ref_vec[1];
+    let ry = n[2] * ref_vec[0] - n[0] * ref_vec[2];
+    let rz = n[0] * ref_vec[1] - n[1] * ref_vec[0];
+    let rlen = (rx * rx + ry * ry + rz * rz).sqrt().max(f32::EPSILON);
+    let right = [rx / rlen, ry / rlen, rz / rlen];
+
+    // up = normalize(cross(right, n))
+    let ux = right[1] * n[2] - right[2] * n[1];
+    let uy = right[2] * n[0] - right[0] * n[2];
+    let uz = right[0] * n[1] - right[1] * n[0];
+    let ulen = (ux * ux + uy * uy + uz * uz).sqrt().max(f32::EPSILON);
+    let up = [ux / ulen, uy / ulen, uz / ulen];
+
+    (right, up)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,5 +220,110 @@ mod tests {
     fn cross_product_basis() {
         assert!((cross([1.0, 0.0, 0.0], [0.0, 1.0, 0.0])[2] - 1.0).abs() < 0.001);
         assert!((cross([0.0, 1.0, 0.0], [1.0, 0.0, 0.0])[2] + 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn look_at_parallel_vectors() {
+        // dir parallel to up — should not produce NaN
+        let m = look_at([0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]);
+        for v in m {
+            assert!(!v.is_nan(), "NaN in look_at with parallel dir/up");
+        }
+    }
+
+    #[test]
+    fn look_at_zero_direction() {
+        // zero direction and zero pos — should not produce NaN or panic
+        let m = look_at([0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
+        for v in m {
+            assert!(!v.is_nan(), "NaN in look_at with zero direction");
+        }
+    }
+
+    #[test]
+    fn flatten_mat4_identity() {
+        let identity_nested = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        assert_eq!(flatten_mat4(identity_nested), IDENTITY_MAT4);
+    }
+
+    #[test]
+    fn flatten_mat4_roundtrip() {
+        let m = [
+            [1.0, 2.0, 3.0, 4.0],
+            [5.0, 6.0, 7.0, 8.0],
+            [9.0, 10.0, 11.0, 12.0],
+            [13.0, 14.0, 15.0, 16.0],
+        ];
+        let flat = flatten_mat4(m);
+        // Each inner array becomes 4 consecutive floats in column-major order
+        assert_eq!(flat[0], 1.0); // m[0][0]
+        assert_eq!(flat[4], 5.0); // m[1][0]
+        assert_eq!(flat[8], 9.0); // m[2][0]
+        assert_eq!(flat[12], 13.0); // m[3][0]
+        assert_eq!(flat[15], 16.0); // m[3][3]
+    }
+
+    #[test]
+    fn compose_trs_zero_scale() {
+        let m = compose_trs([1.0, 2.0, 3.0], [0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0]);
+        for v in m {
+            assert!(!v.is_nan(), "NaN in compose_trs with zero scale");
+        }
+        // Rotation columns should be zeroed out by zero scale
+        assert_eq!(m[0], 0.0);
+        assert_eq!(m[5], 0.0);
+        assert_eq!(m[10], 0.0);
+        // Translation should still be present
+        assert_eq!(m[12], 1.0);
+        assert_eq!(m[13], 2.0);
+        assert_eq!(m[14], 3.0);
+    }
+
+    #[test]
+    fn compose_trs_rotation_only() {
+        // 90° rotation around Z axis: quat = (0, 0, sin(45°), cos(45°))
+        let s = std::f32::consts::FRAC_PI_4.sin();
+        let c = std::f32::consts::FRAC_PI_4.cos();
+        let m = compose_trs([0.0; 3], [0.0, 0.0, s, c], [1.0; 3]);
+        // After 90° Z rotation, X axis should map to Y axis
+        // m[0..4] is first column (original X direction)
+        assert!((m[0]).abs() < 0.01); // x-component near zero
+        assert!((m[1] - 1.0).abs() < 0.01); // y-component near 1
+        assert_eq!(m[15], 1.0); // homogeneous w
+    }
+
+    fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
+        a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+    }
+
+    #[test]
+    fn normal_to_basis_z_forward() {
+        let n = [0.0, 0.0, 1.0];
+        let (right, up) = normal_to_basis(n);
+        assert!(dot3(right, n).abs() < 0.001, "right not perpendicular to n");
+        assert!(dot3(up, n).abs() < 0.001, "up not perpendicular to n");
+    }
+
+    #[test]
+    fn normal_to_basis_y_up() {
+        let n = [0.0, 1.0, 0.0];
+        let (right, up) = normal_to_basis(n);
+        assert!(dot3(right, n).abs() < 0.001, "right not perpendicular to n");
+        assert!(dot3(up, n).abs() < 0.001, "up not perpendicular to n");
+    }
+
+    #[test]
+    fn normal_to_basis_orthogonal() {
+        // Test with an arbitrary direction
+        let n = normalize3([1.0, 2.0, 3.0]);
+        let (right, up) = normal_to_basis(n);
+        assert!(dot3(right, up).abs() < 0.001, "right and up not orthogonal");
+        assert!(dot3(right, n).abs() < 0.001, "right not perpendicular to n");
+        assert!(dot3(up, n).abs() < 0.001, "up not perpendicular to n");
     }
 }

@@ -17,6 +17,7 @@ pub struct ShadowMap {
 
 impl ShadowMap {
     /// Create a shadow map with the given resolution.
+    #[must_use]
     pub fn new(device: &wgpu::Device, size: u32) -> Self {
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow_map"),
@@ -79,6 +80,7 @@ impl Default for ShadowUniforms {
 /// `extent`: half-size of the shadow frustum in world units.
 /// `near`/`far`: depth range.
 #[must_use]
+#[inline]
 pub fn directional_light_matrix(
     direction: [f32; 3],
     extent: f32,
@@ -176,6 +178,7 @@ pub struct ShadowPipeline {
 
 impl ShadowPipeline {
     pub fn new(device: &wgpu::Device) -> Self {
+        tracing::debug!("creating shadow pipeline");
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("shadow_shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shadow.wgsl").into()),
@@ -307,6 +310,7 @@ pub struct CascadedShadowMap {
 
 impl CascadedShadowMap {
     /// Create cascaded shadow maps with the given number of cascades and resolution.
+    #[must_use]
     pub fn new(device: &wgpu::Device, cascade_count: u32, resolution: u32) -> Self {
         let count = (cascade_count as usize).clamp(1, MAX_CASCADES);
         let cascades = (0..count)
@@ -323,6 +327,7 @@ impl CascadedShadowMap {
     /// `near`/`far`: camera frustum range.
     /// `lambda`: blend between logarithmic (1.0) and uniform (0.0) splits. 0.5 is typical.
     pub fn compute_splits(&mut self, near: f32, far: f32, lambda: f32) {
+        let near = if near <= 0.0 { 0.001_f32 } else { near };
         let count = self.cascades.len();
         self.split_distances[0] = near;
         for i in 1..count {
@@ -342,6 +347,7 @@ impl CascadedShadowMap {
     }
 
     /// Number of cascades.
+    #[must_use]
     pub fn cascade_count(&self) -> usize {
         self.cascades.len()
     }
@@ -423,6 +429,7 @@ impl ShadowAtlas {
     }
 
     /// Get the viewport (x, y, w, h) for a given light index in the atlas.
+    #[must_use]
     pub fn tile_viewport(&self, index: u32) -> (u32, u32, u32, u32) {
         let col = index % self.columns;
         let row = index / self.columns;
@@ -435,6 +442,7 @@ impl ShadowAtlas {
     }
 
     /// Get the UV offset and scale for a tile (for shader sampling).
+    #[must_use]
     pub fn tile_uv(&self, index: u32) -> [f32; 4] {
         let col = index % self.columns;
         let row = index / self.columns;
@@ -443,6 +451,7 @@ impl ShadowAtlas {
     }
 
     /// Maximum number of lights that fit in the atlas.
+    #[must_use]
     pub fn max_lights(&self) -> u32 {
         self.columns * self.columns
     }
@@ -458,6 +467,7 @@ pub struct PointShadowMap {
 
 impl PointShadowMap {
     /// Compute the 6 face view-projection matrices for a point light.
+    #[must_use]
     pub fn new(position: [f32; 3], near: f32, far: f32) -> Self {
         // Perspective projection for 90° FOV (cube face)
         let proj = perspective_90(near, far);
@@ -483,7 +493,9 @@ impl PointShadowMap {
 }
 
 /// Compute practical cascade split distances (standalone, no GPU needed).
+#[must_use]
 pub fn compute_practical_splits(near: f32, far: f32, count: usize, lambda: f32) -> Vec<f32> {
+    let near = if near <= 0.0 { 0.001_f32 } else { near };
     let mut splits = Vec::with_capacity(count + 1);
     splits.push(near);
     for i in 1..count {
@@ -503,6 +515,7 @@ pub struct ShadowAtlasConfig {
 }
 
 /// Get viewport for a tile index in an atlas config.
+#[must_use]
 pub fn tile_viewport(config: &ShadowAtlasConfig, index: u32) -> (u32, u32, u32, u32) {
     let columns = config.size / config.tile_size.max(1);
     let col = index % columns;
@@ -516,6 +529,7 @@ pub fn tile_viewport(config: &ShadowAtlasConfig, index: u32) -> (u32, u32, u32, 
 }
 
 /// Get UV offset+scale for a tile index in an atlas config.
+#[must_use]
 pub fn tile_uv(config: &ShadowAtlasConfig, index: u32) -> [f32; 4] {
     let columns = config.size / config.tile_size.max(1);
     let col = index % columns;
@@ -671,5 +685,23 @@ mod tests {
         assert_eq!(p[0], 1.0); // aspect=1, fov=90 → f=1
         assert_eq!(p[5], 1.0);
         assert!(!p[10].is_nan());
+    }
+
+    #[test]
+    fn cascade_splits_zero_near() {
+        // Division-by-zero regression: near=0 should not produce NaN
+        let splits = compute_practical_splits(0.0, 100.0, 4, 0.5);
+        assert_eq!(splits.len(), 5);
+        for &s in &splits {
+            assert!(!s.is_nan(), "split contains NaN");
+            assert!(!s.is_infinite(), "split contains Inf");
+        }
+        // near should be clamped to 0.001
+        assert!((splits[0] - 0.001).abs() < f32::EPSILON);
+        assert_eq!(splits[4], 100.0);
+        // Splits should be monotonically increasing
+        for i in 1..splits.len() {
+            assert!(splits[i] > splits[i - 1]);
+        }
     }
 }
