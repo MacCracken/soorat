@@ -43,9 +43,9 @@ impl Default for AcousticVisParams {
 
 // ── CPU-only helpers (no feature gate) ──────────────────────────────────────
 
-use crate::color::visualization_heat_map;
 #[cfg(feature = "acoustics")]
 use crate::color::signed_value_color;
+use crate::color::visualization_heat_map;
 
 /// Acoustic heat map exposed for general use.
 #[must_use]

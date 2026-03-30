@@ -168,10 +168,7 @@ pub fn compose_trs(t: [f32; 3], r: [f32; 4], s: [f32; 3]) -> [f32; 16] {
 /// form an approximately orthogonal frame. Used by feature-gated viz modules
 /// (acoustic_render, em_render) for portal rendering, arrowheads,
 /// and any geometry that needs a tangent frame from a single direction.
-#[cfg_attr(
-    not(any(feature = "acoustics", feature = "em")),
-    allow(dead_code)
-)]
+#[cfg_attr(not(any(feature = "acoustics", feature = "em")), allow(dead_code))]
 #[must_use]
 #[inline]
 pub fn normal_to_basis(n: [f32; 3]) -> ([f32; 3], [f32; 3]) {

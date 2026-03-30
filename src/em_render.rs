@@ -41,9 +41,9 @@ impl Default for EmVisParams {
 
 // ── CPU-only helpers (no feature gate) ──────────────────────────────────────
 
-use crate::color::visualization_heat_map;
 #[cfg(feature = "em")]
 use crate::color::signed_value_color;
+use crate::color::visualization_heat_map;
 #[cfg(feature = "em")]
 use crate::math_util::normal_to_basis;
 
