@@ -2,11 +2,12 @@
 
 > **Soorat** (Arabic/Urdu: صورت — form, image, appearance) — GPU rendering engine for the Kiran game engine and AGNOS ecosystem.
 
-Version 1.1.0 — all planned features implemented. Patch sprints 1-3 complete.
-1.1.0 (2026-11-15): language/dependency update (Rust 1.100, MSRV 1.100) + P(-1) audit and hardening.
+Version 1.2.0 — the final Rust release. All planned features implemented; patch sprints 1-3 complete.
+- 1.1.0 (2026-11-15): language/dependency update (Rust 1.100, MSRV 1.100) + P(-1) audit and hardening.
+- 1.2.0 (2026-11-15): hidden `oracle` feature for the Cyrius port, frame-rate-independent particle damping, bloom composite.
 
 **Cyrius port — planned (decisions taken 2026-11-15):** see [soorat-port-plan.md](soorat-port-plan.md).
-- 1.1.1 adds the hidden `oracle` feature, makes particle damping frame-rate independent, and wires the bloom composite. It is the **final Rust release** and the oracle. The shallow-water bathymetry item turned out not to be a defect. CUBICSPLINE Hermite interpolation moves to the Cyrius port (ADR 0002 #13), because it needs tangent storage in public types.
+- 1.2.0 adds the hidden `oracle` feature, makes particle damping frame-rate independent, and wires the bloom composite. It is the **final Rust release** and the oracle. The shallow-water bathymetry item turned out not to be a defect. CUBICSPLINE Hermite interpolation moves to the Cyrius port (ADR 0002 #13), because it needs tangent storage in public types.
 - The Cyrius port ships as 2.0.0.
 - Sprints 4–8 below were planned for Rust; they move after the Cyrius 2.0.0, and the version numbers in their headings no longer apply.
 
@@ -87,7 +88,7 @@ Version 1.1.0 — all planned features implemented. Patch sprints 1-3 complete.
 - [ ] **Skinned mesh IBL** — add IBL bind group to pbr_skinned.wgsl for feature parity with static PBR (effort: S)
 - [ ] **SSAO hash quality** — replace sin-based hash with algebraic hash to eliminate banding on mobile GPUs (effort: S)
 - [x] **naga shader validation** — every WGSL file is parsed + validated by naga in `tests/shaders.rs` (2026-11)
-- [x] **Bloom composite** — `PostProcessPipeline::set_bloom` / `clear_bloom` and `PostProcessUniforms::with_bloom_intensity`; `fs_main` + bind group 1 are now reachable (for 1.1.1)
+- [x] **Bloom composite** — `PostProcessPipeline::set_bloom` / `clear_bloom` and `PostProcessUniforms::with_bloom_intensity`; `fs_main` + bind group 1 are now reachable (for 1.2.0)
 - [ ] **GGX-prefiltered environment mips** — mips are box-filtered now (no longer black); proper split-sum prefiltering would match roughness (effort: M)
 - [ ] **SSAO inputs** — no pass writes the view-space normals SSAO expects (effort: M)
 - [ ] **Cascade selection in pbr.wgsl** — `CascadeUniforms`, `ShadowAtlas` and `PointShadowMap` have no shader consumer yet (effort: M)
@@ -98,7 +99,7 @@ Version 1.1.0 — all planned features implemented. Patch sprints 1-3 complete.
 
 - [ ] **Axis convention** — EM `vector_field_to_arrows` maps sim y → world Y while field slices map sim y → world Z; pick one convention for 2D data (effort: S)
 - [ ] **Heatmap alignment** — samples render as cells starting at the node (half-cell offset vs arrows at nodes); offer node-centred mode (effort: S)
-- [x] ~~**Shallow water bathymetry**~~ — withdrawn, not a defect: pravash's `height` is already the surface elevation η (depth = `height − ground`), so the mesh is the free surface; adding `ground` would double-count it. A regression test now locks this in. Rendering the bed itself is a separate, new feature (for 1.1.1)
+- [x] ~~**Shallow water bathymetry**~~ — withdrawn, not a defect: pravash's `height` is already the surface elevation η (depth = `height − ground`), so the mesh is the free surface; adding `ground` would double-count it. A regression test now locks this in. Rendering the bed itself is a separate, new feature (for 1.2.0)
 
 - [ ] **Perceptually uniform color maps** — `ColorMap` struct with viridis/inferno/magma/plasma/coolwarm presets as 1D LUT; wire into all viz modules (effort: S, critical for scientific accuracy)
 - [ ] **Volume rendering** — 3D texture upload, ray-march fragment shader, transfer function mapping (effort: L)
@@ -117,7 +118,7 @@ Version 1.1.0 — all planned features implemented. Patch sprints 1-3 complete.
 - [ ] **Device-lost error recovery** — device lost callback, resource recreation registry, graceful restart (effort: M)
 - [ ] **CUBICSPLINE Hermite interpolation** — tangents are dropped (values interpolate linearly/slerp). **Moved to the Cyrius port** (soorat-port-plan ADR 0002 #13, 2026-11-15): the fix needs tangent storage in `Keyframe`/`AnimationChannel`, which would break struct literals in 1.x
 - [ ] **Multi-skin animation targeting** — channels map onto the first skin only (effort: S)
-- [x] **Frame-rate-independent particle damping** — the shader applies `damping^(dt·60)`; unchanged at 60 Hz (for 1.1.1)
+- [x] **Frame-rate-independent particle damping** — the shader applies `damping^(dt·60)`; unchanged at 60 Hz (for 1.2.0)
 
 ## Sprint 8 — Advanced Rendering (v2.0.0)
 

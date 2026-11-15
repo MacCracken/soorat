@@ -7,7 +7,7 @@
 - **Type**: Flat library crate
 - **License**: GPL-3.0-only
 - **MSRV**: 1.100
-- **Version**: SemVer 1.1.0
+- **Version**: SemVer 1.2.0
 
 ## Consumers
 

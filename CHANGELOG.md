@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Planned as **1.1.1, the final Rust release** and the oracle for the Cyrius port (`docs/development/soorat-port-plan.md`, D1 and D2).
+## [1.2.0] - 2026-11-15
+
+**The final Rust release**, and the oracle for the Cyrius port (`docs/development/soorat-port-plan.md`, D1 and D2). It is a minor release because it adds public API: `PostProcessPipeline::set_bloom`/`clear_bloom`, `PostProcessUniforms::with_bloom_intensity` and the hidden `oracle` feature.
 
 ### Added
 - **oracle** (hidden, non-default `oracle` feature): read-only hooks for the Cyrius port's golden-value generator (`docs/development/soorat-port-plan.md`, D1). They expose the crate-private helpers behind the public API: `math_util` and `viz`; animation's keyframe bracket, interpolation, slerp, sampler pairing and joint transforms; environment's sRGB/f16 conversions, sRGB decode table, face encode/decode, downsample and mip chain; the shadow atlas tile math; and the mesh normal matrix. **Not public API**: the module is `#[doc(hidden)]`, carries no stability promise and is not part of `full`. `tests/oracle.rs` (18 tests) checks that each hook agrees with the public path it backs, and that calling the hooks changes no public output.
@@ -21,6 +23,9 @@ Planned as **1.1.1, the final Rust release** and the oracle for the Cyrius port 
 - The environment-map box downsample panicked on a zero size or a short input (unreachable from the public API, which validates both) → it returns an empty image.
 - **Particle damping depended on the frame rate.** The compute shader multiplied velocity by `damping` once per step, so at 30 fps velocity decayed half as much per second as at 60 fps. `SimParams::damping` is now the factor per 1/60 s reference step, applied as `damping^(delta_time · 60)`, which is identical at 60 Hz. A GPU regression test fails on the old shader (x = 0.01667 against the expected 0.00833 at dt = 1/30).
 - **Bloom was never composited.** `PostProcessPipeline` built only the `fs_no_bloom` entry point, so `BloomPipeline` output could not reach the image. Binding a bloom texture with `set_bloom` now switches to `fs_main`, which adds `bloom × intensity` before exposure and tone mapping. Without one, rendering is unchanged. A GPU test checks 0 → 0.5 → 0 as bloom is bound and cleared.
+
+### Performance
+- No performance change. The release run (2026-11-15T21:19Z) sits a median 7 % above the morning's final 1.1.0 run across all 35 benchmarks. That includes code untouched since then (`color/from_hex` +8 %, `shadow/directional_matrix` +10 %, `screenshot/encode_png_256` +15 %), so the shift is machine state, not code. The one benchmarked path this release touched (joint matrices) showed no difference in a same-machine A/B run (see Changed).
 
 ### Documentation
 - **Known limitation, decided 2026-11-15:** glTF `CUBICSPLINE` samplers keep each key's value and drop its tangents, so playback between keys is linear (slerp for rotations). Values at key times are exact. A fix needs tangent storage in `Keyframe`/`AnimationChannel`, which would break their public struct literals, so Hermite interpolation lands in the Cyrius port (soorat 2.0, port plan ADR 0002 #13). `load_gltf_animations` documents this.
