@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Planned as **1.1.1, the final Rust release** and the oracle for the Cyrius port (`docs/development/soorat-port-plan.md`, D1 and D2).
+
+### Added
+- **oracle** (hidden, non-default `oracle` feature): read-only hooks for the Cyrius port's golden-value generator (`docs/development/soorat-port-plan.md`, D1). They expose the crate-private helpers behind the public API: `math_util` and `viz`; animation's keyframe bracket, interpolation, slerp, sampler pairing and joint transforms; environment's sRGB/f16 conversions, sRGB decode table, face encode/decode, downsample and mip chain; the shadow atlas tile math; and the mesh normal matrix. **Not public API**: the module is `#[doc(hidden)]`, carries no stability promise and is not part of `full`. `tests/oracle.rs` (18 tests) checks that each hook agrees with the public path it backs, and that calling the hooks changes no public output.
+- **postprocess**: `PostProcessPipeline::set_bloom` and `clear_bloom`, and `PostProcessUniforms::with_bloom_intensity`. They make the bloom composite (`fs_main` and bind group 1) reachable; see Fixed.
+- 22 new tests (479 → 501 with all features): 18 oracle-hook tests, 2 GPU regression tests (damping, bloom) and 2 unit tests (bloom intensity, free surface). No benchmarked CPU path changed apart from the joint-matrix refactor (A/B under Changed).
+
+### Changed
+- `Skeleton::compute_joint_matrices` now goes through the extracted `animation::world_transforms` and `local_transform`, and environment maps build their mips through `face_mip_chain` and `srgb8_decode_table`. These are the same functions the oracle exposes. Output is unchanged, bit for bit. Speed is unchanged too: a same-machine A/B run of the old and new code, three alternating runs each, gave `compute_joints_16` 285–288 ns before and 275–286 ns after, `compute_joints_64` 1.10–1.18 µs before and 1.12–1.16 µs after, and `compute_joints_64_unsorted` 1.43–1.49 µs before and 1.42–1.49 µs after.
+
+### Fixed
+- The environment-map box downsample panicked on a zero size or a short input (unreachable from the public API, which validates both) → it returns an empty image.
+- **Particle damping depended on the frame rate.** The compute shader multiplied velocity by `damping` once per step, so at 30 fps velocity decayed half as much per second as at 60 fps. `SimParams::damping` is now the factor per 1/60 s reference step, applied as `damping^(delta_time · 60)`, which is identical at 60 Hz. A GPU regression test fails on the old shader (x = 0.01667 against the expected 0.00833 at dt = 1/30).
+- **Bloom was never composited.** `PostProcessPipeline` built only the `fs_no_bloom` entry point, so `BloomPipeline` output could not reach the image. Binding a bloom texture with `set_bloom` now switches to `fs_main`, which adds `bloom × intensity` before exposure and tone mapping. Without one, rendering is unchanged. A GPU test checks 0 → 0.5 → 0 as bloom is bound and cleared.
+
+### Documentation
+- **Known limitation, decided 2026-11-15:** glTF `CUBICSPLINE` samplers keep each key's value and drop its tangents, so playback between keys is linear (slerp for rotations). Values at key times are exact. A fix needs tangent storage in `Keyframe`/`AnimationChannel`, which would break their public struct literals, so Hermite interpolation lands in the Cyrius port (soorat 2.0, port plan ADR 0002 #13). `load_gltf_animations` documents this.
+- `fluid_render::shallow_water_to_mesh`: pravash's `height` is the surface elevation η (depth is `height − ground`), so the mesh is already the free surface over any bathymetry. The 1.1.0 roadmap item "render `ground + height`" was wrong and is withdrawn; a regression test locks in the correct behaviour.
+
 ## [1.1.0] - 2026-11-15
 
 ### Changed

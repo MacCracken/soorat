@@ -6,7 +6,7 @@
 //! any layout/shader/binding mismatch fails the test.
 
 use soorat::environment::{EnvironmentMap, IblBindGroup};
-use soorat::gpu_particles::{GpuParticle, GpuParticleSystem};
+use soorat::gpu_particles::{GpuParticle, GpuParticleSystem, SimParams};
 use soorat::mesh_pipeline::{CameraUniforms, MeshDrawParams, ShadowPassUniforms};
 use soorat::shadow::{ShadowUniforms, directional_light_matrix_at};
 use soorat::*;
@@ -213,6 +213,43 @@ fn pbr_mesh_with_shadow_and_ibl_renders() {
 }
 
 #[test]
+fn post_processing_composites_bloom_when_bound() {
+    // Black input, white bloom, intensity 1, exposure 1, Reinhard:
+    // (0 + 1·1) / (1 + 1) = 0.5 with bloom, 0 without. Before the fix the
+    // bloom entry point was unreachable, so the output was always 0.
+    let Some(ctx) = gpu() else { return };
+    let (device, queue) = (&ctx.device, &ctx.queue);
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+
+    let black = Texture::from_color(device, queue, Color::BLACK).unwrap();
+    let white = Texture::white_pixel(device, queue).unwrap();
+    let output = RenderTarget::new(device, 4, 4, format);
+
+    let mut post = PostProcessPipeline::new(device, format).unwrap();
+    post.set_input(device, &black.view, &black.sampler).unwrap();
+    post.update_uniforms(
+        queue,
+        &PostProcessUniforms::default().with_bloom_intensity(1.0),
+    );
+
+    post.render(device, queue, &output.view);
+    let px = output.read_pixels(device, queue).unwrap();
+    assert_eq!(pixel(&px, 4, 1, 1)[..3], [0, 0, 0], "no bloom bound");
+
+    post.set_bloom(device, &white.view, &white.sampler).unwrap();
+    post.render(device, queue, &output.view);
+    let px = output.read_pixels(device, queue).unwrap();
+    for c in &pixel(&px, 4, 1, 1)[..3] {
+        assert!((127..=128).contains(c), "bloom composited: {c}");
+    }
+
+    post.clear_bloom();
+    post.render(device, queue, &output.view);
+    let px = output.read_pixels(device, queue).unwrap();
+    assert_eq!(pixel(&px, 4, 1, 1)[..3], [0, 0, 0], "bloom cleared");
+}
+
+#[test]
 fn post_processing_and_debug_pipelines_build_and_run() {
     let Some(ctx) = gpu() else { return };
     let (device, queue) = (&ctx.device, &ctx.queue);
@@ -300,6 +337,45 @@ fn particle_system_simulates_and_reads_back() {
     system.simulate(device, queue, 1.0 / 60.0);
     let instances = system.to_instance_data(device, queue);
     assert!(instances.len() <= 128);
+}
+
+#[test]
+fn particle_damping_is_frame_rate_independent() {
+    // One step: x = v · damping^(dt·60) · dt. At dt = 1/30 that is damping²,
+    // the decay of two 1/60 s steps. Before the fix the factor was `damping`
+    // whatever dt was, so x was twice as large here.
+    let Some(ctx) = gpu() else { return };
+    let (device, queue) = (&ctx.device, &ctx.queue);
+
+    for (dt, expected_factor) in [(1.0_f32 / 60.0, 0.5_f32), (1.0 / 30.0, 0.25), (0.0, 1.0)] {
+        let mut system = GpuParticleSystem::new(device, 1);
+        system.upload(
+            queue,
+            &[GpuParticle {
+                position: [0.0, 0.0, 0.0, 10.0],
+                velocity: [1.0, 0.0, 0.0, 0.1],
+                color: [1.0; 4],
+            }],
+        );
+        system.simulate_with_params(
+            device,
+            queue,
+            SimParams {
+                delta_time: dt,
+                gravity_y: 0.0,
+                damping: 0.5,
+                particle_count: 1,
+            },
+        );
+        let instances = system.to_instance_data(device, queue);
+        assert_eq!(instances.len(), 1);
+        let x = instances[0].model[12];
+        let want = expected_factor * dt;
+        assert!(
+            (x - want).abs() <= 1e-6,
+            "dt {dt}: x = {x}, expected {want}"
+        );
+    }
 }
 
 #[test]

@@ -51,28 +51,9 @@ impl Skeleton {
     pub fn compute_joint_matrices(&self) -> Vec<[f32; 16]> {
         let count = self.joints.len().min(MAX_JOINTS);
         let joints = &self.joints[..count];
-        let local = |j: &Joint| compose_trs(j.translation, j.rotation, j.scale);
-        let mut world = vec![IDENTITY_MAT4; count];
-
-        // Fast path: parents precede children (the common, sorted case).
-        let sorted = joints
-            .iter()
-            .enumerate()
-            .all(|(i, j)| j.parent < 0 || (j.parent as usize) < i);
-        if sorted {
-            for (i, joint) in joints.iter().enumerate() {
-                world[i] = if joint.parent >= 0 {
-                    mul_mat4(world[joint.parent as usize], local(joint))
-                } else {
-                    local(joint)
-                };
-            }
-        } else {
-            resolve_world_transforms(joints, &mut world, local);
-        }
 
         // Joint matrix = world_transform * inverse_bind
-        world
+        world_transforms(joints)
             .iter()
             .zip(joints)
             .map(|(wt, joint)| mul_mat4(*wt, joint.inverse_bind))
@@ -80,9 +61,42 @@ impl Skeleton {
     }
 }
 
+/// A joint's local transform (T·R·S, column-major).
+#[must_use]
+#[inline]
+pub(crate) fn local_transform(joint: &Joint) -> [f32; 16] {
+    compose_trs(joint.translation, joint.rotation, joint.scale)
+}
+
+/// World transforms of `joints` (before the inverse bind). Parents that
+/// precede their children take a single forward pass; any other order goes
+/// through [`resolve_world_transforms`].
+#[must_use]
+pub(crate) fn world_transforms(joints: &[Joint]) -> Vec<[f32; 16]> {
+    let mut world = vec![IDENTITY_MAT4; joints.len()];
+
+    // Fast path: parents precede children (the common, sorted case).
+    let sorted = joints
+        .iter()
+        .enumerate()
+        .all(|(i, j)| j.parent < 0 || (j.parent as usize) < i);
+    if sorted {
+        for (i, joint) in joints.iter().enumerate() {
+            world[i] = if joint.parent >= 0 {
+                mul_mat4(world[joint.parent as usize], local_transform(joint))
+            } else {
+                local_transform(joint)
+            };
+        }
+    } else {
+        resolve_world_transforms(joints, &mut world, local_transform);
+    }
+    world
+}
+
 /// Resolve world transforms for joints in arbitrary parent order, walking each
 /// unresolved ancestor chain once (O(n)) and breaking cycles.
-fn resolve_world_transforms(
+pub(crate) fn resolve_world_transforms(
     joints: &[Joint],
     world: &mut [[f32; 16]],
     local: impl Fn(&Joint) -> [f32; 16],
@@ -226,7 +240,7 @@ impl AnimationClip {
 }
 
 /// Position of `time` within a keyframe track.
-enum Bracket<'a> {
+pub(crate) enum Bracket<'a> {
     /// Exactly one keyframe applies (before the first, after the last, or a
     /// single-key track).
     At(&'a [f32]),
@@ -236,7 +250,7 @@ enum Bracket<'a> {
 
 /// Locate `time` in a time-sorted keyframe track (binary search).
 /// Returns `None` for an empty track.
-fn bracket(keyframes: &[Keyframe], time: f32) -> Option<Bracket<'_>> {
+pub(crate) fn bracket(keyframes: &[Keyframe], time: f32) -> Option<Bracket<'_>> {
     let (first, last) = (keyframes.first()?, keyframes.last()?);
     if keyframes.len() == 1 || time.is_nan() || time <= first.time {
         return Some(Bracket::At(&first.value));
@@ -263,7 +277,10 @@ fn bracket(keyframes: &[Keyframe], time: f32) -> Option<Bracket<'_>> {
 ///
 /// Returns a `Cow::Borrowed` when an exact keyframe is returned (no interpolation),
 /// avoiding allocation in the common boundary cases (before first, after last, single keyframe).
-fn interpolate_keyframes(keyframes: &[Keyframe], time: f32) -> std::borrow::Cow<'_, [f32]> {
+pub(crate) fn interpolate_keyframes(
+    keyframes: &[Keyframe],
+    time: f32,
+) -> std::borrow::Cow<'_, [f32]> {
     use std::borrow::Cow;
     match bracket(keyframes, time) {
         None => Cow::Borrowed(&[]),
@@ -279,7 +296,10 @@ fn interpolate_keyframes(keyframes: &[Keyframe], time: f32) -> std::borrow::Cow<
 
 /// Rotation interpolation: shortest-path slerp between unit quaternions (xyzw).
 /// Keyframes with fewer than 4 components fall back to linear interpolation.
-fn interpolate_rotation(keyframes: &[Keyframe], time: f32) -> std::borrow::Cow<'_, [f32]> {
+pub(crate) fn interpolate_rotation(
+    keyframes: &[Keyframe],
+    time: f32,
+) -> std::borrow::Cow<'_, [f32]> {
     use std::borrow::Cow;
     match bracket(keyframes, time) {
         Some(Bracket::Between(a, b, t)) if a.len() >= 4 && b.len() >= 4 => {
@@ -331,8 +351,13 @@ pub(crate) fn slerp(a: [f32; 4], mut b: [f32; 4], t: f32) -> [f32; 4] {
 /// - Animation channels are mapped onto the **first** skin's joints; channels
 ///   that target nodes outside that skin, or morph-target weights, are skipped.
 /// - `LINEAR` and `STEP` samplers are reproduced exactly (`STEP` is encoded as
-///   duplicate-time keyframes); `CUBICSPLINE` keeps the keyframe values and
-///   interpolates between them (tangents are dropped).
+///   duplicate-time keyframes).
+/// - **Known limitation of soorat 1.x:** `CUBICSPLINE` keeps each key's value
+///   and drops its tangents, so playback is linear (slerp for rotations)
+///   between keys instead of the authored cubic Hermite curve. Values at key
+///   times are exact. [`Keyframe`] has no place for tangents without breaking
+///   its public fields, so the fix lands in the Cyrius port (soorat 2.0; see
+///   `docs/development/soorat-port-plan.md`, ADR 0002 #13).
 pub fn load_gltf_animations(bytes: &[u8]) -> Result<(Vec<Skeleton>, Vec<AnimationClip>)> {
     let gltf = gltf::Gltf::from_slice(bytes).map_err(|e| RenderError::Model(e.to_string()))?;
 
@@ -471,7 +496,7 @@ pub fn load_gltf_animations(bytes: &[u8]) -> Result<(Vec<Skeleton>, Vec<Animatio
 }
 
 /// Pair sampler inputs with outputs according to the glTF interpolation mode.
-fn build_keyframes(
+pub(crate) fn build_keyframes(
     times: Vec<f32>,
     values: Vec<Vec<f32>>,
     interpolation: gltf::animation::Interpolation,
@@ -484,6 +509,7 @@ fn build_keyframes(
             .map(|(time, value)| Keyframe { time, value })
             .collect(),
         // Outputs are (in-tangent, value, out-tangent) triplets: keep values.
+        // Tangents are dropped (a 1.x limitation, see `load_gltf_animations`).
         Interpolation::CubicSpline => times
             .into_iter()
             .zip(values.into_iter().skip(1).step_by(3))

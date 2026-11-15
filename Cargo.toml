@@ -24,6 +24,10 @@ thermo = ["dep:ushma"]
 screenshot = ["dep:selah", "dep:uuid", "dep:chrono"]
 drm = ["dep:agnosys"]
 full = ["optics", "ranga", "physics-debug", "fluids", "acoustics", "em", "thermo", "screenshot"]
+# Hidden: read-only hooks for the Cyrius port's golden-value generator
+# (docs/development/soorat-port-plan.md, D1). Not public API, no stability
+# promise, and deliberately not part of `full`.
+oracle = []
 
 [dependencies]
 # GPU foundation (mabda owns the wgpu lifecycle, buffers, pipelines, textures).

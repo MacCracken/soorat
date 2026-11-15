@@ -557,13 +557,13 @@ pub fn tile_uv(config: &ShadowAtlasConfig, index: u32) -> [f32; 4] {
 /// Tiles per atlas row — at least 1, so tile math never divides by zero.
 #[must_use]
 #[inline]
-fn atlas_columns(size: u32, tile_size: u32) -> u32 {
+pub(crate) fn atlas_columns(size: u32, tile_size: u32) -> u32 {
     (size / tile_size.max(1)).max(1)
 }
 
 #[must_use]
 #[inline]
-fn tile_viewport_in(columns: u32, tile_size: u32, index: u32) -> (u32, u32, u32, u32) {
+pub(crate) fn tile_viewport_in(columns: u32, tile_size: u32, index: u32) -> (u32, u32, u32, u32) {
     let columns = columns.max(1);
     let col = index % columns;
     let row = index / columns;
@@ -577,7 +577,7 @@ fn tile_viewport_in(columns: u32, tile_size: u32, index: u32) -> (u32, u32, u32,
 
 #[must_use]
 #[inline]
-fn tile_uv_in(columns: u32, tile_size: u32, size: u32, index: u32) -> [f32; 4] {
+pub(crate) fn tile_uv_in(columns: u32, tile_size: u32, size: u32, index: u32) -> [f32; 4] {
     let columns = columns.max(1);
     let col = index % columns;
     let row = index / columns;

@@ -43,6 +43,10 @@ pub mod lod;
 pub mod material;
 pub(crate) mod math_util;
 pub mod mesh_pipeline;
+/// Oracle hooks for the Cyrius port's golden-value generator. Not public API.
+#[cfg(feature = "oracle")]
+#[doc(hidden)]
+pub mod oracle;
 pub mod pbr_material;
 pub mod pipeline;
 pub mod postprocess;

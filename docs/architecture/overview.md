@@ -19,8 +19,10 @@ src/
 │   ├── profiler.rs       — FrameProfiler (CPU timing), GpuTimestamps (GPU queries), PassTiming
 │   ├── capabilities.rs   — GpuCapabilities, WebGPU compliance checks
 │   ├── math_util.rs      — mul_mat4, normalize3, cross, look_at, perspective_90 (pub(crate))
-│   └── viz.rs            — shared viz helpers (pub(crate)): NaN-safe normalization, data-backed grid checks,
-│                           +Y heatmap quads, height-field meshes, outward lattice indices
+│   ├── viz.rs            — shared viz helpers (crate-private module): NaN-safe normalization, data-backed grid
+│   │                       checks, +Y heatmap quads, height-field meshes, outward lattice indices
+│   └── oracle.rs         — hidden `oracle` feature only: read-only hooks for the Cyrius port's golden-value
+│                           generator (not public API; see docs/development/soorat-port-plan.md, D1)
 │
 ├── 2D
 │   ├── pipeline.rs       — SpritePipeline, SpriteBuffers, batch_to_vertices (u16/u32)
@@ -120,7 +122,9 @@ wgpu is pinned to 29.x by mabda 1.0. See `docs/development/dependency-watch.md`.
 - `tests/shaders.rs` — naga parse + validate of every WGSL file (no GPU needed)
 - `tests/gpu_smoke.rs` — builds every pipeline and renders offscreen frames on a
   real adapter (skips when none is available)
+- `tests/oracle.rs` (`--features oracle`) — each oracle hook agrees with the public
+  path it backs, and calling the hooks changes no public output
 
 ## Stats
 
-479 tests (all features), 35 benchmarks, 44 modules, 9 WGSL shaders.
+501 tests (all features, 18 of them oracle-hook tests), 35 benchmarks, 44 modules plus the hidden `oracle`, 9 WGSL shaders.

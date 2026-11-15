@@ -94,7 +94,7 @@ make bench                      # criterion + bench-history.csv
 
 ## Stats
 
-479 tests (all features), 35 benchmarks, 44 modules, 9 WGSL shaders.
+501 tests (all features, 18 of them oracle-hook tests), 35 benchmarks, 44 modules plus the hidden `oracle`, 9 WGSL shaders.
 
 ## License
 

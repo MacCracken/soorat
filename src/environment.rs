@@ -12,7 +12,7 @@ use crate::texture::mip_level_count;
 
 /// Encoding of an environment-map face, for CPU mip generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FaceEncoding {
+pub(crate) enum FaceEncoding {
     /// `Rgba8UnormSrgb` — 4 bytes per texel, sRGB-encoded color.
     Srgb8,
     /// `Rgba16Float` — 8 bytes per texel, linear half floats.
@@ -28,7 +28,7 @@ impl FaceEncoding {
         }
     }
 
-    fn bytes_per_texel(self) -> usize {
+    pub(crate) fn bytes_per_texel(self) -> usize {
         match self {
             Self::Srgb8 => 4,
             Self::F16 => 8,
@@ -36,10 +36,10 @@ impl FaceEncoding {
     }
 
     /// Decode a face into linear RGBA f32 texels.
-    fn decode(self, bytes: &[u8]) -> Vec<[f32; 4]> {
+    pub(crate) fn decode(self, bytes: &[u8]) -> Vec<[f32; 4]> {
         match self {
             Self::Srgb8 => {
-                let lut: [f32; 256] = std::array::from_fn(|i| srgb_to_linear(i as f32 / 255.0));
+                let lut = srgb8_decode_table();
                 bytes
                     .as_chunks::<4>()
                     .0
@@ -67,7 +67,7 @@ impl FaceEncoding {
     }
 
     /// Encode linear RGBA f32 texels into this face encoding.
-    fn encode(self, texels: &[[f32; 4]]) -> Vec<u8> {
+    pub(crate) fn encode(self, texels: &[[f32; 4]]) -> Vec<u8> {
         let mut out = Vec::with_capacity(texels.len() * self.bytes_per_texel());
         for px in texels {
             match self {
@@ -94,7 +94,7 @@ impl FaceEncoding {
 /// sRGB transfer function, decode (IEC 61966-2-1).
 #[must_use]
 #[inline]
-fn srgb_to_linear(c: f32) -> f32 {
+pub(crate) fn srgb_to_linear(c: f32) -> f32 {
     if c <= 0.040_45 {
         c / 12.92
     } else {
@@ -105,7 +105,7 @@ fn srgb_to_linear(c: f32) -> f32 {
 /// sRGB transfer function, encode (IEC 61966-2-1).
 #[must_use]
 #[inline]
-fn linear_to_srgb(l: f32) -> f32 {
+pub(crate) fn linear_to_srgb(l: f32) -> f32 {
     if l <= 0.003_130_8 {
         l * 12.92
     } else {
@@ -113,10 +113,16 @@ fn linear_to_srgb(l: f32) -> f32 {
     }
 }
 
+/// Linear value of each sRGB-encoded byte: the decode table for `Srgb8` faces.
+#[must_use]
+pub(crate) fn srgb8_decode_table() -> [f32; 256] {
+    std::array::from_fn(|i| srgb_to_linear(i as f32 / 255.0))
+}
+
 /// IEEE 754 binary16 → binary32.
 #[must_use]
 #[inline]
-fn f16_to_f32(h: u16) -> f32 {
+pub(crate) fn f16_to_f32(h: u16) -> f32 {
     let sign = u32::from(h >> 15) << 31;
     let exp = u32::from((h >> 10) & 0x1f);
     let mant = u32::from(h & 0x3ff);
@@ -134,7 +140,7 @@ fn f16_to_f32(h: u16) -> f32 {
 /// IEEE 754 binary32 → binary16, round-to-nearest-even; overflow → ±inf.
 #[must_use]
 #[inline]
-fn f32_to_f16(v: f32) -> u16 {
+pub(crate) fn f32_to_f16(v: f32) -> u16 {
     let x = v.to_bits();
     let sign = ((x >> 16) & 0x8000) as u16;
     let exp = ((x >> 23) & 0xff) as i32;
@@ -169,9 +175,14 @@ fn f32_to_f16(v: f32) -> u16 {
 
 /// 2×2 box downsample of a square `size × size` linear image to
 /// `max(size/2, 1)` (odd edges clamp to the last texel).
-fn downsample(src: &[[f32; 4]], size: usize) -> Vec<[f32; 4]> {
+pub(crate) fn downsample(src: &[[f32; 4]], size: usize) -> Vec<[f32; 4]> {
+    let Some(last) = size.checked_sub(1) else {
+        return Vec::new();
+    };
+    if src.len() < size.saturating_mul(size) {
+        return Vec::new();
+    }
     let dst = (size / 2).max(1);
-    let last = size - 1;
     let mut out = Vec::with_capacity(dst * dst);
     for y in 0..dst {
         let (y0, y1) = ((2 * y).min(last), (2 * y + 1).min(last));
@@ -189,6 +200,30 @@ fn downsample(src: &[[f32; 4]], size: usize) -> Vec<[f32; 4]> {
         }
     }
     out
+}
+
+/// The CPU mip chain of one face: levels `1..mip_count`, each as
+/// `(edge size, encoded bytes)`. Level 0 is the face itself; each further
+/// level is a 2×2 box filter of the previous one in linear space.
+#[must_use]
+pub(crate) fn face_mip_chain(
+    encoding: FaceEncoding,
+    face: &[u8],
+    size: usize,
+    mip_count: u32,
+) -> Vec<(usize, Vec<u8>)> {
+    let mut levels = Vec::with_capacity(mip_count.saturating_sub(1) as usize);
+    if mip_count <= 1 {
+        return levels;
+    }
+    let mut level = encoding.decode(face);
+    let mut level_size = size;
+    for _ in 1..mip_count {
+        level = downsample(&level, level_size);
+        level_size = (level_size / 2).max(1);
+        levels.push((level_size, encoding.encode(&level)));
+    }
+    levels
 }
 
 /// A cubemap texture for environment lighting.
@@ -306,14 +341,9 @@ impl EnvironmentMap {
         for (i, face_data) in faces.iter().enumerate() {
             let face = i as u32;
             write_level(face, 0, size, face_data);
-            if mip_count > 1 {
-                let mut level = encoding.decode(face_data);
-                let mut level_size = side;
-                for mip in 1..mip_count {
-                    level = downsample(&level, level_size);
-                    level_size = (level_size / 2).max(1);
-                    write_level(face, mip, level_size as u32, &encoding.encode(&level));
-                }
+            let chain = face_mip_chain(encoding, face_data, side, mip_count);
+            for (mip, (level_size, data)) in (1..).zip(&chain) {
+                write_level(face, mip, *level_size as u32, data);
             }
         }
 

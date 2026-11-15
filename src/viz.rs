@@ -7,6 +7,10 @@
 //! - grid sizes are overflow-checked and bounded by the input data,
 //! - quads are wound counter-clockwise around their +Y normal (the engine's
 //!   front-face convention), so back-face culling keeps them visible from above.
+//!
+//! The module is crate-private. Its items are `pub` only so the hidden
+//! `oracle` feature (`crate::oracle`) can re-export them for the Cyrius port's
+//! golden-value generator; they are not part of soorat's public API.
 
 // Each viz feature uses a different subset of these helpers; unused-code
 // detection is only meaningful when all of them are enabled (e.g. `full`).
@@ -25,22 +29,22 @@ use crate::vertex::Vertex3D;
 
 /// Maximum number of quads in one generated mesh (4 vertices per quad must stay
 /// addressable by `u32` indices).
-pub(crate) const MAX_QUADS: usize = (u32::MAX / 4) as usize;
+pub const MAX_QUADS: usize = (u32::MAX / 4) as usize;
 
 /// Upper bound for user-supplied tessellation segment counts (sphere/balloon/
 /// circle resolution). 1024² ≈ 1M vertices (~50 MB) is already far beyond any
 /// useful display, and keeps a bogus `u32::MAX` request bounded.
-pub(crate) const MAX_SEGMENTS: u32 = 1024;
+pub const MAX_SEGMENTS: u32 = 1024;
 
 /// Index pattern for a quad whose corners are pushed as
 /// `(x0,z0), (x1,z0), (x1,z1), (x0,z1)` on the XZ plane: two triangles that are
 /// counter-clockwise when viewed from +Y.
-pub(crate) const XZ_QUAD_INDICES: [u32; 6] = [0, 3, 2, 0, 2, 1];
+pub const XZ_QUAD_INDICES: [u32; 6] = [0, 3, 2, 0, 2, 1];
 
 /// Checked element count of a grid (`product(dims)`), `None` on overflow.
 #[must_use]
 #[inline]
-pub(crate) fn grid_len(dims: &[usize]) -> Option<usize> {
+pub fn grid_len(dims: &[usize]) -> Option<usize> {
     dims.iter().try_fold(1usize, |acc, &d| acc.checked_mul(d))
 }
 
@@ -50,7 +54,7 @@ pub(crate) fn grid_len(dims: &[usize]) -> Option<usize> {
 /// Bounding the grid by the data it came with keeps output size proportional
 /// to input size (a malformed header cannot request billions of cells).
 #[must_use]
-pub(crate) fn grid_is_backed(dims: &[usize], data_len: usize, what: &str) -> bool {
+pub fn grid_is_backed(dims: &[usize], data_len: usize, what: &str) -> bool {
     match grid_len(dims) {
         Some(0) => false,
         Some(n) if n <= data_len => true,
@@ -75,7 +79,7 @@ pub(crate) fn grid_is_backed(dims: &[usize], data_len: usize, what: &str) -> boo
 /// Returns `None` if the sequence has no finite values.
 #[must_use]
 #[inline]
-pub(crate) fn finite_min_max<I: IntoIterator<Item = f64>>(values: I) -> Option<(f64, f64)> {
+pub fn finite_min_max<I: IntoIterator<Item = f64>>(values: I) -> Option<(f64, f64)> {
     let mut range: Option<(f64, f64)> = None;
     for v in values {
         if !v.is_finite() {
@@ -93,7 +97,7 @@ pub(crate) fn finite_min_max<I: IntoIterator<Item = f64>>(values: I) -> Option<(
 /// range maps to `0`.
 #[must_use]
 #[inline]
-pub(crate) fn unit_t(v: f64, min: f64, max: f64) -> f32 {
+pub fn unit_t(v: f64, min: f64, max: f64) -> f32 {
     let range = max - min;
     if !v.is_finite() || range.is_nan() || range <= f64::EPSILON {
         return 0.0;
@@ -113,7 +117,7 @@ fn abs_scale(min: f64, max: f64) -> f64 {
 /// in a diverging map regardless of how asymmetric the data range is).
 #[must_use]
 #[inline]
-pub(crate) fn signed_t(v: f64, min: f64, max: f64) -> f32 {
+pub fn signed_t(v: f64, min: f64, max: f64) -> f32 {
     let scale = abs_scale(min, max);
     if !v.is_finite() || scale.is_nan() || scale <= f64::EPSILON {
         return 0.0;
@@ -124,7 +128,7 @@ pub(crate) fn signed_t(v: f64, min: f64, max: f64) -> f32 {
 /// Map `|v|` into `[0, 1]` relative to the largest magnitude in the range.
 #[must_use]
 #[inline]
-pub(crate) fn magnitude_t(v: f64, min: f64, max: f64) -> f32 {
+pub fn magnitude_t(v: f64, min: f64, max: f64) -> f32 {
     let scale = abs_scale(min, max);
     if !v.is_finite() || scale.is_nan() || scale <= f64::EPSILON {
         return 0.0;
@@ -135,7 +139,7 @@ pub(crate) fn magnitude_t(v: f64, min: f64, max: f64) -> f32 {
 /// Heat-map color with an explicit alpha, as a vertex color array.
 #[must_use]
 #[inline]
-pub(crate) fn heat_rgba(t: f32, alpha: f32) -> [f32; 4] {
+pub fn heat_rgba(t: f32, alpha: f32) -> [f32; 4] {
     let mut c = visualization_heat_map(t);
     c.a = alpha;
     c.to_array()
@@ -144,7 +148,7 @@ pub(crate) fn heat_rgba(t: f32, alpha: f32) -> [f32; 4] {
 /// Diverging (blue/black/red) color with an explicit alpha.
 #[must_use]
 #[inline]
-pub(crate) fn signed_rgba(t: f32, alpha: f32) -> [f32; 4] {
+pub fn signed_rgba(t: f32, alpha: f32) -> [f32; 4] {
     let mut c = signed_value_color(t);
     c.a = alpha;
     c.to_array()
@@ -153,7 +157,7 @@ pub(crate) fn signed_rgba(t: f32, alpha: f32) -> [f32; 4] {
 /// `base` with its alpha replaced; non-finite alpha becomes 0.
 #[must_use]
 #[inline]
-pub(crate) fn with_alpha(base: Color, alpha: f32) -> [f32; 4] {
+pub fn with_alpha(base: Color, alpha: f32) -> [f32; 4] {
     let a = if alpha.is_finite() {
         alpha.clamp(0.0, 1.0)
     } else {
@@ -164,7 +168,7 @@ pub(crate) fn with_alpha(base: Color, alpha: f32) -> [f32; 4] {
 
 /// Placement of a cell-per-quad heatmap on the XZ plane.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct XzGrid {
+pub struct XzGrid {
     /// Cells along X.
     pub nx: usize,
     /// Cells along Z.
@@ -185,7 +189,7 @@ pub(crate) struct XzGrid {
 /// `color_at(ix, iz)`. Returns an empty mesh if the cell count is zero or
 /// exceeds [`MAX_QUADS`].
 #[must_use]
-pub(crate) fn xz_heatmap_mesh(
+pub fn xz_heatmap_mesh(
     grid: &XzGrid,
     mut color_at: impl FnMut(usize, usize) -> [f32; 4],
 ) -> (Vec<Vertex3D>, Vec<u32>) {
@@ -239,7 +243,7 @@ pub(crate) fn xz_heatmap_mesh(
 
 /// Placement of a vertex-per-sample height field on the XZ plane.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct HeightField {
+pub struct HeightField {
     /// Samples along X.
     pub cols: usize,
     /// Samples along Z.
@@ -277,7 +281,7 @@ fn neg_slope(h: &[f32], i: usize, stride: usize, n: usize, step: f32) -> f32 {
 /// `color(ix, iz, y)` supplies each vertex color. Returns an empty mesh if the
 /// grid is empty or its vertex count does not fit `u32` indices.
 #[must_use]
-pub(crate) fn heightfield_mesh(
+pub fn heightfield_mesh(
     hf: &HeightField,
     height: impl Fn(usize, usize) -> f32,
     mut color: impl FnMut(usize, usize, f32) -> [f32; 4],
@@ -349,7 +353,7 @@ pub(crate) fn heightfield_mesh(
 /// row-major, wound so that a lattice parameterised like
 /// [`crate::primitives::sphere`] faces outward.
 #[must_use]
-pub(crate) fn lattice_indices(rows: u32, cols: u32) -> Vec<u32> {
+pub fn lattice_indices(rows: u32, cols: u32) -> Vec<u32> {
     let stride = cols + 1;
     let mut indices = Vec::with_capacity(rows as usize * cols as usize * 6);
     for r in 0..rows {

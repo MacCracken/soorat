@@ -31,6 +31,9 @@ impl Default for GpuParticle {
 pub struct SimParams {
     pub delta_time: f32,
     pub gravity_y: f32,
+    /// Velocity factor per 1/60 s reference step. The shader applies
+    /// `damping^(delta_time · 60)`, so the decay per second does not depend on
+    /// the frame rate (and is exactly `damping` per step at 60 Hz).
     pub damping: f32,
     pub particle_count: u32,
 }

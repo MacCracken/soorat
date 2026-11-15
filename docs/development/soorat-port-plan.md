@@ -1,10 +1,13 @@
 # soorat Rust → Cyrius port plan
 
-> **Decided 2026-11-15: the maintainer took every recommendation in §0.2 (D1–D9).** Not started. Next: M0 step 0 (§4), the Rust-side freeze.
+> **Decided 2026-11-15: the maintainer took every recommendation in §0.2 (D1–D9).**
+> **M0 step 0 is in progress.** 1.1.0 was tagged and released on 2026-11-15 (`0a94507`, GitHub release 14:26 UTC) before the oracle work started. The hooks and D2's fixes therefore both ship in **1.1.1**.
+> - Part 1, the hooks: done in the working tree, every gate green.
+> - Part 2, the fixes: particle damping and the bloom composite are done, each with a GPU regression test. The bathymetry item was not a defect (§6.3). CUBICSPLINE moved to the Cyrius port (ADR 0002 #13, decided 2026-11-15), because the fix needs tangent storage in public types.
 
 > **Plan of record** for porting soorat to Cyrius.
 >
-> - **Versions.** Rust **1.1.1** is the final Rust release and the oracle: 1.1.0 (the 2026-11 audit, plus D1's hidden `oracle` feature), then D2's four fixes. The Cyrius port ships as **2.0.0**.
+> - **Versions.** Rust **1.1.1** is the final Rust release and the oracle. It is 1.1.0 (the 2026-11 audit, released 2026-11-15) plus D1's hidden `oracle` feature and D2's fixes. The Cyrius port ships as **2.0.0**.
 > - **Method.** tanmatra's ([ADR 0006](../../../tanmatra/docs/adr/0006-cyrius-port-with-rust-oracle.md)), as adapted by impetus, kimiya, pravash, bijli and selah.
 > - **Models.**
 >   - **Process: pravash** ([its plan](../../../pravash/docs/development/pravash-port-plan.md)). It is the most recent completed port and close in size: 6.9k code lines against soorat's 7.6k.
@@ -22,8 +25,8 @@
 
 | Thing | Value | Source |
 |---|---|---|
-| Rust source | **soorat 1.1.0**: the version bump is in the tree, but not committed or tagged. The oracle will be 1.1.1 (D1, D2); the counts below are 1.1.0's. 7,649 code lines in `src/` (no tests, comments or blank lines) across 44 modules, 267 `pub fn`s and 15 `#[repr(C)]` GPU-layout types, plus 9 WGSL shaders (1,009 lines) | `VERSION`; count of `src/` |
-| Tests | 479: 458 unit, 12 integration, 7 GPU smoke (they skip without an adapter) and 2 shader-validation (naga, all 9 shaders) | `src/`, `tests/` |
+| Rust source | **soorat 1.1.0**, tagged and released 2026-11-15 (`0a94507`). The oracle will be 1.1.1 (D1, D2); the counts below are 1.1.0's. 7,649 code lines in `src/` (no tests, comments or blank lines) across 44 modules, 267 `pub fn`s and 15 `#[repr(C)]` GPU-layout types, plus 9 WGSL shaders (1,009 lines) | `VERSION`; count of `src/` |
+| Tests | 479: 458 unit, 12 integration, 7 GPU smoke (they skip without an adapter) and 2 shader-validation (naga, all 9 shaders). The 18 tests of the hidden `oracle` feature (`tests/oracle.rs`) check the hooks themselves, so they are n/a in the port's test ledger, as pravash's dump-hook tests were | `src/`, `tests/` |
 | Benchmarks | 35 criterion benches. History in `bench-history.csv`: a baseline and two post-audit runs (2026-11-15) | `benches/benchmarks.rs` |
 | Features | `optics` (prakash), `ranga`, `physics-debug` (impetus), `fluids` (pravash), `acoustics` (goonj + hisab), `em` (bijli), `thermo` (ushma), `screenshot` (selah, uuid, chrono), `drm` (agnosys, git), `full` | `Cargo.toml` |
 | Rust health, 2026-11-15 | The P(-1) audit closed with every gate clean: fmt; clippy on all features and on each feature alone; rustdoc; deny; audit; vet. 479 tests pass with all features, and the GPU smoke tests ran on the local AMD GPU | `CHANGELOG.md` 1.1.0 |
@@ -64,7 +67,7 @@
 
 | # | Question | Decision | Not chosen |
 |---|---|---|---|
-| ✅ D1 | **Freezing the oracle.** 1.1.0 is bumped but not committed. The golden generator needs private helpers: `viz`, `math_util`, animation's `slerp` and `bracket`, environment's f16/sRGB/downsample, and shadow's split and basis code | Add a hidden `oracle` feature that re-exports those helpers read-only, plus a test proving they are read-only (as pravash D1). Commit, tag 1.1.0 (the maintainer's step), then port | Tag 1.1.0 now and add the hooks as 1.1.1 |
+| ✅ D1 | **Freezing the oracle.** At decision time 1.1.0 was believed uncommitted; it had already been tagged and released, so the hooks ship in 1.1.1 with D2's fixes. The golden generator needs private helpers: `viz`, `math_util`, animation's `slerp` and `bracket`, environment's f16/sRGB/downsample, and shadow's split and basis code | Add a hidden `oracle` feature that re-exports those helpers read-only, plus a test proving they are read-only (as pravash D1). They ship in 1.1.1, the oracle, which the maintainer tags | — |
 | ✅ D2 | **Known value defects in 1.1.0's backlog.** CUBICSPLINE keeps values but drops tangents; particle damping is per step, not scaled by dt; shallow water ignores bathymetry; the bloom composite is unreachable, so bloom output is never used | **Fix all four in Rust 1.1.1 before the freeze** (each is effort S). Otherwise the corpus and the reference renders freeze wrong values that the port must reproduce, then fix again. The API-shaped items (per-draw model uniforms, depth load/clear) become Cyrius-only ADR 0002 rows. The feature-shaped items (GGX-prefiltered mips, cascade selection, node-centred heatmaps) wait until after 2.0 | Port 1.1.0 as it is and fix in 2.x |
 | ✅ D3 | **GPU route for 2.0** | **WGSL on mabda's wgpu-native backend.** The nine shaders carry over verbatim. Native AMD and NVIDIA follow once mabda has a render-capable shader path (§13). Two consequences: wgpu-on-AMD is deprecated in mabda 4.0.1 (a one-shot warning; `-D MABDA_AMD_WGPU_STRICT` must stay off), and mabda's v5.1 retirement gate waits on soorat going native | Hand-encoded GFX9 and SM75 shaders for 2.0: 9 × 2 programs, no compiler, and every GPU milestone blocked. SPIR-V on native AMD: the lowerer parses only `GLCompute` and caps a shader at 256 ids |
 | ✅ D4 | **Precision policy.** soorat computes in f32 because the GPU does; the Cyrius science crates now hand over f64 | **Three rules.** (a) Quantized or bit-defined outputs (u8 colours, sRGB tables, f16 packing, indices, counts, glyph lookups, UV rects) follow **Rust's f32 sequence exactly**: class A. (b) Geometry and matrices bound for the GPU are **computed in f64 and rounded once to f32** at packing: an ADR 0002 divergence, checked against Rust and against an f64 reference (§5). (c) Science inputs stay f64 until vertex packing | Bit-faithful f32 everywhere ("compute in Rust's precision, not more", ranga): the cheapest parity, but it gives up §6's gains. f64 everywhere: it flips quantized outputs (ranga: f32 `0x3f010101` gave 129 in Rust, 128 in f64) |
@@ -273,14 +276,25 @@ Finalized at M0 step 2. Each row says how the harness still compares the functio
 | 10 | `egui_bridge` | removed (D8) | n/a |
 | 11 | `drm` | agnodrm's subset (D8) | class A on what remains |
 | 12 | `em_render` axis convention (if ported in 2.0, D7) | one convention for 2D data | rows mapped by name |
+| 13 | CUBICSPLINE samplers keep each key's value and drop its tangents, so playback is linear (slerp for rotations) between keys | channels carry their interpolation mode and the in/out tangents, and CUBICSPLINE plays back as the glTF cubic Hermite spline (rotations normalized) | **class R** against the glTF spec formula, evaluated independently in f64. The 1.1.1 value-only rows stay for LINEAR and STEP, and for CUBICSPLINE at key times, where both agree |
 
 ---
 
 ## 4. M0: prepare, then initialize with `cyrius port`
 
 0. **Freeze a green Rust oracle (before the move).**
-   1. **1.1.0:** add the hidden `oracle` feature and its read-only test (D1) to the audited tree, then re-run every gate. The maintainer commits and tags 1.1.0.
-   2. **1.1.1:** fix D2's four value defects (CUBICSPLINE Hermite tangents, dt-scaled particle damping, shallow-water bathymetry, the bloom composite), each with a regression test that fails before the fix. Re-run every gate and the benchmarks, then add the CHANGELOG entries. The maintainer commits and tags 1.1.1, the final Rust release and the oracle.
+   1. ✅ **The oracle hooks** (done 2026-11-15, for 1.1.1): add the hidden `oracle` feature and its read-only test (D1), then re-run every gate.
+      - `src/oracle.rs` re-exports `math_util` and `viz`, which are crate-private modules. It wraps the crate-private helpers of animation (bracket, interpolation, slerp, sampler pairing, local and world joint transforms), environment (sRGB and f16 conversions, the sRGB decode table, face encode/decode, downsample, mip chain), the shadow atlas tile math and the mesh normal matrix.
+      - The library itself calls the same functions. `compute_joint_matrices` goes through `world_transforms`, and the cubemap upload goes through `face_mip_chain`. Outputs are unchanged, bit for bit, and a same-machine A/B run shows no speed change (CHANGELOG 1.1.0).
+      - `tests/oracle.rs` has 18 tests. Each hook agrees with the public path it backs, and calling every hook leaves every public output bit-identical.
+      - The 15 GPU-layout types and mabda's vertex types have all-public fields, so the generator measures layouts itself with `offset_of!` and no layout hook is needed.
+   2. **D2's fixes, then the 1.1.1 release:** fix D2's value defects, each with a regression test that fails before the fix.
+      - ✅ dt-scaled particle damping. The shader applies `damping^(dt·60)`, unchanged at 60 Hz. The GPU test gives x = 0.01667 on the old shader against the expected 0.00833.
+      - ✅ The bloom composite: `PostProcessPipeline::set_bloom`/`clear_bloom` and `PostProcessUniforms::with_bloom_intensity`, with a GPU test (0 → 0.5 → 0).
+      - ✖ Shallow-water bathymetry: withdrawn, not a defect (§6.3). A test now locks in the correct behaviour.
+      - → CUBICSPLINE Hermite: moved to the Cyrius port (ADR 0002 #13; the maintainer, 2026-11-15). `Keyframe` and `AnimationChannel` have no place for tangents without breaking struct literals, and the plan sends API-shaped fixes to Cyrius only. The 1.x docs state the limitation.
+
+      Then re-run every gate and the benchmarks, then add the CHANGELOG entries. The maintainer commits and tags 1.1.1, the final Rust release and the oracle.
 1. **Probes.** Each writes a dated result into `docs/development/port-parity.md`.
    - **P1 Layout.** For each of the 15 `#[repr(C)]` types and mabda's `Vertex2D`/`Vertex3D`, compare Cyrius `sizeof` and field offsets with Rust's `size_of`/`offset_of` and with the WGSL struct layout (vec3 alignment). This proves nested-struct uniforms, since array fields are unavailable.
    - **P2 f32 traps.** Port `math_util` and compile it under `cyrius test --bounds`. Zero warnings is the gate.
@@ -386,16 +400,17 @@ The expectations below are **predictions with a mechanism**. Each is measured at
 
 ### 6.3 Gains that are not arithmetic
 
-These belong to D2: fixed in Rust 1.1.1 before the freeze, so both columns carry them.
+These belong to D2: fixed in Rust 1.1.1 before the freeze, so both columns carry them. D2 also listed shallow-water bathymetry, but that was not a defect: pravash stores `height` as the surface elevation η (depth is `height − ground`), so soorat already renders the free surface.
 
 | Defect | Change |
 |---|---|
-| CUBICSPLINE Hermite | animations follow the authored curve instead of a linear path between keys |
 | dt-scaled particle damping | frame-rate independent |
-| shallow-water bathymetry | the free surface is `ground + height` |
 | bloom composite | bloom output is actually used |
 
-These are fixed in Cyrius only, through ADR 0002: per-draw model uniforms (multi-mesh scenes become correct) and depth load/clear.
+These are fixed in Cyrius only, through ADR 0002:
+- per-draw model uniforms (multi-mesh scenes become correct);
+- depth load/clear;
+- **CUBICSPLINE Hermite interpolation** (#13): animations follow the authored curve instead of a linear path between keys. Rust has no row for it, so it is checked against the glTF formula (class R).
 
 ---
 
@@ -418,7 +433,7 @@ Large milestones go in parts, each part gated.
 |---|---|---|---|---|
 | **M1 Foundation** (parts a–c) | error, mathx, crmath, tables, math, color, layout, lights, lod, material | `RenderError` → `SR_ERR_*`. Rust-semantics helpers (`sr_round`, checked ops, `sr_partition_point`, stable sort). f16 and sRGB with generated tables. Mat4 and vector ops with D4(b) packing. All 15 layouts proved (P1) | every f16 edge; the full sRGB domain; colour hex parsing including malformed input; matrices at degenerate inputs (zero up, zero extent, NaN); every layout row | C |
 | **M2 2D** (a–b) | sprite, batch, text, ui, debug_geom | sprite batching with the u16 index limit, the stable z-sort, UV rects; bitmap-font layout; UI quads; wire shapes and impetus collider shapes | batches at 0, 1, the limit and the limit + 1; sort ties; every glyph; each `ImColliderShape` kind | C |
-| **M3 Geometry and animation** (a–c) | primitives, terrain, viz, animation, gltf | outward winding everywhere; height fields with non-finite heights; keyframe sampling (LINEAR, STEP, CUBICSPLINE after D2); slerp; unsorted and cyclic joint chains; the GLB loader with every 1.1.0 rejection | tessellation counts 3…1024; slerp across θ including the switch; chains of 1–64 joints, sorted and unsorted; the `test_support` GLB fixtures plus truncated and malicious ones | C |
+| **M3 Geometry and animation** (a–c) | primitives, terrain, viz, animation, gltf | outward winding everywhere; height fields with non-finite heights; keyframe sampling (LINEAR, STEP, and CUBICSPLINE with Hermite tangents per ADR 0002 #13); slerp; unsorted and cyclic joint chains; the GLB loader with every 1.1.0 rejection | tessellation counts 3…1024; slerp across θ including the switch; chains of 1–64 joints, sorted and unsorted; the `test_support` GLB fixtures plus truncated and malicious ones | C |
 | **M4 Lighting math and infrastructure** | shadow_math, env_cpu, pbr_material, render_graph, profiler, capabilities | directional light matrices (including the centred variant); practical splits; the atlas; mip chains and box filters; the BRDF LUT bytes; the render graph over mabda `rg_*` | splits over (near, far, λ, count) including bad input; atlas tiling at 1…64 lights; mips for sizes 1…2048; the LUT at every resolution 1.1.0 allows | C |
 | **M5 Science visualization** (a–d) | acoustic, thermo, fluid, em (D7) | bind the Cyrius producers (§2.5); grid backing checks; NaN-safe colour maps; segment and quad caps | each renderer at empty, minimal, backed, unbacked, NaN and huge headers; f32-representable inputs fed to both sides | C |
 | **MB1–MB5** (mabda) | see §8 | the mabda render tier | mabda's own gates, plus soorat's P6 | mabda |
@@ -566,7 +581,7 @@ Where the gap matters (sprite batching at scale), the remedies are the sibling o
 | Milestone | Status | Golden rows | Rust tests ported | Benches | Notes |
 |---|---|---|---|---|---|
 | D1–D9 | ✅ decided 2026-11-15 | — | — | — | |
-| M0 Prepare and initialize | ☐ | — | — | — | |
+| M0 Prepare and initialize | ◐ step 0: the hooks are done; D2's fixes are in progress | — | — | — | both ship in 1.1.1 |
 | M1 Foundation | ☐ | | | | |
 | M2 2D | ☐ | | | | |
 | M3 Geometry and animation | ☐ | | | | |

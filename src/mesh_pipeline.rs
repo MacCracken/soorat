@@ -55,7 +55,7 @@ impl CameraUniforms {
 /// correct direction, and the shader renormalizes.
 #[must_use]
 #[inline]
-fn inverse_transpose_3x3(m: &[f32; 16]) -> ([f32; 3], [f32; 3], [f32; 3]) {
+pub(crate) fn inverse_transpose_3x3(m: &[f32; 16]) -> ([f32; 3], [f32; 3], [f32; 3]) {
     use crate::math_util::cross;
     // Extract upper-left 3x3 columns (column-major)
     let a = [m[0], m[1], m[2]];

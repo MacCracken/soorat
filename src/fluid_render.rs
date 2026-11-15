@@ -106,6 +106,10 @@ pub fn particles_to_quads(
 /// The mesh is an XZ-plane grid centred on the origin with Y = water height ×
 /// `y_scale`; normals come from central differences (one-sided at borders).
 ///
+/// pravash's `height` is the free-surface elevation η, not the depth (depth
+/// is `height - ground`), so the mesh is the water surface over any
+/// bathymetry; `ground` is not added. Dry cells sit at the bed (η = ground).
+///
 /// Returns an empty mesh if `nx`/`ny` < 2, `dx` is not positive and finite, or
 /// `height` holds fewer than `nx * ny` samples. Non-finite heights render as 0.
 #[must_use]
@@ -299,6 +303,28 @@ mod tests {
         // Extent (cols-1)·dx = 1.5 centred on 0 → x ∈ [-0.75, 0.75].
         assert!((v[0].position[0] + 0.75).abs() < 1e-6);
         assert!((v[3].position[0] - 0.75).abs() < 1e-6);
+    }
+
+    #[cfg(feature = "fluids")]
+    #[test]
+    fn shallow_water_renders_the_free_surface_over_bathymetry() {
+        // pravash stores `height` as the surface elevation η (depth is
+        // `height - ground`), so the mesh follows `height` and must not add
+        // `ground` again.
+        let mut water = pravash::shallow::ShallowWater::new(3, 3, 1.0, 1.0).unwrap();
+        for k in 0..9 {
+            water.ground[k] = 0.25 * k as f64; // a sloping bed
+            water.height[k] = water.ground[k] + 0.5; // uniform depth 0.5
+        }
+        let (v, _) = shallow_water_to_mesh(&water, 2.0, Color::BLUE);
+        for (k, vertex) in v.iter().enumerate() {
+            let want = (water.height[k] * 2.0) as f32;
+            assert!(
+                (vertex.position[1] - want).abs() < 1e-6,
+                "vertex {k}: y {} vs η·scale {want}",
+                vertex.position[1]
+            );
+        }
     }
 
     #[cfg(feature = "fluids")]
