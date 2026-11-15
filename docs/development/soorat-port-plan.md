@@ -6,7 +6,13 @@
 > - a **render-loop leak** in mabda (P8, L17);
 > - mabda's **missing compute** (P6, MB4).
 >
-> Next: M0 step 2 (`cyrius port`). M1 can proceed. The `ranga` feature cannot be combined with `acoustics` or `thermo` until L18 lands.
+> **M0 step 2 is done (2026-11-15).** `cyrius port` moved the 1.2.0 crate to `rust-old/`, and the scaffold defects are repaired (`state.md`).
+> - The oracle passes all 501 tests there.
+> - The Cyrius scaffold builds, tests and passes `cyrius audit`.
+> - CI checks both trees.
+> - ADRs 0001 and 0002 are written.
+>
+> Next: M0 steps 3–8. M1 can proceed. The `ranga` feature cannot be combined with `acoustics` or `thermo` until L18 lands.
 >
 > **Step 0 detail (2026-11-15, committed as `7f3213a`, tagged as 1.2.0).** 1.1.0 was tagged and released on 2026-11-15 (`0a94507`, GitHub release 14:26 UTC) before the oracle work started. The hooks and D2's fixes therefore ship together as **1.2.0**, the final Rust release and the oracle. It is a minor release, not 1.2.0, because it adds public API (`set_bloom`, `clear_bloom`, `with_bloom_intensity` and the `oracle` feature). The maintainer tags 1.2.0.
 > - Part 1, the hooks: done, every gate green.
@@ -530,20 +536,20 @@ Each row is filed in the named project with soorat's numbers. Each has a stand-i
 
 | L | Project | Request | Stand-in |
 |---|---|---|---|
-| L1 | ganita | correctly rounded f64 tier (the open request; soorat joins as a consumer) | vendored `crmath`/`crlog` (impetus, kimiya) |
+| L1 | ganita | correctly rounded f64 tier (the open request; soorat joins as a consumer). **soorat's P3 numbers added 2026-11-15** to `ganita/docs/development/issues/2026-11-09-correctly-rounded-exp-sin-cos-hypot.md`, with a request for f32 `acos`/`asin` and a correctly rounded `log10` | vendored `crmath`/`crlog` (impetus, kimiya) |
 | L2–L6 | mabda | MB1–MB5 (§8), **filed 2026-11-15** as `mabda/docs/development/issues/2026-11-15-render-tier-for-geometry-consumers.md`. It includes P6's additions: explicit entry points, an optional fragment stage, an error channel, public constant names, and MB4 as missing | **none allowed** (D3, §0.1); the GPU track waits |
 | L17 | mabda | the render loop's leaks (P8): command buffers never released, plus 432 B per pass begin and 224 B per textured draw from the bump heap; about 1.6 KB a frame. **Filed 2026-11-15** as `mabda/docs/development/issues/2026-11-15-wgpu-render-loop-leaks-command-buffers-and-pass-records.md` | none (a launcher change). It lands with L2–L6's single launcher revision |
 | L7 | mabda | a WGSL front end (or another render-capable shader path) for the native backends | none; after 2.0 (§13) |
-| L8 | cyrius | `fn f(): f32` returns; `const` of f32; an f16 helper pair | return the bits as i64; `var` constants; local f16 code |
-| L9 | selah | a public raw-RGBA encoder: PNG, JPEG, BMP | selah's private encoders, vendored |
-| L10 | agnodrm | connector, mode and render-node queries (mabda's `backend_native_kms.cyr` has the ioctls internally) | the reduced `drm` subset (D8) |
-| L11 | hisab consumers | prakash, ushma, pravash and impetus move to hisab 3.5.x (goonj's pin). *P4: tidy-up only.* 3.5.0 serves all five; prakash, pravash and impetus are test-scoped; ushma calls only `calc_lerp` and `calc_integral_simpson` | P4's result decides whether this blocks the `full` bundle |
-| L12 | mabda | toolchain pin 6.7.5 → 6.7.18 (*P5: tidy-up*, 0 warnings on 6.7.18), plus making `[deps.chitra]` and `[deps.samvada]` optional: as production dependencies they reach every consumer's compile | P5's result |
-| L18 | **hisab or ranga** | **name clash.** Both define `srgb_to_linear`, `linear_to_srgb`, `premultiply_alpha` and `unpremultiply_alpha`. The last two differ in arity, which is a compile **error**; the first two silently take hisab's, and ranga's `srgba_to_lin_rgba(128).r` becomes `0xa` instead of `0x3e5d0a8b` (P11). One side must prefix or privatize | **none possible** (a dependency's names): blocks `ranga` together with `acoustics`/`thermo` |
-| L19 | agnodrm or sigil | name clash: `result_print_err`, `is_syscall_err`, `wrap_syscall`, plus the agreeing `Errno`/`SysErrorKind` enums (P11) | agnodrm behind `drm` only |
-| L20 | goonj or pravash | name clash: `logging_init` (P11) | none; warning only, last definition wins |
-| L13 | cyrius | `memcpy`/`memset` word copies (the open byte-loop issue) | measured by P7; arena reuse |
-| L14 | cyrius | `cyrius port` doc clobbering (the open issue) | M0 step 2's repairs |
+| L8 | cyrius | `fn f(): f32` returns; `const` of f32; an f16 helper pair. **Filed 2026-11-15:** `cyrius/docs/development/issues/2026-11-15-f32-returns-consts-and-f16.md` | return the bits as i64; `var` constants; local f16 code |
+| L9 | selah | a public raw-RGBA encoder: PNG, JPEG, BMP. **Filed 2026-11-15:** `selah/docs/development/issues/2026-11-15-public-raw-rgba-encoders.md` | selah's private encoders, vendored |
+| L10 | agnodrm | connector, mode and render-node queries (mabda's `backend_native_kms.cyr` has the ioctls internally). **Filed 2026-11-15:** `agnodrm/docs/development/issues/2026-11-15-connector-mode-and-render-node-queries.md` | the reduced `drm` subset (D8) |
+| L11 | hisab consumers | prakash, ushma, pravash and impetus move to hisab 3.5.x (goonj's pin). *P4: tidy-up only.* 3.5.0 serves all five; prakash, pravash and impetus are test-scoped; ushma calls only `calc_lerp` and `calc_integral_simpson`. **Filed 2026-11-15** (ushma, the only production 3.4.1 pin): `ushma/docs/development/issues/2026-11-15-hisab-pin-3-5.md` | P4's result decides whether this blocks the `full` bundle |
+| L12 | mabda | toolchain pin 6.7.5 → 6.7.18 (*P5: tidy-up*, 0 warnings on 6.7.18), plus making `[deps.chitra]` and `[deps.samvada]` optional: as production dependencies they reach every consumer's compile. **Filed 2026-11-15:** `mabda/docs/development/issues/2026-11-15-cyrius-pin-and-production-only-deps.md` | P5's result |
+| L18 | **hisab or ranga** | **name clash.** Both define `srgb_to_linear`, `linear_to_srgb`, `premultiply_alpha` and `unpremultiply_alpha`. The last two differ in arity, which is a compile **error**; the first two silently take hisab's, and ranga's `srgba_to_lin_rgba(128).r` becomes `0xa` instead of `0x3e5d0a8b` (P11). One side must prefix or privatize. **Filed 2026-11-15:** primary in hisab, `hisab/docs/development/issues/2026-11-15-color-names-collide-with-ranga.md` (rename hisab's four colour functions; nothing outside hisab calls them). Companion in ranga, `ranga/docs/development/issues/2026-11-15-color-names-collide-with-hisab.md` (correct `spectral.cyr`'s rename-around guidance; add a co-compile test) | **none possible** (a dependency's names): blocks `ranga` together with `acoustics`/`thermo` |
+| L19 | agnodrm or sigil | name clash: `result_print_err`, `is_syscall_err`, `wrap_syscall`, plus the agreeing `Errno`/`SysErrorKind` enums (P11). **Filed 2026-11-15** in agnodrm (prefix its helpers; sigil is the stdlib): `agnodrm/docs/development/issues/2026-11-15-syscall-result-helpers-collide-with-sigil.md` | agnodrm behind `drm` only |
+| L20 | goonj or pravash | name clash: `logging_init` (P11). **Filed 2026-11-15** in both (each prefixes its own init): `goonj/docs/development/issues/2026-11-15-logging-init-collides-with-pravash.md`, `pravash/docs/development/issues/2026-11-15-logging-init-collides-with-goonj.md` | none; warning only, last definition wins |
+| L13 | cyrius | `memcpy`/`memset` word copies (the open byte-loop issue). **soorat's P7 numbers added 2026-11-15** to the open `cyrius/docs/development/issues/2026-11-02-memcpy-memset-byte-loops-dominate-frame-copies.md` | measured by P7; arena reuse |
+| L14 | cyrius | `cyrius port` doc clobbering (the open issue). **Reproduced on soorat and repaired, 2026-11-15**; noted on the issue, with the release-workflow consequence | M0 step 2's repairs (`state.md`) |
 | L15 | new project | a shared Wayland window and input library, extracted from the four `win_*` copies | none needed by 2.0 (D5) |
 | L16 | bijli | M7's visualization surfaces (in progress) | D7 |
 
@@ -605,7 +611,7 @@ Where the gap matters (sprite batching at scale), the remedies are the sibling o
 | Milestone | Status | Golden rows | Rust tests ported | Benches | Notes |
 |---|---|---|---|---|---|
 | D1–D9 | ✅ decided 2026-11-15 | — | — | — | |
-| M0 Prepare and initialize | ◐ steps 0–1 done (1.2.0 released; 11 probes in port-parity §1) | — | — | — | next: step 2, `cyrius port` |
+| M0 Prepare and initialize | ◐ steps 0–2 done (1.2.0 released; 11 probes; `cyrius port` + repairs; ADRs 0001/0002) | — | — | — | next: steps 3–8 |
 | M1 Foundation | ☐ | | | | |
 | M2 2D | ☐ | | | | |
 | M3 Geometry and animation | ☐ | | | | |

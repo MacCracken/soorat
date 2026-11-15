@@ -1,0 +1,18 @@
+# soorat fuzz harness
+
+# The fuzz entry: every external-input reader (glTF, images) is added here as it ports.
+fn fuzz_main(data, len) {
+    if (len == 0) { return 0; }
+    return 0;
+}
+
+# Runs the harness once on a fixed input.
+fn main() {
+    alloc_init();
+    fuzz_main("test", 4);
+    println("fuzz: ok");
+    return 0;
+}
+
+var r = main();
+sys_exit_group(r);

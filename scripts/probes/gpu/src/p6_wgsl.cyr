@@ -23,7 +23,7 @@
 
 include "src/common.cyr"
 
-var SHADER_DIR = "../../../src/";
+var SHADER_DIR = "../../../rust-old/src/";
 var SHADER_NAMES = 0;
 var N_SHADERS = 9;
 
@@ -41,7 +41,7 @@ fn shader_names_init(): i64 {
     return 0;
 }
 
-# Read ../../../src/<name>.wgsl; returns the buffer, byte count through len_out.
+# Read ../../../rust-old/src/<name>.wgsl; returns the buffer, byte count through len_out.
 fn load_wgsl(name, len_out): i64 {
     var path[256];
     memset(&path, 0, 256);

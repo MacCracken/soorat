@@ -77,14 +77,23 @@ fn main() {
 
 ## Building
 
-Requires Rust 1.100+ (edition 2024).
+soorat is being ported to Cyrius (2.0.0). The repository root is the Cyrius project. The Rust 1.2.0 crate,
+the final Rust release, is frozen in `rust-old/` as the port's reference oracle. See
+`docs/development/soorat-port-plan.md` and `docs/development/state.md`.
 
 ```sh
-cargo build
+# The Cyrius port (Cyrius 6.7.18)
+cyrius deps
+cyrius build
+cyrius test
+
+# The Rust 1.2.0 oracle (Rust 1.100)
+cd rust-old
 cargo test                      # includes naga validation of every WGSL shader
 cargo test --all-features       # GPU smoke tests run when an adapter is available
-make bench                      # criterion + bench-history.csv
 ```
+
+Rust users: depend on soorat **1.2.0** from crates.io or git, until 2.0.0 ships.
 
 ## Dependency Notes
 

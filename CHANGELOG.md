@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **The Cyrius port begins** (2.0.0; plan `docs/development/soorat-port-plan.md`, ADRs 0001 and 0002).
+  - **M0 step 1** ran 11 probes, recorded in `docs/development/port-parity.md` §1, with their sources in
+    `scripts/probes/`.
+  - **M0 step 2** ran `cyrius port`. The Rust 1.2.0 crate (`Cargo.toml`, `src/`, `tests/`, `benches/`,
+    `examples/`, `supply-chain/`, the bench history) moved to **`rust-old/`**. It is frozen as the oracle and
+    never edited.
+  - The repository root is now the Cyrius project: `cyrius.cyml`, `src/main.cyr`, `tests/soorat.*`.
+- **CI** checks both trees: a Cyrius job (`cyrius deps --locked`, build, test, `audit`) and the oracle's Rust
+  jobs, now in `rust-old/`. The Rust coverage job is dropped, since the oracle no longer changes.
+- **Release:** `release.yml` is now the Cyrius workflow. It matches `N.N.N` tags only and **no longer publishes
+  to crates.io**, so a future tag can't republish the frozen Rust crate.
+- `scripts/version-bump.sh` bumps `VERSION` only; `cyrius.cyml` reads it. `scripts/bench-history.sh`
+  re-measures the oracle in `rust-old/`.
+
+### Fixed
+- `cyrius port`'s scaffold defects, repaired as cyrius issue 2026-11-08 describes:
+  - CLAUDE.md, the roadmap and the CI workflows, which the port overwrote, are restored or merged;
+  - `cyrius.cyml` reads `version = "${file:VERSION}"` instead of `0.1.0`;
+  - `bench` is added to `[test] stdlib`;
+  - the stubs are documented, so `cyrius audit` passes.
+
 ## [1.2.0] - 2026-11-15
 
 **The final Rust release**, and the oracle for the Cyrius port (`docs/development/soorat-port-plan.md`, D1 and D2). It is a minor release because it adds public API: `PostProcessPipeline::set_bloom`/`clear_bloom`, `PostProcessUniforms::with_bloom_intensity` and the hidden `oracle` feature.

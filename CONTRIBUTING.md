@@ -7,7 +7,7 @@ Thank you for your interest in contributing to Soorat.
 1. Fork and clone the repository
 2. Create a feature branch from `main`
 3. Make your changes
-4. Run `make check` (and `make all` before a PR) to validate
+4. Run the Cyrius checks (`cyrius test --bounds`, `cyrius audit`). For the frozen Rust oracle, run `make check` inside `rust-old/` (see CLAUDE.md: `rust-old/` is never edited, only proved green)
 5. Open a pull request
 
 ## Prerequisites
@@ -18,7 +18,7 @@ Thank you for your interest in contributing to Soorat.
 - A GPU (Vulkan/Metal/DX12) to run `tests/gpu_smoke.rs` for real — without an
   adapter those tests print a notice and pass
 
-## Makefile Targets
+## Makefile Targets (the Rust oracle, inside `rust-old/`)
 
 | Command | Description |
 |---------|-------------|

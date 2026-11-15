@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The Rust benchmarks live with the frozen 1.2.0 oracle in rust-old/ (the Cyrius port moved
+# them there). This script re-measures that oracle; the Cyrius benches run with `cyrius bench`.
+cd "$(dirname "$0")/../rust-old"
+
 # Run criterion benchmarks, append results to CSV history, and generate benchmarks.md
 # with three-point tracking: baseline, previous, latest.
 #

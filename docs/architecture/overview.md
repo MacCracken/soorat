@@ -1,5 +1,9 @@
 # Soorat Architecture
 
+> **Port note (2026-11-15).** This overview describes the Rust 1.2.0 crate, which is now the frozen oracle in
+> `rust-old/`, so the `src/…` paths below are under `rust-old/src/`. The Cyrius port's structure is in
+> `docs/development/soorat-port-plan.md` §3.
+
 ## Overview
 
 Soorat is a wgpu-based GPU rendering engine for the Kiran game engine and AGNOS ecosystem. It provides 2D sprites, 3D PBR meshes with multi-light support, shadow mapping (single/cascaded/point), skeletal animation with vertex skinning, debug wireframes, post-processing (HDR/bloom/SSAO/tone mapping), terrain, text, UI, fluid rendering, and GPU profiling.

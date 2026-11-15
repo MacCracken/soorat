@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Bump version in VERSION file and Cargo.toml
+# Bump the version. VERSION is the single source of truth: cyrius.cyml reads it
+# through `version = "${file:VERSION}"`. The Rust crate in rust-old/ is the frozen
+# 1.2.0 oracle and is never bumped.
 NEW_VERSION="${1:?Usage: $0 <new-version>}"
 
 echo "$NEW_VERSION" > VERSION
-
-# Update Cargo.toml version
-sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" Cargo.toml
-
-# Update Cargo.lock
-cargo check --quiet 2>/dev/null || true
-
+grep -q '^version = "${file:VERSION}"' cyrius.cyml || {
+    echo "cyrius.cyml does not read VERSION; fix its [package] version" >&2
+    exit 1
+}
 echo "Bumped to $NEW_VERSION"

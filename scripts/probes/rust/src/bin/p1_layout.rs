@@ -128,7 +128,7 @@ fn types() -> Vec<Ty> {
 
 /// WGSL struct layouts from naga: name → (span, [(member, offset, size)]).
 fn wgsl_struct(shader: &str, name: &str) -> Option<(u32, Vec<(String, u32, u32)>)> {
-    let path = format!("{}/../../../src/{shader}", env!("CARGO_MANIFEST_DIR"));
+    let path = format!("{}/../../../rust-old/src/{shader}", env!("CARGO_MANIFEST_DIR"));
     let src = std::fs::read_to_string(&path).ok()?;
     let module = naga::front::wgsl::parse_str(&src).ok()?;
     let mut layouter = naga::proc::Layouter::default();

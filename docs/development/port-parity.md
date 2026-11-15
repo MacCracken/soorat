@@ -265,7 +265,7 @@ agree:
 **Decision.**
 - **P11 fails**, on dependency name clashes the plan didn't foresee. No local stand-in can fix a dependency's
   names, so each clash needs a request in the dependency that should rename:
-  - hisab or ranga (L18), which blocks the `ranga` feature together with `acoustics` or `thermo`;
+  - hisab or ranga (L18), which blocks the `ranga` feature together with `acoustics` or `thermo`. **Filed 2026-11-15** in hisab (primary: rename its four colour functions) and ranga (companion);
   - agnodrm or sigil (L19);
   - goonj or pravash (L20).
 - §12's 24 MB risk is retired.

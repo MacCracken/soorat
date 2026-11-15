@@ -4,23 +4,56 @@
 
 **Soorat** (Arabic/Urdu: image/form, Farsi: face) — GPU rendering engine — wgpu, sprites, meshes, shaders, PBR pipeline, window management
 
-- **Type**: Flat library crate
+- **Type**: Library: Cyrius at the root (the 2.0.0 port in progress); the Rust 1.2.0 oracle in `rust-old/`
 - **License**: GPL-3.0-only
-- **MSRV**: 1.100
-- **Version**: SemVer 1.2.0
+- **Toolchains**: Cyrius 6.7.18 (`cyrius.cyml`); Rust MSRV 1.100 (the oracle only)
+- **Version**: SemVer 1.2.0 (`VERSION`; the Cyrius port ships as 2.0.0)
 
 ## Consumers
 
 kiran (game rendering), salai (editor viewport), joshua (visualization)
 
 **Note**: Integrates prakash for physically-based optics math.
+
+## Cyrius Port (in progress, 2.0.0)
+
+soorat is being ported to Cyrius. Plan of record: `docs/development/soorat-port-plan.md`. Measurements:
+`docs/development/port-parity.md`. Decisions: `docs/adr/0001`, `docs/adr/0002`. Volatile status:
+`docs/development/state.md`.
+
+**Layout.**
+- The **repository root is the Cyrius project**: `cyrius.cyml`, `src/`, `tests/`.
+- **`rust-old/` is the frozen Rust 1.2.0 oracle.**
+  - **Never edit it.** A wrong oracle value is fixed as a Rust 1.2.x release, and the corpus is regenerated.
+  - The `cargo` commands in the processes below run **inside `rust-old/`**, and only to prove the oracle is
+    still green.
+
+**Cyrius cleanliness check** (every work-loop step that says "cleanliness check"):
+- `cyrius deps --locked`, `cyrius build`;
+- `cyrius test --bounds`, with **zero warnings**: the f32 and f64 type diagnostics appear only there;
+- `cyrius fmt --check`, `cyrius lint`;
+- `cyrius audit`, run directly and not through a pipe, so its exit status counts.
+
+**Rules learned from the M0 probes** (port-parity §1):
+- **f32 arithmetic goes through helpers with `: f32` parameters.** An operator takes its type from its left
+  operand.
+- `fn f(): f32` is refused, so return the bits.
+- Write f32 literals as their bits from rustc.
+- Rust's `round` is half away from zero; ganita's is ties to even.
+- Cyrius has no `&s.field`, and no array fields: generate indexed fields.
+- **Names:** `Sr` types, `sr_` functions, `SR_`/`SR_ERR_*` constants. **Never `soorat_`**, because goonj
+  defines those.
+- **Memory:** per-frame data goes in a frame arena. The global `alloc` never frees.
+- Generate vertices straight into the upload buffer; `memcpy` is a byte loop.
+- **GPU access goes through mabda only.** No wgpu-native FFI in soorat.
+
 ## Development Process
 
 ### P(-1): Scaffold Hardening (before any new features)
 
 0. Read roadmap, CHANGELOG, and open issues — know what was intended before auditing what was built
 1. Test + benchmark sweep of existing code
-2. Cleanliness check: `cargo fmt --check`, `cargo clippy --all-features --all-targets -- -D warnings`, `cargo audit`, `cargo deny check`, `RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps`
+2. Cleanliness check. Cyrius: see *Cyrius Port* above. The oracle, in `rust-old/`: `cargo fmt --check`, `cargo clippy --all-features --all-targets -- -D warnings`, `cargo audit`, `cargo deny check`, `RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps`
 3. Get baseline benchmarks (`./scripts/bench-history.sh`)
 4. Internal deep review — gaps, optimizations, security, logging/errors, docs
 5. External research — domain completeness, missing capabilities, best practices, world-class accuracy
@@ -32,7 +65,7 @@ kiran (game rendering), salai (editor viewport), joshua (visualization)
 ### Work Loop / Working Loop (continuous)
 
 1. Work phase — new features, roadmap items, bug fixes
-2. Cleanliness check: `cargo fmt --check`, `cargo clippy --all-features --all-targets -- -D warnings`, `cargo audit`, `cargo deny check`, `RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps`
+2. Cleanliness check. Cyrius: see *Cyrius Port* above. The oracle, in `rust-old/`: `cargo fmt --check`, `cargo clippy --all-features --all-targets -- -D warnings`, `cargo audit`, `cargo deny check`, `RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps`
 3. Test + benchmark additions for new code
 4. Run benchmarks (`./scripts/bench-history.sh`)
 5. Internal review — performance, memory, security, throughput, correctness

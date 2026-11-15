@@ -1,0 +1,25 @@
+# soorat — the Cyrius port (2.0.0 in progress). The Rust 1.2.0 oracle is frozen in rust-old/.
+# Plan of record: docs/development/soorat-port-plan.md. Dependencies are added milestone by
+# milestone (§4 step 3 lists the full set and its order: goonj before ushma, agnodrm behind `drm`).
+
+[package]
+name = "soorat"
+version = "${file:VERSION}"
+description = "Soorat — GPU rendering engine for AGNOS (Cyrius port of the Rust 1.2.0 crate in rust-old/)"
+license = "GPL-3.0-only"
+repository = "https://github.com/MacCracken/soorat"
+language = "cyrius"
+cyrius = "6.7.18"
+
+[build]
+entry = "src/main.cyr"
+output = "build/soorat"
+dce = true
+
+[deps]
+stdlib = ["string", "fmt", "alloc", "vec", "str", "syscalls", "io", "args", "math", "ganita"]
+
+[test]
+# `bench` too: the port template omits it, so tests/soorat.bcyr and `cyrius audit` failed
+# (cyrius issue 2026-11-08-cyrius-port-clobbers-project-docs-and-omits-bench.md, item 3).
+stdlib = ["assert", "bench"]
