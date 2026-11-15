@@ -1,0 +1,26 @@
+[package]
+name = "soorat-probes-assets"
+version = "0.0.0"
+description = "soorat M0 step 1 probes P9-P10: GLB through bayan, chitra against image"
+license = "GPL-3.0-only"
+language = "cyrius"
+cyrius = "6.7.18"
+
+# bayan 1.11.1 is the stdlib fold (lib/bayan.cyr); its leaves come first.
+[deps]
+stdlib = [
+    "syscalls", "string", "alloc", "str", "fmt", "io", "vec", "math", "tagged", "result",
+    "fnptr", "atomic", "slice", "hashseed",
+    "unicode/_decode", "unicode/categories", "unicode/_categories_data",
+    "unicode/casefold", "unicode/_casefold_data",
+    "unicode/normalize", "unicode/_normalize_data",
+    "bayan",
+]
+
+[deps.chitra]
+git = "https://github.com/MacCracken/chitra.git"
+tag = "1.4.1"
+modules = ["dist/chitra.cyr"]
+
+[test]
+stdlib = ["assert", "bench"]

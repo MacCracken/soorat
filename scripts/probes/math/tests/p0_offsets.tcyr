@@ -1,0 +1,30 @@
+struct V4 { x: f32; y: f32; z: f32; w: f32; }
+struct M4 { c0: V4; c1: V4; c2: V4; c3: V4; }
+struct T { a: M4; b: V4; c: f32; d: u32; }
+fn find32(base, size, marker) {
+    var i = 0;
+    while (i + 4 <= size) {
+        if (load32(base + i) == marker) { return i; }
+        i = i + 1;
+    }
+    return -1;
+}
+fn probe() {
+    var t: T;
+    var base = &t;
+    memset(base, 0, sizeof(T));
+    t.b.x = f32_from(1.5);
+    t.c = f32_from(2.5);
+    t.d = 77;
+    t.a.c2.x = f32_from(3.5);
+    assert_eq(sizeof(T), 88, "sizeof T");
+    assert_eq(find32(base, sizeof(T), f32_from(1.5)), 64, "offset b");
+    assert_eq(find32(base, sizeof(T), f32_from(2.5)), 80, "offset c");
+    assert_eq(find32(base, sizeof(T), 77), 84, "offset d");
+    assert_eq(find32(base, sizeof(T), f32_from(3.5)), 32, "nested offset");
+    return 0;
+}
+alloc_init();
+test_group("offsets");
+probe();
+var r = assert_summary();

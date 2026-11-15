@@ -1,0 +1,124 @@
+# tests/p7_upload.bcyr — soorat M0 probe P7, CPU half: the per-frame cost of 1,000
+# sprites' vertex data (128,000 B of Vertex2D + 12,000 B of u16 indices) in Cyrius.
+#
+#   (a) memcpy of 128 KiB: the stdlib byte loop, and a word-copy loop (L13's request)
+#   (b) sr_batch_to_vertices_into: soorat's batch_to_vertices_into transcribed (src/batch.cyr)
+# The GPU write (c) is src/p7_upload.cyr (it needs the wgpu launcher).
+#
+# Run:  cyrius bench tests/p7_upload.bcyr
+# Rust 1.2.0 (bench-history.csv, 2026-11-15T21:19:13Z, commit 7f3213a):
+#   pipeline/batch_to_vertices_1000        11903.0 ns
+#   pipeline/batch_to_vertices_into_1000   11974.0 ns
+#   pipeline/batch_to_vertices_rotated_100  1750.0 ns
+
+include "src/batch.cyr"
+
+var N_SPRITES = 1000;
+var VBYTES = 128000;      # 1000 sprites x 4 vertices x 32 B
+var COPY_BYTES = 131072;  # the 128 KiB of the plan's wording
+var g_src = 0;
+var g_dst = 0;
+var g_sprites = 0;
+var g_sprites_rot = 0;
+var g_verts = 0;
+var g_idx = 0;
+var g_arena = 0;
+
+fn op_memcpy(): i64 { memcpy(g_dst, g_src, COPY_BYTES); return 0; }
+fn op_memcpy_words(): i64 { memcpy_words(g_dst, g_src, COPY_BYTES); return 0; }
+fn op_memset(): i64 { memset(g_dst, 0, COPY_BYTES); return 0; }
+fn op_batch_into_1000(): i64 { sr_batch_to_vertices_into(g_sprites, 1000, g_verts, g_idx); return 0; }
+fn op_batch_rot_100(): i64 { sr_batch_to_vertices_into(g_sprites_rot, 100, g_verts, g_idx); return 0; }
+fn op_batch_rot_1000(): i64 { sr_batch_to_vertices_into(g_sprites_rot, 1000, g_verts, g_idx); return 0; }
+# The allocating form (Rust's batch_to_vertices allocates two Vecs per call): two
+# arena allocations, fill, reset.
+fn op_batch_arena_1000(): i64 {
+    var v = arena_alloc(g_arena, VBYTES);
+    var x = arena_alloc(g_arena, 12000);
+    sr_batch_to_vertices_into(g_sprites, 1000, v, x);
+    arena_reset(g_arena);
+    return 0;
+}
+# (a) + (b): generate into a scratch buffer, then copy it to the staging buffer.
+fn op_batch_then_memcpy(): i64 {
+    sr_batch_to_vertices_into(g_sprites, 1000, g_verts, g_idx);
+    memcpy(g_dst, g_verts, VBYTES);
+    return 0;
+}
+
+fn csv(b): i64 {
+    var name = load64(b);
+    syscall(1, 1, "CSV:", 4);
+    syscall(1, 1, name, strlen(name));
+    syscall(1, 1, ",", 1);
+    fmt_int(bench_avg_ns(b));
+    syscall(1, 1, ",", 1);
+    fmt_int(bench_min_ns(b));
+    syscall(1, 1, "\n", 1);
+    return 0;
+}
+
+fn row(name, fp, batch, rounds): i64 {
+    var b = bench_new(name);
+    bench_run_batch(b, fp, batch, rounds);
+    bench_report(b);
+    csv(b);
+    return 0;
+}
+
+fn check(cond, msg): i64 {
+    if (cond == 0) { syscall(1, 1, "CHECK FAILED: ", 14); syscall(1, 1, msg, strlen(msg)); syscall(1, 1, "\n", 1); syscall(60, 1); }
+    return 0;
+}
+
+fn main(): i64 {
+    alloc_init();
+    g_src = alloc(COPY_BYTES);
+    g_dst = alloc(COPY_BYTES);
+    for (var i = 0; i < COPY_BYTES; i = i + 1) { store8(g_src + i, i & 0xFF); }
+    g_sprites = alloc(N_SPRITES * SPRITE_STRIDE);
+    g_sprites_rot = alloc(N_SPRITES * SPRITE_STRIDE);
+    sprites_fill(g_sprites, N_SPRITES, 0.0);
+    sprites_fill(g_sprites_rot, N_SPRITES, 0.1);
+    g_verts = alloc(VBYTES);
+    g_idx = alloc(12000);
+    g_arena = arena_new(262144);
+
+    # Correctness, before any timing.
+    memcpy(g_dst, g_src, COPY_BYTES);
+    check(memeq(g_dst, g_src, COPY_BYTES), "memcpy");
+    memset(g_dst, 0, COPY_BYTES);
+    memcpy_words(g_dst, g_src, COPY_BYTES);
+    check(memeq(g_dst, g_src, COPY_BYTES), "memcpy_words");
+    sr_batch_to_vertices_into(g_sprites, 1000, g_verts, g_idx);
+    # sprite 0: corner 0 (0, 0), corner 2 (32, 32); sprite 999: corner 0 x = 9990.0
+    check(load32(g_verts) == 0, "s0 c0 x");
+    check(load32(g_verts + 64) == f32_from(32.0), "s0 c2 x");
+    check(load32(g_verts + 68) == f32_from(32.0), "s0 c2 y");
+    check(load32(g_verts + 999 * 128) == f32_from(9990.0), "s999 c0 x");
+    check(load32(g_verts + 16) == f32_from(1.0), "colour");
+    check(load32(g_verts + 40) == f32_from(1.0), "s0 c1 u");
+    check(load16(g_idx + 999 * 12 + 8) == 3999, "index 999.4");
+    # Rotated sprite 1 (rotation 0.1, x 10, 32 x 32): corner 0 = (11.6773, -1.5173) by hand.
+    sr_batch_to_vertices_into(g_sprites_rot, 2, g_verts, g_idx);
+    var px: f64 = f32_to(load32(g_verts + 128));
+    var py: f64 = f32_to(load32(g_verts + 132));
+    check(f64_lt(f64_abs(px - 11.6773), 0.001), "rot s1 c0 x");
+    check(f64_lt(f64_abs(py + 1.5173), 0.001), "rot s1 c0 y");
+    syscall(1, 1, "checks OK\n", 10);
+
+    var hdr = "P7 (a) copy 131072 B, (b) 1000-sprite vertex generation\n";
+    syscall(1, 1, hdr, strlen(hdr));
+    row("memcpy_128k_bytes", &op_memcpy, 2, 200);
+    row("memcpy_128k_words", &op_memcpy_words, 10, 200);
+    row("memset_128k_bytes", &op_memset, 2, 200);
+    row("batch_to_vertices_into_1000", &op_batch_into_1000, 10, 300);
+    row("batch_to_vertices_arena_1000", &op_batch_arena_1000, 10, 300);
+    row("batch_to_vertices_rotated_100", &op_batch_rot_100, 50, 300);
+    row("batch_to_vertices_rotated_1000", &op_batch_rot_1000, 5, 300);
+    row("batch_into_1000_then_memcpy_128000", &op_batch_then_memcpy, 2, 200);
+    return 0;
+}
+
+var rc = main();
+syscall(60, rc);

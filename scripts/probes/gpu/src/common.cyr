@@ -1,0 +1,93 @@
+# common.cyr — shared includes and output helpers for the P6/P7 GPU probes.
+#
+# The include list is mabda's examples/stdlib-consumer/src/main.cyr list (4.2.0):
+# mmap, sakshi and dynlib before mabda; thread_local because the C launcher calls
+# thread_local_use_foreign_tls(). lib/ is resolved by `cyrius deps` from cyrius.cyml.
+
+include "lib/string.cyr"
+include "lib/fmt.cyr"
+include "lib/alloc.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/io.cyr"
+include "lib/args.cyr"
+include "lib/hashmap.cyr"
+include "lib/syscalls.cyr"
+include "lib/chrono.cyr"
+include "lib/tagged.cyr"
+include "lib/fnptr.cyr"
+include "lib/mmap.cyr"
+include "lib/sakshi.cyr"
+include "lib/dynlib.cyr"
+include "lib/thread_local.cyr"
+include "lib/mabda.cyr"
+
+# One write(2) per call, so a line is out before a wgpu panic aborts the process.
+fn out(s): i64 { syscall(1, 1, s, strlen(s)); return 0; }
+fn outn(n): i64 {
+    var b[32];
+    memset(&b, 0, 32);
+    fmt_int_buf(n, &b);
+    syscall(1, 1, &b, strlen(&b));
+    return 0;
+}
+fn outhex(n): i64 {
+    var b[32];
+    memset(&b, 0, 32);
+    fmt_hex_buf(n, &b);
+    out("0x");
+    syscall(1, 1, &b, strlen(&b));
+    return 0;
+}
+fn nl(): i64 { syscall(1, 1, "\n", 1); return 0; }
+
+# argv from /proc/self/cmdline: the C launcher's main(void) does not pass argv on.
+var _argv_buf = 0;
+var _argv_len = 0;
+fn arg(i): i64 {
+    if (_argv_buf == 0) {
+        var lenv[8];
+        store64(&lenv, 0);
+        _argv_buf = file_read_whole("/proc/self/cmdline", &lenv);
+        _argv_len = load64(&lenv);
+        if (_argv_buf == 0) { return 0; }
+    }
+    var p = 0;
+    var k = 0;
+    while (p < _argv_len) {
+        if (k == i) { return _argv_buf + p; }
+        p = p + strlen(_argv_buf + p) + 1;
+        k = k + 1;
+    }
+    return 0;
+}
+
+fn eq(a, b): i64 {
+    if (a == 0) { return 0; }
+    if (b == 0) { return 0; }
+    return streq(a, b);
+}
+
+# Adapter identity, for the record only. wgpu_adapter_get_info is @internal
+# (wgpu_ffi.cyr): it is used here to print the PCI ids, never in a probe step.
+fn print_adapter(ctx): i64 {
+    var adapter = gpu_ctx_adapter(ctx);
+    var info[96];
+    memset(&info, 0, WGPU_ADAPTER_INFO_SIZE);
+    wgpu_adapter_get_info(adapter, &info);
+    var vo = WGPU_ADAPTER_INFO_VENDOR_ID_OFFSET;
+    out("adapter vendor_id=");
+    outhex(load32(&info + vo));
+    out(" device_id=");
+    outhex(load32(&info + vo + 4));
+    # WGPUAdapterInfo.device is the StringView at +40 (data, length).
+    var dp = load64(&info + 40);
+    var dl = load64(&info + 48);
+    if (dp != 0) {
+        if (dl > 0) {
+            if (dl < 200) { out(" name="); syscall(1, 1, dp, dl); }
+        }
+    }
+    nl();
+    return 0;
+}

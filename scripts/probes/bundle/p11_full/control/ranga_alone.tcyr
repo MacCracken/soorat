@@ -1,0 +1,28 @@
+# P11 control (soorat port plan §4 step 1): ranga 2.4.0 with the stdlib only, no hisab. The same
+# p11_ranga_srgb check as tests/p11_full.tcyr; here it must pass.
+#   cyrius test --no-deps --bounds control/ranga_alone.tcyr      (from p11_full/)
+include "lib/syscalls.cyr"
+include "lib/string.cyr"
+include "lib/alloc.cyr"
+include "lib/str.cyr"
+include "lib/fmt.cyr"
+include "lib/vec.cyr"
+include "lib/io.cyr"
+include "lib/math.cyr"
+include "lib/ganita.cyr"
+include "lib/tagged.cyr"
+include "lib/result.cyr"
+include "lib/slice.cyr"
+include "lib/fnptr.cyr"
+include "lib/freelist.cyr"
+include "lib/simd.cyr"
+include "lib/bayan.cyr"
+include "lib/sakshi.cyr"
+include "lib/ranga.cyr"
+include "lib/assert.cyr"
+include "src/p11_ranga_srgb.cyr"
+
+alloc_init();
+test_group("control: ranga alone");
+assert_eq(p11_ranga_srgb(), 1, "ranga srgba_to_lin_rgba keeps ranga's answer");
+var r = assert_summary();

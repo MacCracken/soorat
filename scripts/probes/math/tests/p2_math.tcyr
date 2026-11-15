@@ -1,0 +1,241 @@
+# p2_math.tcyr — P2 (soorat-port-plan §4 step 1): soorat 1.2.0's math_util ported to
+# Cyrius f32, bit for bit (D4 rule a: Rust's f32 sequence), printing the same lines as
+# scripts/probes/rust/src/bin/p2_math.rs. p2_compare.py diffs the two outputs.
+#
+# Traps this probe exercises (each is a rule for the real port):
+# - An operator takes its type from its LEFT operand, so every f32 operation goes through
+#   a helper with `: f32` parameters (as ranga's composite.cyr).
+# - `fn f(): f32` is refused: functions return the f32 bits in an i64, and arrays go out
+#   through a caller buffer.
+# - f32 literals: Rust's `1e-10f32`, `f32::EPSILON` and `0.99f32` are written as their
+#   bits from rustc (a decimal through f32_from rounds twice).
+# - Negation flips the sign bit (Rust's `-x`); `0 - x` would be an integer subtract.
+
+fn fa(a: f32, b: f32) { return a + b; }
+fn fs(a: f32, b: f32) { return a - b; }
+fn fm(a: f32, b: f32) { return a * b; }
+fn fd(a: f32, b: f32) { return a / b; }
+fn flt(a: f32, b: f32) { if (a < b) { return 1; } return 0; }
+fn fneg(x) { return (x & 0xFFFFFFFF) ^ 0x80000000; }
+fn fabs(x) { return x & 0x7FFFFFFF; }
+# sqrt through f64 is the correctly rounded f32 sqrt (f64 has more than 2·24 + 2 bits).
+fn fsqrt(x) { return f32_from(f64_sqrt(f32_to(x))); }
+
+# Bits of Rust's f32 constants (from rustc).
+var F0 = 0;
+var F1 = 0x3F800000;
+var F2 = 0x40000000;
+var FM1 = 0xBF800000;
+var F64C = 0x42800000;       # 64.0
+var E10 = 0x2EDBE6FF;        # 1e-10f32
+var EPS = 0x34000000;        # f32::EPSILON
+var F099 = 0x3F7D70A4;       # 0.99f32
+
+# ── math_util, ported ──────────────────────────────────────────────────────
+
+fn mul_mat4(a, b, r) {
+    var col = 0;
+    while (col < 4) {
+        var row = 0;
+        while (row < 4) {
+            var sum = F0;
+            var k = 0;
+            while (k < 4) {
+                sum = fa(sum, fm(load32(a + (k * 4 + row) * 4), load32(b + (col * 4 + k) * 4)));
+                k = k + 1;
+            }
+            store32(r + (col * 4 + row) * 4, sum);
+            row = row + 1;
+        }
+        col = col + 1;
+    }
+    return r;
+}
+
+fn normalize3(v, out) {
+    var x = load32(v);
+    var y = load32(v + 4);
+    var z = load32(v + 8);
+    var len = fsqrt(fa(fa(fm(x, x), fm(y, y)), fm(z, z)));
+    if (flt(len, E10) == 1) {
+        store32(out, F0); store32(out + 4, F0); store32(out + 8, F1);
+        return out;
+    }
+    store32(out, fd(x, len)); store32(out + 4, fd(y, len)); store32(out + 8, fd(z, len));
+    return out;
+}
+
+fn cross(a, b, out) {
+    var a0 = load32(a); var a1 = load32(a + 4); var a2 = load32(a + 8);
+    var b0 = load32(b); var b1 = load32(b + 4); var b2 = load32(b + 8);
+    store32(out, fs(fm(a1, b2), fm(a2, b1)));
+    store32(out + 4, fs(fm(a2, b0), fm(a0, b2)));
+    store32(out + 8, fs(fm(a0, b1), fm(a1, b0)));
+    return out;
+}
+
+fn set16(r, v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15) {
+    store32(r, v0); store32(r + 4, v1); store32(r + 8, v2); store32(r + 12, v3);
+    store32(r + 16, v4); store32(r + 20, v5); store32(r + 24, v6); store32(r + 28, v7);
+    store32(r + 32, v8); store32(r + 36, v9); store32(r + 40, v10); store32(r + 44, v11);
+    store32(r + 48, v12); store32(r + 52, v13); store32(r + 56, v14); store32(r + 60, v15);
+    return r;
+}
+
+fn perspective_90(near, far, r) {
+    if (flt(fabs(fs(near, far)), E10) == 1) {
+        return set16(r, F1, F0, F0, F0, F0, F1, F0, F0, F0, F0, F1, F0, F0, F0, F0, F1);
+    }
+    var nf = fd(F1, fs(near, far));
+    return set16(r, F1, F0, F0, F0, F0, F1, F0, F0, F0, F0, fm(far, nf), FM1,
+                 F0, F0, fm(fm(near, far), nf), F0);
+}
+
+fn dot3(a, b) {
+    return fa(fa(fm(load32(a), load32(b)), fm(load32(a + 4), load32(b + 4))),
+              fm(load32(a + 8), load32(b + 8)));
+}
+
+fn look_at(pos, dir, up, r) {
+    var f = alloc(12); var s = alloc(12); var u = alloc(12); var t = alloc(12);
+    normalize3(dir, f);
+    normalize3(cross(f, up, t), s);
+    cross(s, f, u);
+    return set16(r,
+        load32(s), load32(u), fneg(load32(f)), F0,
+        load32(s + 4), load32(u + 4), fneg(load32(f + 4)), F0,
+        load32(s + 8), load32(u + 8), fneg(load32(f + 8)), F0,
+        fneg(dot3(s, pos)), fneg(dot3(u, pos)), dot3(f, pos), F1);
+}
+
+fn compose_trs(t, q, s, r) {
+    var x = load32(q); var y = load32(q + 4); var z = load32(q + 8); var w = load32(q + 12);
+    var r00 = fs(F1, fm(F2, fa(fm(y, y), fm(z, z))));
+    var r01 = fm(F2, fa(fm(x, y), fm(w, z)));
+    var r02 = fm(F2, fs(fm(x, z), fm(w, y)));
+    var r10 = fm(F2, fs(fm(x, y), fm(w, z)));
+    var r11 = fs(F1, fm(F2, fa(fm(x, x), fm(z, z))));
+    var r12 = fm(F2, fa(fm(y, z), fm(w, x)));
+    var r20 = fm(F2, fa(fm(x, z), fm(w, y)));
+    var r21 = fm(F2, fs(fm(y, z), fm(w, x)));
+    var r22 = fs(F1, fm(F2, fa(fm(x, x), fm(y, y))));
+    var s0 = load32(s); var s1 = load32(s + 4); var s2 = load32(s + 8);
+    return set16(r,
+        fm(s0, r00), fm(s0, r01), fm(s0, r02), F0,
+        fm(s1, r10), fm(s1, r11), fm(s1, r12), F0,
+        fm(s2, r20), fm(s2, r21), fm(s2, r22), F0,
+        load32(t), load32(t + 4), load32(t + 8), F1);
+}
+
+fn normal_to_basis(n, out) {
+    var n0 = load32(n); var n1 = load32(n + 4); var n2 = load32(n + 8);
+    var f0 = F1; var f1 = F0; var f2 = F0;            # [1, 0, 0]
+    if (flt(fabs(n1), F099) == 1) { f0 = F0; f1 = F1; } # [0, 1, 0]
+    var rx = fs(fm(n1, f2), fm(n2, f1));
+    var ry = fs(fm(n2, f0), fm(n0, f2));
+    var rz = fs(fm(n0, f1), fm(n1, f0));
+    var rlen = ganita_f32_max(fsqrt(fa(fa(fm(rx, rx), fm(ry, ry)), fm(rz, rz))), EPS);
+    var r0 = fd(rx, rlen); var r1 = fd(ry, rlen); var r2 = fd(rz, rlen);
+    var ux = fs(fm(r1, n2), fm(r2, n1));
+    var uy = fs(fm(r2, n0), fm(r0, n2));
+    var uz = fs(fm(r0, n1), fm(r1, n0));
+    var ulen = ganita_f32_max(fsqrt(fa(fa(fm(ux, ux), fm(uy, uy)), fm(uz, uz))), EPS);
+    store32(out, r0); store32(out + 4, r1); store32(out + 8, r2);
+    store32(out + 12, fd(ux, ulen)); store32(out + 16, fd(uy, ulen)); store32(out + 20, fd(uz, ulen));
+    return out;
+}
+
+# ── The input generator (identical to the Rust side) ──────────────────────
+
+var RNG = 0x9E3779B97F4A7C15;
+fn rng_next() {
+    var x = RNG;
+    x = x ^ (x << 13);
+    x = x ^ (x >> 7);
+    x = x ^ (x << 17);
+    RNG = x;
+    return x;
+}
+# A float in about ±8 with 20 fractional bits (exact in f32 and f64).
+fn rf() {
+    var k = (rng_next() >> 40) - (1 << 23);
+    return f32_from(f64_div(f64_from(k), 1048576.0));
+}
+fn rpos() {
+    var k = (rng_next() >> 40) | 1;
+    return f32_from(f64_div(f64_from(k), 1048576.0));
+}
+fn fill(buf, n) {
+    var i = 0;
+    while (i < n) { store32(buf + i * 4, rf()); i = i + 1; }
+    return buf;
+}
+fn set3(buf, a, b, c) { store32(buf, a); store32(buf + 4, b); store32(buf + 8, c); return buf; }
+
+# ── Output ─────────────────────────────────────────────────────────────────
+
+fn ps(s) { print(s, strlen(s)); return 0; }
+fn line(name, i, buf, n) {
+    ps(name); ps(" "); print_num(i);
+    var k = 0;
+    while (k < n) { ps(" "); print_num(load32(buf + k * 4) & 0xFFFFFFFF); k = k + 1; }
+    ps("\n");
+    return 0;
+}
+
+fn edge3(i, buf) {
+    if (i == 0) { return set3(buf, F0, F0, F0); }
+    if (i == 1) { return set3(buf, 0x2B8CBCCC, F0, F0); }                 # 1e-12
+    if (i == 2) { return set3(buf, 0x7149F2CA, 0x7149F2CA, 0x7149F2CA); } # 1e30
+    if (i == 3) { return set3(buf, F0, F1, F0); }
+    if (i == 4) { return set3(buf, F0, FM1, F0); }
+    return set3(buf, 0x7FC00000, F1, F2);                                  # NaN, 1, 2
+}
+
+fn run() {
+    var N = 200;
+    var a = alloc(64); var b = alloc(64); var r = alloc(64);
+    var p = alloc(12); var d = alloc(12); var u = alloc(12); var q = alloc(16);
+    var i = 0;
+    while (i < N) { fill(a, 16); fill(b, 16); line("mul_mat4", i, mul_mat4(a, b, r), 16); i = i + 1; }
+    i = 0;
+    while (i < N + 6) {
+        if (i < N) { fill(p, 3); } else { edge3(i - N, p); }
+        line("normalize3", i, normalize3(p, r), 3);
+        i = i + 1;
+    }
+    i = 0;
+    while (i < N) { fill(p, 3); fill(d, 3); line("cross", i, cross(p, d, r), 3); i = i + 1; }
+    i = 0;
+    while (i < N + 1) {
+        var near = F1; var far = F1;
+        if (i < N) { near = rpos(); far = fa(near, fm(rpos(), F64C)); }
+        line("perspective_90", i, perspective_90(near, far, r), 16);
+        i = i + 1;
+    }
+    i = 0;
+    while (i < N + 3) {
+        if (i < N) { fill(p, 3); fill(d, 3); fill(u, 3); }
+        if (i == N) { set3(p, F1, F2, 0x40400000); set3(d, F0, F1, F0); set3(u, F0, F1, F0); }
+        if (i == N + 1) { set3(p, F1, F2, 0x40400000); set3(d, F0, F0, F0); set3(u, F0, F1, F0); }
+        if (i == N + 2) { set3(p, F0, F0, F0); set3(d, F0, F0, FM1); set3(u, F0, F1, F0); }
+        line("look_at", i, look_at(p, d, u, r), 16);
+        i = i + 1;
+    }
+    i = 0;
+    while (i < N) {
+        fill(p, 3); fill(q, 4); fill(d, 3);
+        line("compose_trs", i, compose_trs(p, q, d, r), 16);
+        i = i + 1;
+    }
+    i = 0;
+    while (i < N + 6) {
+        if (i < N) { fill(d, 3); normalize3(d, p); } else { edge3(i - N, p); }
+        line("normal_to_basis", i, normal_to_basis(p, r), 6);
+        i = i + 1;
+    }
+    return 0;
+}
+
+alloc_init();
+run();

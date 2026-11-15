@@ -1,0 +1,214 @@
+# p8_gpu_frame.cyr — P8 companion: a render-loop soak with mabda's public per-frame calls in
+# the loop, to see whether RSS stays flat once the frame's own data is in an arena.
+#
+# Part 1: Cyrius heap bytes (alloc_used delta) taken by ONE call of each per-frame public call:
+#   gpu_buffer_write, gpu_render_pass_begin, gpu_render_pass_draw (untextured),
+#   gpu_render_pass_bind_texture + gpu_render_pass_draw (textured), gpu_render_pass_end,
+#   gpu_device_wait_idle. The draws use a trivial full-screen WGSL (not soorat's: the
+#   public tier cannot draw soorat's shaders, see P6), with a 64x64 sampled texture.
+# Part 2: argv[1] frames (default 100000) of: sprite + line batches in a frame arena,
+#   gpu_buffer_write x3 (vertices, indices, lines), pass begin, textured draw, pass end,
+#   wait_idle. RSS from /proc/self/statm and alloc_used at frames 1, 10, ..., 100,000.
+#
+# Build/run: sh build.sh p8_gpu_frame && ./build/p8_gpu_frame 100000 [variant]  (run_p8_gpu.sh)
+
+include "src/common.cyr"
+include "lib/math.cyr"
+include "src/batch.cyr"
+
+fn parse_int(s): i64 {
+    var n = 0;
+    var i = 0;
+    while (load8(s + i) >= 48) {
+        if (load8(s + i) > 57) { break; }
+        n = n * 10 + load8(s + i) - 48;
+        i = i + 1;
+    }
+    return n;
+}
+
+fn rss_bytes(): i64 {
+    var buf[128];
+    memset(&buf, 0, 128);
+    var fd = syscall(2, "/proc/self/statm", 0, 0);
+    if (fd < 0) { return 0 - 1; }
+    var n = syscall(0, fd, &buf, 127);
+    syscall(3, fd);
+    if (n <= 0) { return 0 - 1; }
+    var i = 0;
+    while (load8(&buf + i) != 32) { i = i + 1; }
+    return parse_int(&buf + i + 1) * 4096;
+}
+
+fn checkpoint(f): i64 {
+    if (f == 1) { return 1; }
+    if (f == 10) { return 1; }
+    if (f == 100) { return 1; }
+    if (f == 1000) { return 1; }
+    if (f == 10000) { return 1; }
+    if (f == 20000) { return 1; }
+    if (f == 100000) { return 1; }
+    return 0;
+}
+
+fn tri_wgsl(): i64 {
+    var sb = str_builder_new();
+    str_builder_add_cstr(sb, "@group(0) @binding(0) var t: texture_2d<f32>; ");
+    str_builder_add_cstr(sb, "@group(0) @binding(1) var s: sampler; ");
+    str_builder_add_cstr(sb, "@vertex fn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> { ");
+    str_builder_add_cstr(sb, "let x = f32(i32(i) / 2) * 4.0 - 1.0; let y = f32(i32(i) % 2) * 4.0 - 1.0; ");
+    str_builder_add_cstr(sb, "return vec4<f32>(x, y, 0.0, 1.0); } ");
+    str_builder_add_cstr(sb, "@fragment fn fs_main(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> { ");
+    str_builder_add_cstr(sb, "return textureSample(t, s, p.xy / 64.0); }");
+    return str_cstr(str_builder_build(sb));
+}
+
+fn plain_wgsl(): i64 {
+    var sb = str_builder_new();
+    str_builder_add_cstr(sb, "@vertex fn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> { ");
+    str_builder_add_cstr(sb, "let x = f32(i32(i) / 2) * 4.0 - 1.0; let y = f32(i32(i) % 2) * 4.0 - 1.0; ");
+    str_builder_add_cstr(sb, "return vec4<f32>(x, y, 0.0, 1.0); } ");
+    str_builder_add_cstr(sb, "@fragment fn fs_main() -> @location(0) vec4<f32> { return vec4<f32>(1.0, 0.0, 0.0, 1.0); }");
+    return str_cstr(str_builder_build(sb));
+}
+
+fn delta(name, before): i64 {
+    out("  ");
+    out(name);
+    out(": ");
+    outn(alloc_used() - before);
+    out(" B");
+    nl();
+    return 0;
+}
+
+fn mabda_main(fn_table_ptr, preinit_ptr): i64 {
+    color_init();
+    wgpu_ffi_init_table(fn_table_ptr);
+    var res_tag, res = gpu_context_from_preinit(preinit_ptr);
+    if (is_err_result(res_tag) == 1) { out("SKIP: no GPU"); nl(); return 0; }
+    var ctx = res;
+    print_adapter(ctx);
+    var frames = 100000;
+    if (arg(1) != 0) { frames = parse_int(arg(1)); }
+    # argv[2] variant: full (default) | plain (untextured draw) | nodraw (pass begin/end only)
+    #                  | nowrite (no gpu_buffer_write) | writeonly (writes + wait, no pass)
+    #                  | pollonly (wait_idle only) | cpuonly (arena batches only)
+    var variant = arg(2);
+    if (variant == 0) { variant = "full"; }
+    var do_write = 1;
+    var do_pass = 1;
+    var do_draw = 1;
+    var do_tex = 1;
+    if (eq(variant, "plain") == 1)     { do_tex = 0; }
+    if (eq(variant, "nodraw") == 1)    { do_draw = 0; do_tex = 0; }
+    if (eq(variant, "nowrite") == 1)   { do_write = 0; }
+    if (eq(variant, "writeonly") == 1) { do_pass = 0; do_draw = 0; do_tex = 0; }
+    var do_wait = 1;
+    if (eq(variant, "pollonly") == 1)  { do_write = 0; do_pass = 0; do_draw = 0; do_tex = 0; }
+    if (eq(variant, "cpuonly") == 1)   { do_write = 0; do_pass = 0; do_draw = 0; do_tex = 0; do_wait = 0; }
+
+    var tw = tri_wgsl();
+    var mt = gpu_shader_module_create(ctx, tw, strlen(tw));
+    var pw = plain_wgsl();
+    var mp = gpu_shader_module_create(ctx, pw, strlen(pw));
+    var pipe_tex = gpu_render_pipeline_create(ctx, mt, mt, 0);
+    var pipe_plain = gpu_render_pipeline_create(ctx, mp, mp, 0);
+    var rt = gpu_render_target_create_2d_rgba8(ctx, 64, 64);
+    var tex = gpu_texture_create_2d_sampleable(ctx, 64, 64, MABDA_TEXFMT_RGBA8);
+    var samp = gpu_sampler_create(ctx, NATIVE_SAMP_FILTER_BILINEAR, NATIVE_SAMP_ADDR_CLAMP);
+    var clear = color_new(F64_0, F64_0, F64_0, F64_1);
+    var vb = gpu_buffer_create(ctx, 131072, WGPU_BUFFER_USAGE_VERTEX);
+    var ib = gpu_buffer_create(ctx, 12288, WGPU_BUFFER_USAGE_INDEX);
+    var lbuf = gpu_buffer_create(ctx, 28672, WGPU_BUFFER_USAGE_VERTEX);
+    if (pipe_tex == 0) { out("pipeline FAILED"); nl(); return 1; }
+    if (tex == 0) { out("texture FAILED"); nl(); return 1; }
+    var arena = arena_new(262144);
+    arena_set_on_full(arena, ARENA_FULL_ABORT);
+    var sp = arena_alloc(arena, 64000);
+    var vtx = arena_alloc(arena, 128000);
+    var idx = arena_alloc(arena, 12000);
+    var lns = arena_alloc(arena, 28000);
+    sprites_fill(sp, 1000, 0.0);
+    sr_batch_to_vertices_into(sp, 1000, vtx, idx);
+    sr_line_batch_fill(lns, 500);
+    arena_reset(arena);
+
+    # Part 1: Cyrius heap per call (warm: one full frame first).
+    var p = gpu_render_pass_begin(ctx, rt, clear);
+    gpu_render_pass_draw(ctx, p, pipe_plain, 3, 1);
+    gpu_render_pass_end(ctx, p);
+    gpu_device_wait_idle(ctx);
+    out("P8-GPU part 1: Cyrius heap (alloc_used delta) per public call");
+    nl();
+    var a = alloc_used();
+    gpu_buffer_write(ctx, vb, 0, vtx, 128000);
+    delta("gpu_buffer_write(128000)", a);
+    a = alloc_used();
+    p = gpu_render_pass_begin(ctx, rt, clear);
+    delta("gpu_render_pass_begin", a);
+    a = alloc_used();
+    gpu_render_pass_draw(ctx, p, pipe_plain, 3, 1);
+    delta("gpu_render_pass_draw (untextured)", a);
+    a = alloc_used();
+    gpu_render_pass_bind_texture(ctx, p, tex, samp);
+    delta("gpu_render_pass_bind_texture", a);
+    a = alloc_used();
+    gpu_render_pass_draw(ctx, p, pipe_tex, 3, 1);
+    delta("gpu_render_pass_draw (textured)", a);
+    a = alloc_used();
+    gpu_render_pass_end(ctx, p);
+    delta("gpu_render_pass_end", a);
+    a = alloc_used();
+    gpu_device_wait_idle(ctx);
+    delta("gpu_device_wait_idle", a);
+
+    # Part 2: the soak.
+    out("P8-GPU part 2: ");
+    outn(frames);
+    out(" frames: arena batches + 3 gpu_buffer_write + pass + textured draw + end + wait_idle; variant=");
+    out(variant);
+    nl();
+    var heap0 = alloc_used();
+    var t0 = clock_now_ns();
+    for (var f = 1; f <= frames; f = f + 1) {
+        var s1 = arena_alloc(arena, 64000);
+        var v1 = arena_alloc(arena, 128000);
+        var i1 = arena_alloc(arena, 12000);
+        var l1 = arena_alloc(arena, 28000);
+        sprites_fill(s1, 1000, 0.0);
+        sr_batch_to_vertices_into(s1, 1000, v1, i1);
+        sr_line_batch_fill(l1, 500);
+        if (do_write == 1) {
+            gpu_buffer_write(ctx, vb, 0, v1, 128000);
+            gpu_buffer_write(ctx, ib, 0, i1, 12000);
+            gpu_buffer_write(ctx, lbuf, 0, l1, 28000);
+        }
+        if (do_pass == 1) {
+            var pf = gpu_render_pass_begin(ctx, rt, clear);
+            if (do_tex == 1) {
+                gpu_render_pass_bind_texture(ctx, pf, tex, samp);
+                gpu_render_pass_draw(ctx, pf, pipe_tex, 3, 1);
+            } else {
+                if (do_draw == 1) { gpu_render_pass_draw(ctx, pf, pipe_plain, 3, 1); }
+            }
+            gpu_render_pass_end(ctx, pf);
+        }
+        if (do_wait == 1) { gpu_device_wait_idle(ctx); }
+        arena_reset(arena);
+        if (checkpoint(f) == 1) {
+            out("  frame ");
+            outn(f);
+            out(": rss=");
+            outn(rss_bytes());
+            out(" B  alloc_used=");
+            outn(alloc_used());
+            out(" B  heap growth/frame=");
+            outn((alloc_used() - heap0) / f);
+            out(" B  elapsed_ms=");
+            outn((clock_now_ns() - t0) / 1000000);
+            nl();
+        }
+    }
+    return 0;
+}

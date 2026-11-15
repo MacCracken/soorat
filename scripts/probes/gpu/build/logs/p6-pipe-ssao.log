@@ -1,0 +1,7 @@
+P6 case: pipe ssao
+mabda: DEPRECATION - AMD-on-wgpu is deprecated (v4.0.1); use BACKEND_KIND_AMD native.
+  The AMD wgpu route retires in a future release; build -D MABDA_AMD_WGPU_STRICT to enforce now.
+context OK backend_kind=1
+adapter vendor_id=0x1002 device_id=0x1638 name=AMD Radeon Graphics (RADV RENOIR)
+  ssao.wgsl bytes=3422 ... module OK handle=0x55685f6bb400 create_us=514
+  gpu_render_pipeline_create(ctx, m, m, 0) [vs_main/fs_main, no vertex buffers, auto layout] ... pipeline OK

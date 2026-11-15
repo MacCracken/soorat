@@ -1,0 +1,247 @@
+# p6_wgsl.cyr — soorat M0 probe P6: soorat's nine WGSL shaders through mabda 4.2.0's
+# public gpu_* tier on the wgpu backend (wgpu-native v29.0.1.1, Vulkan, RADV).
+#
+# One case per process, chosen by argv (read from /proc/self/cmdline):
+#   modules            create all nine shader modules in one process
+#   module <name>      create one shader module
+#   pipe <name>        module + gpu_render_pipeline_create(ctx, m, m, 0)  (the public v3 call)
+#   rpb <name>         module + rpb_new/rpb_vertex_layout(vertex2d_attributes())/rpb_build
+#                      (the legacy public builder; a vertex layout is given, to see if it is used)
+#   draw <name>        pipe + gpu_render_target + pass + gpu_render_pass_draw(3, 1) + end
+#   draw_bound <name>  draw, after gpu_render_pass_bind_texture(tex, sampler) (the one public bind)
+#   compute            gpu_compute_dispatch(ctx, gpu_particles module, 1, 1, 1, 0)
+#   compute_v2         compute_pipeline_new(device, gpu_particles.wgsl, "cs_update", 2)
+#   bad                negative control: an invalid WGSL module
+#
+# wgpu-native panics on an uncaptured validation error ("Handling wgpu uncaptured
+# errors as fatal by default") and the launcher installs no error callback, so a
+# failing step ends the process; run_p6.sh runs each case in its own process and
+# keeps its stderr. Every step below is a public call, except print_adapter
+# (diagnostic PCI ids; see common.cyr).
+#
+# Build/run: see build.sh and run_p6.sh in this directory.
+
+include "src/common.cyr"
+
+var SHADER_DIR = "../../../src/";
+var SHADER_NAMES = 0;
+var N_SHADERS = 9;
+
+fn shader_names_init(): i64 {
+    SHADER_NAMES = alloc(N_SHADERS * 8);
+    store64(SHADER_NAMES + 0,  "sprite");
+    store64(SHADER_NAMES + 8,  "line");
+    store64(SHADER_NAMES + 16, "pbr");
+    store64(SHADER_NAMES + 24, "pbr_skinned");
+    store64(SHADER_NAMES + 32, "shadow");
+    store64(SHADER_NAMES + 40, "ssao");
+    store64(SHADER_NAMES + 48, "bloom");
+    store64(SHADER_NAMES + 56, "postprocess");
+    store64(SHADER_NAMES + 64, "gpu_particles");
+    return 0;
+}
+
+# Read ../../../src/<name>.wgsl; returns the buffer, byte count through len_out.
+fn load_wgsl(name, len_out): i64 {
+    var path[256];
+    memset(&path, 0, 256);
+    var dl = strlen(SHADER_DIR);
+    var nlen = strlen(name);
+    memcpy(&path, SHADER_DIR, dl);
+    memcpy(&path + dl, name, nlen);
+    memcpy(&path + dl + nlen, ".wgsl", 5);
+    var buf = file_read_whole(&path, len_out);
+    return buf;
+}
+
+# Create one module; prints a result line. Returns the module (0 on failure).
+fn make_module(ctx, name): i64 {
+    var lenv[8];
+    store64(&lenv, 0);
+    var src = load_wgsl(name, &lenv);
+    var n = load64(&lenv);
+    out("  ");
+    out(name);
+    out(".wgsl bytes=");
+    outn(n);
+    if (src == 0) { out(" READ-FAILED"); nl(); return 0; }
+    out(" ... ");
+    var t0 = clock_now_ns();
+    var m = gpu_shader_module_create(ctx, src, n);
+    var t1 = clock_now_ns();
+    if (m == 0) {
+        out("module=0 (FAILED) last_shader_error=");
+        outn(gpu_last_shader_error());
+        nl();
+        return 0;
+    }
+    out("module OK handle=");
+    outhex(m);
+    out(" create_us=");
+    outn((t1 - t0) / 1000);
+    nl();
+    return m;
+}
+
+fn ctx_up(preinit_ptr): i64 {
+    var res_tag, res = gpu_context_from_preinit(preinit_ptr);
+    if (is_err_result(res_tag) == 1) {
+        out("SKIP: gpu_context_from_preinit failed, err=");
+        outn(res);
+        nl();
+        return 0;
+    }
+    out("context OK backend_kind=");
+    outn(backend_kind(gpu_ctx_backend(res)));
+    nl();
+    print_adapter(res);
+    return res;
+}
+
+fn case_modules(ctx): i64 {
+    var ok = 0;
+    for (var i = 0; i < N_SHADERS; i = i + 1) {
+        if (make_module(ctx, load64(SHADER_NAMES + i * 8)) != 0) { ok = ok + 1; }
+    }
+    out("modules created: ");
+    outn(ok);
+    out(" of ");
+    outn(N_SHADERS);
+    nl();
+    return 0;
+}
+
+fn case_pipe(ctx, name): i64 {
+    var m = make_module(ctx, name);
+    if (m == 0) { return 1; }
+    out("  gpu_render_pipeline_create(ctx, m, m, 0) [vs_main/fs_main, no vertex buffers, auto layout] ... ");
+    var p = gpu_render_pipeline_create(ctx, m, m, 0);
+    if (p == 0) { out("pipe=0 (FAILED)"); nl(); return 1; }
+    out("pipeline OK");
+    nl();
+    return 0;
+}
+
+fn case_rpb(ctx, name): i64 {
+    var m = make_module(ctx, name);
+    if (m == 0) { return 1; }
+    var b = rpb_new(gpu_ctx_device(ctx), m, "vs_main");
+    # Colour target left at rpb_new's default (BGRA8UnormSrgb): a public caller has no
+    # public name for a WGPUTextureFormat value to pass to rpb_color_target.
+    rpb_fragment_entry(b, "fs_main");
+    rpb_vertex_layout(b, vertex2d_attributes());
+    rpb_cull_mode(b, WGPU_CULL_MODE_BACK);
+    rpb_depth(b, 0);
+    out("  rpb_new + rpb_vertex_layout(vertex2d_attributes()) + rpb_cull_mode + rpb_build ... ");
+    var p = rpb_build(b);
+    if (p == 0) { out("rpb_build=0 (FAILED)"); nl(); return 1; }
+    out("pipeline OK");
+    nl();
+    return 0;
+}
+
+fn case_draw(ctx, name): i64 { return draw_impl(ctx, name, 0); }
+fn case_draw_bound(ctx, name): i64 { return draw_impl(ctx, name, 1); }
+
+# bind = 1: also call gpu_render_pass_bind_texture (the one public bind call: it builds
+# group 0 from the pipeline's auto layout as texture@0 + sampler@1).
+fn draw_impl(ctx, name, bind): i64 {
+    var m = make_module(ctx, name);
+    if (m == 0) { return 1; }
+    var p = gpu_render_pipeline_create(ctx, m, m, 0);
+    if (p == 0) { out("  pipeline FAILED"); nl(); return 1; }
+    out("  pipeline OK");
+    nl();
+    var rt = gpu_render_target_create_2d_rgba8(ctx, 64, 64);
+    if (rt == 0) { out("  render target FAILED"); nl(); return 1; }
+    var clear = color_new(F64_0, F64_0, F64_0, F64_1);
+    var pass = gpu_render_pass_begin(ctx, rt, clear);
+    if (pass == 0) { out("  pass begin FAILED"); nl(); return 1; }
+    if (bind == 1) {
+        var tex = gpu_texture_create_2d_sampleable(ctx, 64, 64, MABDA_TEXFMT_RGBA8);
+        if (tex == 0) { out("  sampleable texture FAILED"); nl(); return 1; }
+        var samp = gpu_sampler_create(ctx, NATIVE_SAMP_FILTER_BILINEAR, NATIVE_SAMP_ADDR_CLAMP);
+        out("  gpu_render_pass_bind_texture(tex, sampler) rc=");
+        outn(gpu_render_pass_bind_texture(ctx, pass, tex, samp));
+        nl();
+    }
+    out("  gpu_render_pass_draw(3, 1) ... ");
+    var rc = gpu_render_pass_draw(ctx, pass, p, 3, 1);
+    out("rc=");
+    outn(rc);
+    nl();
+    out("  gpu_render_pass_end ... ");
+    gpu_render_pass_end(ctx, pass);
+    out("returned");
+    nl();
+    gpu_device_wait_idle(ctx);
+    out("  wait_idle returned");
+    nl();
+    return 0;
+}
+
+fn case_compute(ctx): i64 {
+    var m = make_module(ctx, "gpu_particles");
+    if (m == 0) { return 1; }
+    out("  gpu_compute_dispatch(ctx, m, 1, 1, 1, 0) ... rc=");
+    var rc = gpu_compute_dispatch(ctx, m, 1, 1, 1, 0);
+    outn(rc);
+    if (rc == GPU_ERR_OTHER) { out(" (GPU_ERR_OTHER)"); }
+    nl();
+    return 0;
+}
+
+fn case_compute_v2(ctx): i64 {
+    var lenv[8];
+    store64(&lenv, 0);
+    var src = load_wgsl("gpu_particles", &lenv);
+    if (src == 0) { out("read failed"); nl(); return 1; }
+    out("  compute_pipeline_new(device, gpu_particles.wgsl, \"cs_update\", 2)");
+    out(" [layout: binding 0 rw storage, binding 1 read-only storage] ... ");
+    var cp = compute_pipeline_new(gpu_ctx_device(ctx), src, "cs_update", 2);
+    if (cp == 0) { out("cp=0 (FAILED)"); nl(); return 1; }
+    out("compute pipeline OK");
+    nl();
+    return 0;
+}
+
+# Negative control: a WGSL type error, to show validation is live (a module created
+# without a panic was validated, not skipped).
+fn case_bad(ctx): i64 {
+    var src = "@vertex fn vs_main() -> @builtin(position) vec4<f32> { return 1u; }";
+    out("  negative control: vs_main returns u32 for vec4<f32> ... ");
+    var m = gpu_shader_module_create(ctx, src, strlen(src));
+    out("module=");
+    outhex(m);
+    out(" last_shader_error=");
+    outn(gpu_last_shader_error());
+    nl();
+    return 0;
+}
+
+fn mabda_main(fn_table_ptr, preinit_ptr): i64 {
+    color_init();
+    wgpu_ffi_init_table(fn_table_ptr);
+    shader_names_init();
+    var mode = arg(1);
+    if (mode == 0) { mode = "modules"; }
+    out("P6 case: ");
+    out(mode);
+    var a2 = arg(2);
+    if (a2 != 0) { out(" "); out(a2); }
+    nl();
+    var ctx = ctx_up(preinit_ptr);
+    if (ctx == 0) { return 0; }
+    if (eq(mode, "modules") == 1)    { return case_modules(ctx); }
+    if (eq(mode, "module") == 1)     { if (make_module(ctx, a2) == 0) { return 1; } return 0; }
+    if (eq(mode, "pipe") == 1)       { return case_pipe(ctx, a2); }
+    if (eq(mode, "rpb") == 1)        { return case_rpb(ctx, a2); }
+    if (eq(mode, "draw") == 1)       { return case_draw(ctx, a2); }
+    if (eq(mode, "draw_bound") == 1) { return case_draw_bound(ctx, a2); }
+    if (eq(mode, "compute") == 1)    { return case_compute(ctx); }
+    if (eq(mode, "compute_v2") == 1) { return case_compute_v2(ctx); }
+    if (eq(mode, "bad") == 1)        { return case_bad(ctx); }
+    out("unknown case");
+    nl();
+    return 2;
+}

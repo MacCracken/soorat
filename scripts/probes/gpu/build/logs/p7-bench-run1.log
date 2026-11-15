@@ -1,0 +1,22 @@
+note: 1321 unreachable fns (352838 bytes — set CYRIUS_DCE=1 to eliminate, CYRIUS_DCE_VERBOSE=1 to list)
+checks OK
+P7 (a) copy 131072 B, (b) 1000-sprite vertex generation
+  [timer floor 1.210us per clock read, measured; subtracted from every sample; tick 908ns]
+  memcpy_128k_bytes: 211.026us avg (min=200.888us max=228.265us) [400 iters]
+CSV:memcpy_128k_bytes,211026,200888
+  memcpy_128k_words: 27.766us avg (min=26.007us max=35.177us) [2000 iters]
+CSV:memcpy_128k_words,27766,26007
+  memset_128k_bytes: 185.152us avg (min=173.195us max=239.719us) [400 iters]
+CSV:memset_128k_bytes,185152,173195
+  batch_to_vertices_into_1000: 67.560us avg (min=65.495us max=75.112us) [3000 iters]
+CSV:batch_to_vertices_into_1000,67560,65495
+  batch_to_vertices_arena_1000: 67.987us avg (min=64.063us max=76.146us) [3000 iters]
+CSV:batch_to_vertices_arena_1000,67987,64063
+  batch_to_vertices_rotated_100: 14.853us avg (min=14.330us max=16.711us) [15000 iters]
+CSV:batch_to_vertices_rotated_100,14853,14330
+  batch_to_vertices_rotated_1000: 153.799us avg (min=146.271us max=179.976us) [1500 iters]
+CSV:batch_to_vertices_rotated_1000,153799,146271
+  batch_into_1000_then_memcpy_128000: 276.395us avg (min=261.649us max=288.957us) [400 iters]
+CSV:batch_into_1000_then_memcpy_128000,276395,261649
+
+=== 1 passed, 0 failed ===

@@ -1,0 +1,18 @@
+mabda: DEPRECATION - AMD-on-wgpu is deprecated (v4.0.1); use BACKEND_KIND_AMD native.
+  The AMD wgpu route retires in a future release; build -D MABDA_AMD_WGPU_STRICT to enforce now.
+adapter vendor_id=0x1002 device_id=0x1638 name=AMD Radeon Graphics (RADV RENOIR)
+P8-GPU part 1: Cyrius heap (alloc_used delta) per public call
+  gpu_buffer_write(128000): 0 B
+  gpu_render_pass_begin: 432 B
+  gpu_render_pass_draw (untextured): 0 B
+  gpu_render_pass_bind_texture: 0 B
+  gpu_render_pass_draw (textured): 224 B
+  gpu_render_pass_end: 0 B
+  gpu_device_wait_idle: 0 B
+P8-GPU part 2: 20000 frames: arena batches + 3 gpu_buffer_write + pass + textured draw + end + wait_idle; variant=nowrite
+  frame 1: rss=96227328 B  alloc_used=273232 B  heap growth/frame=656 B  elapsed_ms=0
+  frame 10: rss=96231424 B  alloc_used=279136 B  heap growth/frame=656 B  elapsed_ms=3
+  frame 100: rss=96284672 B  alloc_used=338176 B  heap growth/frame=656 B  elapsed_ms=29
+  frame 1000: rss=97124352 B  alloc_used=928576 B  heap growth/frame=656 B  elapsed_ms=324
+  frame 10000: rss=112345088 B  alloc_used=6832576 B  heap growth/frame=656 B  elapsed_ms=2571
+  frame 20000: rss=128557056 B  alloc_used=13392576 B  heap growth/frame=656 B  elapsed_ms=4511

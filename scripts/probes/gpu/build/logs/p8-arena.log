@@ -1,0 +1,15 @@
+P8 mode=arena frames=100000 bytes/frame=232000 (sprites 64000 + Vertex2D 128000 + u16 12000 + LineVertex 28000)
+  start: rss=192512 B  alloc_used=0 B
+  arena frame 1: rss=2289664 B  alloc_used=262216 B  elapsed_ms=0
+    arena_used before reset=232000
+  arena frame 10: rss=2289664 B  alloc_used=262216 B  elapsed_ms=1
+    arena_used before reset=232000
+  arena frame 100: rss=2289664 B  alloc_used=262216 B  elapsed_ms=9
+    arena_used before reset=232000
+  arena frame 1000: rss=2289664 B  alloc_used=262216 B  elapsed_ms=89
+    arena_used before reset=232000
+  arena frame 10000: rss=2289664 B  alloc_used=262216 B  elapsed_ms=888
+    arena_used before reset=232000
+  arena frame 100000: rss=2289664 B  alloc_used=262216 B  elapsed_ms=8883
+    arena_used before reset=232000
+  done: 100000 frames, mean frame time 88835 ns

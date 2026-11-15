@@ -1,0 +1,14 @@
+# P11 (soorat port plan §4 step 1): the full soorat 2.0 dependency bundle in one test compile, every bundle
+# reached from main (src/p11_calls.cyr). The measurement is the compile's diagnostics (duplicate fn / duplicate
+# symbol warnings, "last definition wins") and its time; the run shows the linked program works, and what
+# the ranga / hisab sRGB duplicate does to ranga (src/p11_ranga_srgb.cyr).
+#   cyrius test --bounds tests/p11_full.tcyr
+include "src/p11_calls.cyr"
+include "src/p11_ranga_srgb.cyr"
+
+alloc_init();
+test_group("p11: one call into each bundle");
+assert_eq(p11_calls(), 0, "every bundle answers");
+test_group("p11: ranga's sRGB path in the bundle");
+assert_eq(p11_ranga_srgb(), 1, "ranga srgba_to_lin_rgba keeps ranga's answer");
+var r = assert_summary();

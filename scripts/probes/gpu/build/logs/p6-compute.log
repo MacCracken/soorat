@@ -1,0 +1,7 @@
+P6 case: compute
+mabda: DEPRECATION - AMD-on-wgpu is deprecated (v4.0.1); use BACKEND_KIND_AMD native.
+  The AMD wgpu route retires in a future release; build -D MABDA_AMD_WGPU_STRICT to enforce now.
+context OK backend_kind=1
+adapter vendor_id=0x1002 device_id=0x1638 name=AMD Radeon Graphics (RADV RENOIR)
+  gpu_particles.wgsl bytes=1572 ... module OK handle=0x55fcf6c48b00 create_us=360
+  gpu_compute_dispatch(ctx, m, 1, 1, 1, 0) ... rc=99 (GPU_ERR_OTHER)

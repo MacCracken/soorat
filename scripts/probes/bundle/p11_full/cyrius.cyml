@@ -1,0 +1,79 @@
+# P11 "names" (soorat port plan §4 step 1; §12's 24 MB preprocess risk): one compile holding everything
+# soorat 2.0's `full` bundle would pull, at each project's latest tag, in the plan's §4 step 3 [deps]
+# order. bijli is out (its port is in progress, D7). agnodrm is in, as §4 step 3 lists it (Rust's `full`
+# feature leaves `drm` out). No root hisab (D9): goonj's 3.5.0 wins the diamond over ushma's 3.4.1 (P4).
+# bayan, sankoch, sakshi and sandhi are stdlib folds (bayan's fold is byte-identical to its 1.11.1 dist).
+#   cd scripts/probes/bundle/p11_full && cyrius deps
+#   cyrius test --bounds tests/p11_full.tcyr                       # diagnostics, compile time
+#   CYRIUS_DCE=0 cyrius build src/main.cyr build/p11_nodce         # binary size, no DCE
+#   CYRIUS_DCE=1 cyrius build src/main.cyr build/p11_dce           # binary size, DCE
+[package]
+name = "soorat-probes-p11-full"
+version = "0.0.0"
+description = "soorat M0 probe P11: the full soorat 2.0 dependency bundle in one compile"
+license = "GPL-3.0-only"
+language = "cyrius"
+cyrius = "6.7.18"
+
+[build]
+entry = "src/main.cyr"
+output = "build/p11"
+
+[deps]
+stdlib = ["syscalls", "string", "alloc", "str", "fmt", "vec", "io", "args", "math", "ganita", "tagged",
+    "result", "boxed", "overflow", "slice", "fnptr", "freelist", "callback", "simd", "atomic", "thread",
+    "thread_local", "sync", "chrono", "log", "hashmap", "fs", "process", "ct", "net", "http", "random",
+    "tls", "async", "fdlopen", "mmap", "dynlib", "sankoch", "bayan", "sakshi", "sandhi"]
+
+[deps.mabda]
+git = "https://github.com/MacCracken/mabda.git"
+tag = "4.2.0"
+modules = ["dist/mabda.cyr"]
+
+[deps.chitra]
+git = "https://github.com/MacCracken/chitra.git"
+tag = "1.4.1"
+modules = ["dist/chitra.cyr"]
+
+[deps.prakash]
+git = "https://github.com/MacCracken/prakash.git"
+tag = "2.15.2"
+modules = ["dist/prakash.cyr"]
+
+[deps.ranga]
+git = "https://github.com/MacCracken/ranga.git"
+tag = "2.4.0"
+modules = ["dist/ranga.cyr"]
+
+[deps.impetus]
+git = "https://github.com/MacCracken/impetus.git"
+tag = "2.0.0"
+modules = ["dist/impetus.cyr"]
+
+[deps.pravash]
+git = "https://github.com/MacCracken/pravash.git"
+tag = "2.0.1"
+modules = ["dist/pravash.cyr"]
+
+[deps.goonj]
+git = "https://github.com/MacCracken/goonj.git"
+tag = "2.3.2"
+modules = ["dist/goonj.cyr"]
+
+[deps.ushma]
+git = "https://github.com/MacCracken/ushma.git"
+tag = "2.0.0"
+modules = ["dist/ushma.cyr"]
+
+[deps.selah]
+git = "https://github.com/MacCracken/selah.git"
+tag = "1.0.1"
+modules = ["dist/selah.cyr"]
+
+[deps.agnodrm]
+git = "https://github.com/MacCracken/agnodrm.git"
+tag = "1.8.1"
+modules = ["dist/agnodrm.cyr"]
+
+[test]
+stdlib = ["assert", "bench"]

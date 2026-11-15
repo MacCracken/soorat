@@ -1,0 +1,961 @@
+# P9: soorat's GLB loader rebuilt on bayan's JSON tree, against Rust 1.2.0's dumps.
+#
+# For every fixture listed in fixtures/p9/LIST (written by rust/src/bin/p9_glb.rs) this
+# parses the GLB container with load32, the JSON chunk with bayan_json_v_*, validates the
+# subset of gltf-json 1.4.1 that decides soorat's accept/reject verdicts, then mirrors
+# load_gltf_meshes and load_gltf_animations and writes out/p9/cyr/<stem>.txt in the same
+# format as out/p9/rust/<stem>.txt. Lines starting with '#' are commentary.
+#
+# Where Rust 1.2.0 PANICS (no verdict to copy), this prototype picks a behaviour and says
+# so in a '# rust-panics:' line: a document-level panic becomes Err, a reader-level panic
+# skips the primitive (meshes) or fails the call (animations).
+
+alloc_init();
+test_group("p9_glb");
+
+# ---------------------------------------------------------------- output
+var OUT = 0;
+fn o(s) { str_builder_add_cstr(OUT, s); return 0; }
+fn oi(n) { str_builder_add_int(OUT, n); return 0; }
+fn ostr(s) { str_builder_add(OUT, s); return 0; }
+var _HEXD = "0123456789abcdef";
+fn ohx(bits) {
+    var b[9];
+    var i = 0;
+    while (i < 8) {
+        store8(&b + i, load8(_HEXD + ((bits >> ((7 - i) * 4)) & 15)));
+        i = i + 1;
+    }
+    store8(&b + 8, 0);
+    str_builder_add_cstr(OUT, &b);
+    return 0;
+}
+fn ohxs(p, n) {
+    var i = 0;
+    while (i < n) { o(" "); ohx(load32(p + i * 4)); i = i + 1; }
+    return 0;
+}
+
+# ---------------------------------------------------------------- per-fixture state
+var G_ERR = 0;       # cstr: why the document was refused (0 = accepted)
+var G_NOTE = 0;      # str_builder of '#' notes
+var ROOT = 0;
+var BIN = 0;
+var BIN_LEN = 0;
+var A_BUF = 0;
+var A_VIEW = 0;
+var A_ACC = 0;
+var A_MESH = 0;
+var A_NODE = 0;
+var A_SKIN = 0;
+var A_ANIM = 0;
+var A_IMG = 0;
+var A_MAT = 0;
+var A_SCENE = 0;
+var A_TEX = 0;
+var A_CAM = 0;
+var A_SAMP = 0;
+
+fn fail(msg) { if (G_ERR == 0) { G_ERR = msg; } return 0; }
+fn note(msg) { str_builder_add_cstr(G_NOTE, "# "); str_builder_add_cstr(G_NOTE, msg); str_builder_add_cstr(G_NOTE, "\n"); return 0; }
+
+fn jg(obj, key) { return bayan_json_v_obj_get_by_cstr(obj, key); }
+fn jlen(a) { return bayan_json_v_arr_len(a); }
+fn jat(a, i) { return bayan_json_v_arr_get(a, i); }
+fn jtag(v) { return bayan_json_v_tag(v); }
+fn jint(v) { return bayan_json_v_int(v); }
+
+# ---------------------------------------------------------------- serde-shaped type checks
+# An integer field (u32 / u64 / usize in gltf-json): INT tag, >= 0. A JSON float such as 3.0
+# is refused by serde ("invalid type: floating point"), so FLOAT is refused here too.
+fn chk_uint(obj, key, req): i64 {
+    var v = jg(obj, key);
+    if (v == 0) { if (req == 1) { fail("missing integer field"); } return 0 - 1; }
+    if (jtag(v) != JTAG_INT) { fail("integer field is not an integer"); return 0 - 1; }
+    var n = jint(v);
+    if (n < 0) { fail("integer field is negative"); return 0 - 1; }
+    return n;
+}
+# An Index<T>: u32, and (validate()) < the target array's length.
+fn chk_idx(obj, key, req, n): i64 {
+    var i = chk_uint(obj, key, req);
+    if (i < 0) { return 0 - 1; }
+    if (i > 0xFFFFFFFF) { fail("index exceeds u32"); return 0 - 1; }
+    if (i >= n) { fail("index out of bounds"); return 0 - 1; }
+    return i;
+}
+fn idx_of(v, n): i64 {
+    if (jtag(v) != JTAG_INT) { fail("index is not an integer"); return 0 - 1; }
+    var i = jint(v);
+    if (i < 0) { fail("index is negative"); return 0 - 1; }
+    if (i >= n) { fail("index out of bounds"); return 0 - 1; }
+    return i;
+}
+fn chk_str(obj, key, req): i64 {
+    var v = jg(obj, key);
+    if (v == 0) { if (req == 1) { fail("missing string field"); } return 0; }
+    if (jtag(v) != JTAG_STR) { fail("string field is not a string"); return 0; }
+    return bayan_json_v_str(v);
+}
+fn chk_bool(obj, key) {
+    var v = jg(obj, key);
+    if (v == 0) { return 0; }
+    if (jtag(v) != JTAG_BOOL) { fail("bool field is not a bool"); }
+    return 0;
+}
+fn is_num(v): i64 {
+    var t = jtag(v);
+    if (t == JTAG_INT) { return 1; }
+    if (t == JTAG_FLOAT) { return 1; }
+    return 0;
+}
+# [f32; n]: an array of exactly n numbers.
+fn chk_fixed(obj, key, n) {
+    var v = jg(obj, key);
+    if (v == 0) { return 0; }
+    if (jtag(v) != JTAG_ARR) { fail("fixed array is not an array"); return 0; }
+    if (jlen(v) != n) { fail("fixed array has the wrong length"); return 0; }
+    var i = 0;
+    while (i < n) { if (is_num(jat(v, i)) == 0) { fail("fixed array element is not a number"); } i = i + 1; }
+    return 0;
+}
+# gltf 1.4.1 without its `extras` feature types `extras` as an empty struct: an object
+# passes (members ignored); an array or scalar is refused (measured: `[1]` fails).
+fn chk_extras(obj) {
+    var v = jg(obj, "extras");
+    if (v == 0) { return 0; }
+    if (jtag(v) != JTAG_OBJ) { fail("extras is not an object"); }
+    return 0;
+}
+# A top-level array of objects; absent = empty.
+fn top_arr(key): i64 {
+    var v = jg(ROOT, key);
+    if (v == 0) { return bayan_json_v_arr_new(); }
+    if (jtag(v) != JTAG_ARR) { fail("top-level member is not an array"); return bayan_json_v_arr_new(); }
+    var i = 0;
+    while (i < jlen(v)) {
+        if (jtag(jat(v, i)) != JTAG_OBJ) { fail("array element is not an object"); }
+        else { chk_extras(jat(v, i)); }
+        i = i + 1;
+    }
+    return v;
+}
+fn arr_member(obj, key, req): i64 {
+    var v = jg(obj, key);
+    if (v == 0) { if (req == 1) { fail("missing array field"); } return 0; }
+    if (jtag(v) != JTAG_ARR) { fail("array field is not an array"); return 0; }
+    return v;
+}
+fn obj_member(obj, key, req): i64 {
+    var v = jg(obj, key);
+    if (v == 0) { if (req == 1) { fail("missing object field"); } return 0; }
+    if (jtag(v) != JTAG_OBJ) { fail("object field is not an object"); return 0; }
+    return v;
+}
+fn str_is(s, lit): i64 {
+    if (s == 0) { return 0; }
+    var n = strlen(lit);
+    if (str_len(s) != n) { return 0; }
+    return memeq(str_data(s), lit, n);
+}
+fn str_has_prefix(s, lit): i64 {
+    var n = strlen(lit);
+    if (str_len(s) < n) { return 0; }
+    return memeq(str_data(s), lit, n);
+}
+# a u32 in decimal after `pre` (Rust's str::parse::<u32>: digits only, optional '+')
+fn semantic_set_ok(s, pre): i64 {
+    var n = strlen(pre);
+    var l = str_len(s);
+    var p = str_data(s);
+    var i = n;
+    if (i < l) { if (load8(p + i) == 43) { i = i + 1; } }
+    if (i >= l) { return 0; }
+    var v = 0;
+    while (i < l) {
+        var c = load8(p + i);
+        if (c < 48) { return 0; }
+        if (c > 57) { return 0; }
+        v = v * 10 + (c - 48);
+        if (v > 0xFFFFFFFF) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+fn semantic_ok(s): i64 {
+    if (str_is(s, "POSITION") == 1) { return 1; }
+    if (str_is(s, "NORMAL") == 1) { return 1; }
+    if (str_is(s, "TANGENT") == 1) { return 1; }
+    if (str_has_prefix(s, "_") == 1) { return 1; }
+    if (str_has_prefix(s, "COLOR_") == 1) { return semantic_set_ok(s, "COLOR_"); }
+    if (str_has_prefix(s, "TEXCOORD_") == 1) { return semantic_set_ok(s, "TEXCOORD_"); }
+    if (str_has_prefix(s, "JOINTS_") == 1) { return semantic_set_ok(s, "JOINTS_"); }
+    if (str_has_prefix(s, "WEIGHTS_") == 1) { return semantic_set_ok(s, "WEIGHTS_"); }
+    return 0;
+}
+
+# ---------------------------------------------------------------- document validation
+fn validate_doc(): i64 {
+    if (jtag(ROOT) != JTAG_OBJ) { fail("root is not an object"); return 0; }
+    chk_extras(ROOT);
+    var asset = obj_member(ROOT, "asset", 1);
+    if (asset != 0) {
+        chk_str(asset, "version", 1);
+        chk_str(asset, "generator", 0);
+        chk_str(asset, "copyright", 0);
+        chk_str(asset, "minVersion", 0);
+        chk_extras(asset);
+    }
+    var eu = arr_member(ROOT, "extensionsUsed", 0);
+    if (eu != 0) { var i = 0; while (i < jlen(eu)) { if (jtag(jat(eu, i)) != JTAG_STR) { fail("extensionsUsed element"); } i = i + 1; } }
+    var er = arr_member(ROOT, "extensionsRequired", 0);
+    if (er != 0) {
+        # soorat builds gltf with default features: no extension is ENABLED, so any
+        # required extension is Unsupported.
+        if (jlen(er) > 0) { fail("extensionsRequired: unsupported extension"); }
+    }
+    A_BUF = top_arr("buffers");
+    A_VIEW = top_arr("bufferViews");
+    A_ACC = top_arr("accessors");
+    A_MESH = top_arr("meshes");
+    A_NODE = top_arr("nodes");
+    A_SKIN = top_arr("skins");
+    A_ANIM = top_arr("animations");
+    A_IMG = top_arr("images");
+    A_MAT = top_arr("materials");
+    A_SCENE = top_arr("scenes");
+    A_TEX = top_arr("textures");
+    A_CAM = top_arr("cameras");
+    A_SAMP = top_arr("samplers");
+    if (G_ERR != 0) { return 0; }
+    var nb = jlen(A_BUF);
+    var nv = jlen(A_VIEW);
+    var na = jlen(A_ACC);
+    var nm = jlen(A_MESH);
+    var nn = jlen(A_NODE);
+    var ns = jlen(A_SKIN);
+    var i = 0;
+    # buffers
+    i = 0;
+    while (i < nb) { var b = jat(A_BUF, i); chk_uint(b, "byteLength", 1); chk_str(b, "uri", 0); chk_str(b, "name", 0); i = i + 1; }
+    # bufferViews
+    i = 0;
+    while (i < nv) {
+        var bv = jat(A_VIEW, i);
+        chk_idx(bv, "buffer", 1, nb);
+        chk_uint(bv, "byteLength", 1);
+        chk_uint(bv, "byteOffset", 0);
+        var st = chk_uint(bv, "byteStride", 0);
+        if (jg(bv, "byteStride") != 0) { if (st < 4) { fail("byteStride < 4"); } if (st > 252) { fail("byteStride > 252"); } }
+        var tg = chk_uint(bv, "target", 0);
+        if (jg(bv, "target") != 0) { if (tg != 34962) { if (tg != 34963) { fail("bufferView target invalid"); } } }
+        i = i + 1;
+    }
+    # accessors
+    i = 0;
+    while (i < na) {
+        var a = jat(A_ACC, i);
+        chk_idx(a, "bufferView", 0, nv);
+        chk_uint(a, "byteOffset", 0);
+        var ct = chk_uint(a, "componentType", 1);
+        if (ct >= 0) {
+            var okc = 0;
+            if (ct == 5120) { okc = 1; } if (ct == 5121) { okc = 1; } if (ct == 5122) { okc = 1; }
+            if (ct == 5123) { okc = 1; } if (ct == 5125) { okc = 1; } if (ct == 5126) { okc = 1; }
+            if (okc == 0) { fail("componentType invalid"); }
+        }
+        chk_uint(a, "count", 1);
+        var ty = chk_str(a, "type", 1);
+        if (ty != 0) {
+            var okt = 0;
+            if (str_is(ty, "SCALAR") == 1) { okt = 1; } if (str_is(ty, "VEC2") == 1) { okt = 1; }
+            if (str_is(ty, "VEC3") == 1) { okt = 1; } if (str_is(ty, "VEC4") == 1) { okt = 1; }
+            if (str_is(ty, "MAT2") == 1) { okt = 1; } if (str_is(ty, "MAT3") == 1) { okt = 1; }
+            if (str_is(ty, "MAT4") == 1) { okt = 1; }
+            if (okt == 0) { fail("accessor type invalid"); }
+        }
+        chk_bool(a, "normalized");
+        if (jg(a, "bufferView") == 0) { if (jg(a, "sparse") == 0) { fail("accessor has neither bufferView nor sparse"); } }
+        i = i + 1;
+    }
+    # meshes
+    i = 0;
+    while (i < nm) {
+        var m = jat(A_MESH, i);
+        var prims = arr_member(m, "primitives", 1);
+        var j = 0;
+        while (j < jlen(prims)) {
+            var p = jat(prims, j);
+            if (jtag(p) != JTAG_OBJ) { fail("primitive is not an object"); return 0; }
+            var at = obj_member(p, "attributes", 1);
+            if (at == 0) { return 0; }
+            var k = 0;
+            while (k < bayan_json_v_obj_len(at)) {
+                if (semantic_ok(bayan_json_v_obj_key(at, k)) == 0) { fail("invalid semantic name"); }
+                idx_of(bayan_json_v_obj_val(at, k), na);
+                k = k + 1;
+            }
+            chk_idx(p, "indices", 0, na);
+            chk_idx(p, "material", 0, jlen(A_MAT));
+            var md = chk_uint(p, "mode", 0);
+            if (md > 6) { fail("primitive mode invalid"); }
+            # primitive_validate_hook: POSITION required, its accessor needs [f32;3] min and max.
+            var pv = jg(at, "POSITION");
+            if (pv == 0) { fail("POSITION missing"); }
+            else {
+                var pi = jint(pv);
+                if (pi >= na) {
+                    note("rust-panics: validation hook indexes accessors[POSITION] before the bounds error is reported");
+                    fail("POSITION accessor out of bounds");
+                    return 0;
+                }
+                var pa = jat(A_ACC, pi);
+                if (jg(pa, "min") == 0) { fail("POSITION min missing"); } else { chk_fixed(pa, "min", 3); }
+                if (jg(pa, "max") == 0) { fail("POSITION max missing"); } else { chk_fixed(pa, "max", 3); }
+            }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    # nodes
+    i = 0;
+    while (i < nn) {
+        var nd = jat(A_NODE, i);
+        chk_idx(nd, "camera", 0, jlen(A_CAM));
+        chk_idx(nd, "skin", 0, ns);
+        chk_idx(nd, "mesh", 0, nm);
+        var ch = arr_member(nd, "children", 0);
+        if (ch != 0) { var c = 0; while (c < jlen(ch)) { idx_of(jat(ch, c), nn); c = c + 1; } }
+        chk_fixed(nd, "matrix", 16);
+        chk_fixed(nd, "translation", 3);
+        chk_fixed(nd, "rotation", 4);
+        chk_fixed(nd, "scale", 3);
+        chk_str(nd, "name", 0);
+        i = i + 1;
+    }
+    # skins
+    i = 0;
+    while (i < ns) {
+        var sk = jat(A_SKIN, i);
+        chk_idx(sk, "inverseBindMatrices", 0, na);
+        chk_idx(sk, "skeleton", 0, nn);
+        var js = arr_member(sk, "joints", 1);
+        if (js != 0) { var c = 0; while (c < jlen(js)) { idx_of(jat(js, c), nn); c = c + 1; } }
+        i = i + 1;
+    }
+    # animations
+    i = 0;
+    while (i < jlen(A_ANIM)) {
+        var an = jat(A_ANIM, i);
+        chk_str(an, "name", 0);
+        var sm = arr_member(an, "samplers", 1);
+        var cs = arr_member(an, "channels", 1);
+        if (sm == 0) { return 0; }
+        if (cs == 0) { return 0; }
+        var k = 0;
+        while (k < jlen(sm)) {
+            var s = jat(sm, k);
+            if (jtag(s) != JTAG_OBJ) { fail("sampler is not an object"); return 0; }
+            chk_idx(s, "input", 1, na);
+            chk_idx(s, "output", 1, na);
+            var ip = chk_str(s, "interpolation", 0);
+            if (ip != 0) {
+                var oki = 0;
+                if (str_is(ip, "LINEAR") == 1) { oki = 1; } if (str_is(ip, "STEP") == 1) { oki = 1; }
+                if (str_is(ip, "CUBICSPLINE") == 1) { oki = 1; }
+                if (oki == 0) { fail("interpolation invalid"); }
+            }
+            k = k + 1;
+        }
+        k = 0;
+        while (k < jlen(cs)) {
+            var c = jat(cs, k);
+            if (jtag(c) != JTAG_OBJ) { fail("channel is not an object"); return 0; }
+            var si = chk_uint(c, "sampler", 1);
+            if (si >= jlen(sm)) { fail("channel sampler out of bounds"); }
+            var t = obj_member(c, "target", 1);
+            if (t != 0) {
+                chk_idx(t, "node", 1, nn);
+                # path: a string; an unknown value is NOT reported by gltf's validate (measured).
+                chk_str(t, "path", 1);
+            }
+            k = k + 1;
+        }
+        i = i + 1;
+    }
+    # images
+    i = 0;
+    while (i < jlen(A_IMG)) {
+        var im = jat(A_IMG, i);
+        chk_idx(im, "bufferView", 0, nv);
+        chk_str(im, "mimeType", 0);
+        chk_str(im, "uri", 0);
+        i = i + 1;
+    }
+    # scenes
+    i = 0;
+    while (i < jlen(A_SCENE)) {
+        var sc = arr_member(jat(A_SCENE, i), "nodes", 0);
+        if (sc != 0) { var c = 0; while (c < jlen(sc)) { idx_of(jat(sc, c), nn); c = c + 1; } }
+        i = i + 1;
+    }
+    chk_idx(ROOT, "scene", 0, jlen(A_SCENE));
+    if (G_ERR != 0) { return 0; }
+    return 1;
+}
+
+# ---------------------------------------------------------------- container
+# Mirrors gltf 1.4.1 Gltf::from_slice: GLB when the input starts with "glTF", else JSON text.
+fn load_doc(buf, n): i64 {
+    G_ERR = 0;
+    BIN = 0;
+    BIN_LEN = 0;
+    ROOT = 0;
+    var jp = buf;
+    var jl = n;
+    var is_glb = 0;
+    if (n >= 4) { if (memeq(buf, "glTF", 4) == 1) { is_glb = 1; } }
+    if (is_glb == 1) {
+        if (n < 12) { fail("GLB header truncated"); return 0; }
+        var version = load32(buf + 4);
+        var length = load32(buf + 8);
+        if (length < 12) {
+            note("rust-panics: header length - 12 underflows (overflow-checks); wraps to an Err without them");
+            fail("GLB header length < 12");
+            return 0;
+        }
+        if (length - 12 > n - 12) { fail("GLB length past the data"); return 0; }
+        if (version != 2) { fail("GLB version is not 2"); return 0; }
+        var d = buf + 12;
+        var dl = n - 12;           # the rest of the slice, not the header's length (as gltf)
+        if (dl < 8) { fail("JSON chunk header truncated"); return 0; }
+        jl = load32(d);
+        if (memeq(d + 4, "JSON", 4) == 0) { fail("first chunk is not JSON"); return 0; }
+        if (jl > dl - 8) { fail("JSON chunk length past the data"); return 0; }
+        jp = d + 8;
+        var r = jp + jl;
+        var rl = dl - 8 - jl;
+        if (rl > 0) {
+            if (rl < 8) { fail("BIN chunk header truncated"); return 0; }
+            var bl = load32(r);
+            if (memeq(r + 4, "BIN", 4) == 0) { fail("second chunk is not BIN"); return 0; }
+            if (bl > rl - 8) { fail("BIN chunk length past the data"); return 0; }
+            BIN = r + 8;
+            BIN_LEN = bl;
+        }
+    }
+    ROOT = bayan_json_v_parse_buf(jp, jl);
+    if (ROOT == 0) {
+        str_builder_add_cstr(G_NOTE, "# bayan: ");
+        str_builder_add_cstr(G_NOTE, bayan_json_last_error());
+        str_builder_add_cstr(G_NOTE, "\n");
+        fail("JSON refused by bayan");
+        return 0;
+    }
+    return validate_doc();
+}
+
+# ---------------------------------------------------------------- accessor reader
+# Mirrors gltf::accessor::Iter::new for a non-sparse accessor of element size `esize`.
+# Returns the item count, or: -1 None (no view, or a range outside its view / buffer),
+# -2 sparse (not in this prototype), -3 count 0 (Rust: `count - 1` underflow panic under
+# overflow-checks), -4 stride < element size (Rust: assert panic in from_slice).
+var RD_BASE = 0;
+var RD_STRIDE = 0;
+fn acc_read(ai, esize): i64 {
+    var a = jat(A_ACC, ai);
+    if (jg(a, "sparse") != 0) { return 0 - 2; }
+    var bvv = jg(a, "bufferView");
+    if (bvv == 0) { return 0 - 1; }
+    var bv = jat(A_VIEW, jint(bvv));
+    var stride = esize;
+    if (jg(bv, "byteStride") != 0) { stride = jint(jg(bv, "byteStride")); }
+    var cnt = jint(jg(a, "count"));
+    var buf = jat(A_BUF, jint(jg(bv, "buffer")));
+    var dl = 0;
+    if (jg(buf, "uri") == 0) { dl = BIN_LEN; }
+    var vo = 0;
+    if (jg(bv, "byteOffset") != 0) { vo = jint(jg(bv, "byteOffset")); }
+    var vl = jint(jg(bv, "byteLength"));
+    var ao = 0;
+    if (jg(a, "byteOffset") != 0) { ao = jint(jg(a, "byteOffset")); }
+    if (cnt == 0) { return 0 - 3; }
+    if (vo > dl) { return 0 - 1; }
+    if (vl > dl - vo) { return 0 - 1; }
+    if (ao > vl) { return 0 - 1; }
+    if (cnt - 1 > (vl - ao) / stride) { return 0 - 1; }
+    var need = stride * (cnt - 1) + esize;
+    if (need > vl - ao) { return 0 - 1; }
+    if (stride < esize) { return 0 - 4; }
+    RD_BASE = BIN + vo + ao;
+    RD_STRIDE = stride;
+    return cnt;
+}
+
+# ---------------------------------------------------------------- f32 helpers
+fn i2f(n): i64 { return f32_from(f64_from(n)); }
+fn f_recip(d): i64 { var one: f32 = f32_from(1.0); var dd: f32 = d; return one / dd; }
+fn f_mul(a, b): i64 { var x: f32 = a; var y: f32 = b; return x * y; }
+fn f_lt(a, b): i64 { var x: f32 = a; var y: f32 = b; if (x < y) { return 1; } return 0; }
+fn f_isnan(a): i64 { if ((a & 0x7F800000) == 0x7F800000) { if ((a & 0x7FFFFF) != 0) { return 1; } } return 0; }
+fn f_finite(a): i64 { if ((a & 0x7F800000) == 0x7F800000) { return 0; } return 1; }
+# Rust f32::max(a, b)
+fn f_max(a, b): i64 {
+    if (f_isnan(a) == 1) { return b; }
+    if (f_isnan(b) == 1) { return a; }
+    if (f_lt(a, b) == 1) { return b; }
+    return a;
+}
+var R255 = 0;
+var R65535 = 0;
+var R127 = 0;
+var R32767 = 0;
+var F_M1 = 0;
+fn sx8(v): i64 { if (v >= 128) { return v - 256; } return v; }
+fn sx16(v): i64 { if (v >= 32768) { return v - 65536; } return v; }
+# component `c` of item `k` as normalized f32 bits (gltf's Normalize<f32>)
+fn norm_comp(ct, k, c): i64 {
+    var p = RD_BASE + k * RD_STRIDE;
+    if (ct == 5126) { return load32(p + c * 4); }
+    if (ct == 5121) { return f_mul(i2f(load8(p + c)), R255); }
+    if (ct == 5123) { return f_mul(i2f(load16(p + c * 2)), R65535); }
+    if (ct == 5120) { return f_max(f_mul(i2f(sx8(load8(p + c))), R127), F_M1); }
+    if (ct == 5122) { return f_max(f_mul(i2f(sx16(load16(p + c * 2))), R32767), F_M1); }
+    return 0;
+}
+
+# ---------------------------------------------------------------- load_gltf_meshes
+fn acc_ct(ai): i64 { return jint(jg(jat(A_ACC, ai), "componentType")); }
+
+fn dump_meshes() {
+    var mb = str_builder_new();
+    var mc = 0;
+    var mi = 0;
+    while (mi < jlen(A_MESH)) {
+        var prims = jg(jat(A_MESH, mi), "primitives");
+        var pj = 0;
+        while (pj < jlen(prims)) {
+            var p = jat(prims, pj);
+            pj = pj + 1;
+            var mode = 4;
+            if (jg(p, "mode") != 0) { mode = jint(jg(p, "mode")); }
+            if (mode != 4) { continue; }
+            var at = jg(p, "attributes");
+            var pos_ai = jint(jg(at, "POSITION"));
+            var n = acc_read(pos_ai, 12);
+            if (n == 0 - 3) { note("rust-panics: POSITION count 0 (overflow-checks); primitive skipped here"); continue; }
+            if (n == 0 - 4) { note("rust-panics: POSITION stride < 12 (assert in from_slice); primitive skipped here"); continue; }
+            if (n == 0 - 2) { note("prototype: sparse POSITION not read; primitive skipped"); continue; }
+            if (n <= 0) { continue; }
+            var pbase = RD_BASE;
+            var pstride = RD_STRIDE;
+            # indices
+            var ib = 0;
+            var ni = n;
+            var gen = 1;
+            if (jg(p, "indices") != 0) {
+                var ii = jint(jg(p, "indices"));
+                var ict = acc_ct(ii);
+                var isz = 0;
+                if (ict == 5121) { isz = 1; }
+                if (ict == 5123) { isz = 2; }
+                if (ict == 5125) { isz = 4; }
+                if (isz == 0) { note("rust-panics: index componentType not u8/u16/u32 (unreachable!); primitive skipped here"); continue; }
+                var k = acc_read(ii, isz);
+                if (k == 0 - 3) { note("rust-panics: index count 0; primitive skipped here"); continue; }
+                if (k == 0 - 4) { note("rust-panics: index stride < size; primitive skipped here"); continue; }
+                if (k >= 0) {
+                    gen = 0;
+                    ni = k;
+                    ib = alloc(k * 8 + 8);
+                    var q = 0;
+                    while (q < k) {
+                        var ptr = RD_BASE + q * RD_STRIDE;
+                        var iv = 0;
+                        if (isz == 1) { iv = load8(ptr); }
+                        if (isz == 2) { iv = load16(ptr); }
+                        if (isz == 4) { iv = load32(ptr); }
+                        store64(ib + q * 8, iv);
+                        q = q + 1;
+                    }
+                }
+                # k == -1: Rust's read_indices() is None, so it falls back to 0..n
+            }
+            if (gen == 1) {
+                ib = alloc(n * 8 + 8);
+                var q = 0;
+                while (q < n) { store64(ib + q * 8, q); q = q + 1; }
+            }
+            var bad = 0;
+            var q = 0;
+            while (q < ni) { if (load64(ib + q * 8) >= n) { bad = 1; } q = q + 1; }
+            if (bad == 1) { continue; }
+            # normals
+            var nn = 0;
+            var nbase = 0;
+            var nstride = 0;
+            if (jg(at, "NORMAL") != 0) {
+                var r = acc_read(jint(jg(at, "NORMAL")), 12);
+                if (r > 0) { nn = r; nbase = RD_BASE; nstride = RD_STRIDE; }
+                if (r == 0 - 4) { note("rust-panics: NORMAL stride < 12"); }
+            }
+            # texcoords (set 0), into_f32
+            var nu = 0;
+            var uct = 0;
+            var ubase = 0;
+            var ustride = 0;
+            if (jg(at, "TEXCOORD_0") != 0) {
+                var ua = jint(jg(at, "TEXCOORD_0"));
+                uct = acc_ct(ua);
+                var usz = 0;
+                if (uct == 5126) { usz = 8; }
+                if (uct == 5121) { usz = 2; }
+                if (uct == 5123) { usz = 4; }
+                if (usz == 0) { note("rust-panics: TEXCOORD_0 componentType (unreachable!); primitive skipped here"); continue; }
+                var r = acc_read(ua, usz);
+                if (r > 0) { nu = r; ubase = RD_BASE; ustride = RD_STRIDE; }
+            }
+            var mat = 0 - 1;
+            if (jg(p, "material") != 0) { mat = jint(jg(p, "material")); }
+            # emit
+            str_builder_add_cstr(mb, "mesh ");
+            str_builder_add_int(mb, mc);
+            str_builder_add_cstr(mb, " verts ");
+            str_builder_add_int(mb, n);
+            str_builder_add_cstr(mb, " indices ");
+            str_builder_add_int(mb, ni);
+            str_builder_add_cstr(mb, " material ");
+            if (mat < 0) { str_builder_add_cstr(mb, "none"); } else { str_builder_add_int(mb, mat); }
+            str_builder_add_cstr(mb, "\n");
+            var saved = OUT;
+            OUT = mb;
+            var j = 0;
+            while (j < n) {
+                o("v "); oi(j);
+                ohxs(pbase + j * pstride, 3);
+                if (j < nn) { ohxs(nbase + j * nstride, 3); }
+                else { o(" 00000000 3f800000 00000000"); }
+                if (j < nu) {
+                    RD_BASE = ubase; RD_STRIDE = ustride;
+                    o(" "); ohx(norm_comp(uct, j, 0));
+                    o(" "); ohx(norm_comp(uct, j, 1));
+                } else { o(" 00000000 00000000"); }
+                o("\n");
+                j = j + 1;
+            }
+            o("i");
+            q = 0;
+            while (q < ni) { o(" "); oi(load64(ib + q * 8)); q = q + 1; }
+            o("\n");
+            OUT = saved;
+            mc = mc + 1;
+        }
+        mi = mi + 1;
+    }
+    o("meshes ok\nmesh_count "); oi(mc); o("\n");
+    ostr(str_builder_build(mb));
+    # images
+    var ni2 = jlen(A_IMG);
+    o("image_count "); oi(ni2); o("\n");
+    var k = 0;
+    while (k < ni2) {
+        var im = jat(A_IMG, k);
+        var ln = 0;
+        if (jg(im, "bufferView") != 0) {
+            var bv = jat(A_VIEW, jint(jg(im, "bufferView")));
+            var buf = jat(A_BUF, jint(jg(bv, "buffer")));
+            var dl = 0;
+            if (jg(buf, "uri") == 0) { dl = BIN_LEN; }
+            var vo = 0;
+            if (jg(bv, "byteOffset") != 0) { vo = jint(jg(bv, "byteOffset")); }
+            var vl = jint(jg(bv, "byteLength"));
+            if (vo <= dl) { if (vl <= dl - vo) { ln = vl; } }
+        }
+        o("image "); oi(k); o(" len "); oi(ln); o("\n");
+        k = k + 1;
+    }
+    return 0;
+}
+
+# ---------------------------------------------------------------- load_gltf_animations
+var IDENT = 0;
+fn node_f32s(nd, key, n, dflt) {
+    var v = jg(nd, key);
+    var i = 0;
+    while (i < n) {
+        if (v == 0) { o(" "); ohx(load32(dflt + i * 4)); }
+        else {
+            var e = jat(v, i);
+            var bits = 0;
+            if (jtag(e) == JTAG_INT) { bits = i2f(jint(e)); }
+            else { bits = f32_from(bayan_json_v_float(e)); }
+            o(" "); ohx(bits);
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+var D_T = 0;
+var D_R = 0;
+var D_S = 0;
+
+# one "key <t> <v...>" line; the output reader state is re-derived per call
+var KF_OBASE = 0;
+var KF_OSTRIDE = 0;
+fn kf(tb, ts, ti, oct, vi, ncomp) {
+    o("key "); ohx(load32(tb + ti * ts));
+    var save_b = RD_BASE;
+    var save_s = RD_STRIDE;
+    RD_BASE = KF_OBASE; RD_STRIDE = KF_OSTRIDE;
+    var c = 0;
+    while (c < ncomp) { o(" "); ohx(norm_comp(oct, vi, c)); c = c + 1; }
+    RD_BASE = save_b; RD_STRIDE = save_s;
+    o("\n");
+    return 0;
+}
+
+# returns 0 ok, 1 err (the prototype's verdict where Rust panics)
+fn dump_anims(): i64 {
+    var body = str_builder_new();
+    var saved = OUT;
+    OUT = body;
+    var nn = jlen(A_NODE);
+    var first_jon = 0;
+    var ns = jlen(A_SKIN);
+    o("skel_count "); oi(ns); o("\n");
+    var s = 0;
+    while (s < ns) {
+        var sk = jat(A_SKIN, s);
+        var nib = 0;
+        var ibase = 0;
+        var istride = 0;
+        if (jg(sk, "inverseBindMatrices") != 0) {
+            var r = acc_read(jint(jg(sk, "inverseBindMatrices")), 64);
+            if (r > 0) { nib = r; ibase = RD_BASE; istride = RD_STRIDE; }
+            if (r == 0 - 4) { note("rust-panics: IBM stride < 64"); }
+        }
+        var js = jg(sk, "joints");
+        var nj = jlen(js);
+        var jon = alloc(nn * 8 + 8);
+        var q = 0;
+        while (q < nn) { store64(jon + q * 8, 0 - 1); q = q + 1; }
+        q = 0;
+        while (q < nj) { store64(jon + jint(jat(js, q)) * 8, q); q = q + 1; }
+        var par = alloc(nj * 8 + 8);
+        q = 0;
+        while (q < nj) { store64(par + q * 8, 0 - 1); q = q + 1; }
+        q = 0;
+        while (q < nj) {
+            var nd = jat(A_NODE, jint(jat(js, q)));
+            var ch = jg(nd, "children");
+            var c = 0;
+            while (c < jlen(ch)) {
+                var cj = load64(jon + jint(jat(ch, c)) * 8);
+                if (cj >= 0) { store64(par + cj * 8, q); }
+                c = c + 1;
+            }
+            q = q + 1;
+        }
+        o("skel "); oi(s); o(" joints "); oi(nj); o("\n");
+        q = 0;
+        while (q < nj) {
+            var nd = jat(A_NODE, jint(jat(js, q)));
+            o("joint "); oi(q); o(" parent "); oi(load64(par + q * 8));
+            if (jg(nd, "matrix") != 0) {
+                note("prototype: a matrix joint needs gltf's f32 decomposition (not written)");
+                OUT = saved;
+                return 1;
+            }
+            o(" t"); node_f32s(nd, "translation", 3, D_T);
+            o(" r"); node_f32s(nd, "rotation", 4, D_R);
+            o(" s"); node_f32s(nd, "scale", 3, D_S);
+            o("\nib "); oi(q);
+            if (q < nib) { ohxs(ibase + q * istride, 16); } else { ohxs(IDENT, 16); }
+            o("\n");
+            q = q + 1;
+        }
+        if (first_jon == 0) { first_jon = jon; }
+        s = s + 1;
+    }
+    var nc = jlen(A_ANIM);
+    o("clip_count "); oi(nc); o("\n");
+    var tbuf = alloc(8);
+    var ci = 0;
+    while (ci < nc) {
+        var an = jat(A_ANIM, ci);
+        var sm = jg(an, "samplers");
+        var cs = jg(an, "channels");
+        var cb = str_builder_new();
+        var nch = 0;
+        var dur = 0;
+        var k = 0;
+        while (k < jlen(cs)) {
+            var c = jat(cs, k);
+            k = k + 1;
+            var tg = jg(c, "target");
+            var node = jint(jg(tg, "node"));
+            if (first_jon == 0) { continue; }
+            var ji = load64(first_jon + node * 8);
+            if (ji < 0) { continue; }
+            var path = bayan_json_v_str(jg(tg, "path"));
+            var prop = 0;
+            if (str_is(path, "translation") == 1) { prop = 84; }
+            if (str_is(path, "rotation") == 1) { prop = 82; }
+            if (str_is(path, "scale") == 1) { prop = 83; }
+            if (prop == 0) {
+                if (str_is(path, "weights") == 1) { continue; }
+                note("rust-panics: an invalid target path passes validate() and property() unwraps it; Err here");
+                OUT = saved;
+                return 1;
+            }
+            var smp = jat(sm, jint(jg(c, "sampler")));
+            var ia = jint(jg(smp, "input"));
+            var oa = jint(jg(smp, "output"));
+            var nt = acc_read(ia, 4);
+            if (nt < 0) { nt = 0; }
+            var tb = RD_BASE;
+            var ts = RD_STRIDE;
+            var oct = acc_ct(oa);
+            var ncomp = 3;
+            var osz = 12;
+            if (prop == 82) {
+                ncomp = 4;
+                osz = 0;
+                if (oct == 5126) { osz = 16; }
+                if (oct == 5120) { osz = 4; }
+                if (oct == 5121) { osz = 4; }
+                if (oct == 5122) { osz = 8; }
+                if (oct == 5123) { osz = 8; }
+                if (osz == 0) { note("rust-panics: rotation componentType (unreachable!); Err here"); OUT = saved; return 1; }
+            } else { oct = 5126; }
+            var nv = acc_read(oa, osz);
+            if (nv == 0 - 4) { note("rust-panics: output stride < size; Err here"); OUT = saved; return 1; }
+            if (nv < 0) { continue; }
+            KF_OBASE = RD_BASE;
+            KF_OSTRIDE = RD_STRIDE;
+            if (nt > 0) {
+                var last = load32(tb + (nt - 1) * ts);
+                if (f_finite(last) == 1) { dur = f_max(dur, last); }
+            }
+            # keyframes as (time index, value index) pairs
+            var ip = jg(smp, "interpolation");
+            var mode = 0;
+            if (ip != 0) {
+                if (str_is(bayan_json_v_str(ip), "STEP") == 1) { mode = 1; }
+                if (str_is(bayan_json_v_str(ip), "CUBICSPLINE") == 1) { mode = 2; }
+            }
+            var nk = 0;
+            var kb = str_builder_new();
+            var saved2 = OUT;
+            OUT = kb;
+            var q = 0;
+            if (mode == 0) {
+                while (q < nt) { if (q >= nv) { break; } kf(tb, ts, q, oct, q, ncomp); nk = nk + 1; q = q + 1; }
+            }
+            if (mode == 2) {
+                while (q < nt) { if (q * 3 + 1 >= nv) { break; } kf(tb, ts, q, oct, q * 3 + 1, ncomp); nk = nk + 1; q = q + 1; }
+            }
+            if (mode == 1) {
+                var m = nt;
+                if (nv < m) { m = nv; }
+                while (q < m) {
+                    if (q > 0) { kf(tb, ts, q, oct, q - 1, ncomp); nk = nk + 1; }
+                    kf(tb, ts, q, oct, q, ncomp); nk = nk + 1;
+                    q = q + 1;
+                }
+            }
+            OUT = cb;
+            o("chan "); oi(nch); o(" joint "); oi(ji); o(" prop ");
+            store64(tbuf, prop); o(tbuf);
+            o(" keys "); oi(nk); o("\n");
+            ostr(str_builder_build(kb));
+            OUT = body;
+            nch = nch + 1;
+        }
+        o("clip "); oi(ci); o(" name ");
+        var nm = jg(an, "name");
+        if (nm == 0) { o("unnamed"); } else { ostr(bayan_json_v_str(nm)); }
+        o(" duration "); ohx(dur); o(" channels "); oi(nch); o("\n");
+        ostr(str_builder_build(cb));
+        ci = ci + 1;
+    }
+    OUT = saved;
+    o("anim ok\n");
+    ostr(str_builder_build(body));
+    return 0;
+}
+# ---------------------------------------------------------------- driver
+fn cstr_cat3(a, b, c): i64 {
+    var la = strlen(a);
+    var lb = strlen(b);
+    var lc = strlen(c);
+    var p = alloc(la + lb + lc + 1);
+    memcpy(p, a, la);
+    memcpy(p + la, b, lb);
+    memcpy(p + la + lb, c, lc);
+    store8(p + la + lb + lc, 0);
+    return p;
+}
+
+R255 = f_recip(i2f(255));
+R65535 = f_recip(i2f(65535));
+R127 = f_recip(i2f(127));
+R32767 = f_recip(i2f(32767));
+F_M1 = i2f(0 - 1);
+IDENT = alloc(64);
+var _q = 0;
+while (_q < 16) { store32(IDENT + _q * 4, 0); _q = _q + 1; }
+store32(IDENT, 0x3f800000); store32(IDENT + 20, 0x3f800000); store32(IDENT + 40, 0x3f800000); store32(IDENT + 60, 0x3f800000);
+D_T = alloc(16); store32(D_T, 0); store32(D_T + 4, 0); store32(D_T + 8, 0);
+D_R = alloc(16); store32(D_R, 0); store32(D_R + 4, 0); store32(D_R + 8, 0); store32(D_R + 12, 0x3f800000);
+D_S = alloc(16); store32(D_S, 0x3f800000); store32(D_S + 4, 0x3f800000); store32(D_S + 8, 0x3f800000);
+
+var FBUF_MAX = 4194304;
+var FBUF = alloc(FBUF_MAX);
+var LIST = alloc(65536);
+var list_n = file_read_all("fixtures/p9/LIST", LIST, 65535);
+assert(list_n > 0, "fixtures/p9/LIST readable (run the Rust p9_glb first)");
+store8(LIST + list_n, 0);
+
+var n_fix = 0;
+var heap0 = alloc_used();
+var pos = 0;
+while (pos < list_n) {
+    var e = pos;
+    while (e < list_n) { if (load8(LIST + e) == 10) { break; } e = e + 1; }
+    if (e > pos) {
+        var name = alloc(e - pos + 1);
+        memcpy(name, LIST + pos, e - pos);
+        store8(name + (e - pos), 0);
+        var stem = alloc(e - pos + 1);
+        memcpy(stem, name, e - pos + 1);
+        var d = e - pos;
+        while (d > 0) { if (load8(stem + d) == 46) { store8(stem + d, 0); break; } d = d - 1; }
+        var path = cstr_cat3("fixtures/p9/", name, "");
+        var fl = file_read_all(path, FBUF, FBUF_MAX);
+        if (fl < 0) { fl = 0; }
+        OUT = str_builder_new();
+        G_NOTE = str_builder_new();
+        var ok = load_doc(FBUF, fl);
+        if (ok == 1) {
+            dump_meshes();
+            var bad = dump_anims();
+            if (bad == 1) { o("anim err\n"); }
+        } else {
+            o("meshes err\nanim err\n");
+            str_builder_add_cstr(G_NOTE, "# refused: ");
+            str_builder_add_cstr(G_NOTE, G_ERR);
+            str_builder_add_cstr(G_NOTE, "\n");
+        }
+        ostr(str_builder_build(G_NOTE));
+        var res = str_builder_build(OUT);
+        var outp = cstr_cat3("out/p9/cyr/", stem, ".txt");
+        file_write_all(outp, str_data(res), str_len(res));
+        n_fix = n_fix + 1;
+    }
+    pos = e + 1;
+}
+assert(n_fix > 40, "every fixture dumped");
+fmt_int(n_fix); println(" fixtures dumped to out/p9/cyr/");
+fmt_int(alloc_used() - heap0); println(" heap bytes for the whole run (bump allocator, nothing freed)");
+var r = assert_summary();

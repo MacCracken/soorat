@@ -1,0 +1,9 @@
+P8 mode=freelist frames=100000 bytes/frame=232000 (sprites 64000 + Vertex2D 128000 + u16 12000 + LineVertex 28000)
+  start: rss=188416 B  alloc_used=0 B
+  freelist frame 1: rss=425984 B  alloc_used=0 B  elapsed_ms=0
+  freelist frame 10: rss=425984 B  alloc_used=0 B  elapsed_ms=2
+  freelist frame 100: rss=425984 B  alloc_used=0 B  elapsed_ms=21
+  freelist frame 1000: rss=425984 B  alloc_used=0 B  elapsed_ms=208
+  freelist frame 10000: rss=425984 B  alloc_used=0 B  elapsed_ms=2081
+  freelist frame 100000: rss=425984 B  alloc_used=0 B  elapsed_ms=20662
+  done: 100000 frames, mean frame time 206624 ns

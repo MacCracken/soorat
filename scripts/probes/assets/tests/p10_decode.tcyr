@@ -1,0 +1,115 @@
+# P10: decode every fixture in fixtures/p10/LIST with chitra 1.4.1 (chitra_image_decode, the
+# format-sniffing entry soorat's Texture::from_bytes would map to) and write the RGBA8 to
+# out/p10/chitra/<fixture>.rgba. Then time the two 1024x1024 decodes.
+alloc_init();
+test_group("p10_decode");
+
+fn ps(s) { print(s, strlen(s)); return 0; }
+fn cstr_cat3(a, b, c): i64 {
+    var la = strlen(a);
+    var lb = strlen(b);
+    var lc = strlen(c);
+    var p = alloc(la + lb + lc + 1);
+    memcpy(p, a, la);
+    memcpy(p + la, b, lb);
+    memcpy(p + la + lb, c, lc);
+    store8(p + la + lb + lc, 0);
+    return p;
+}
+# the n-th space-separated field of a line, as a fresh cstr
+fn field(line, n): i64 {
+    var i = 0;
+    var k = 0;
+    while (k < n) {
+        while (load8(line + i) != 32) { if (load8(line + i) == 0) { return 0; } i = i + 1; }
+        i = i + 1;
+        k = k + 1;
+    }
+    var e = i;
+    while (load8(line + e) != 32) { if (load8(line + e) == 0) { break; } e = e + 1; }
+    var p = alloc(e - i + 1);
+    memcpy(p, line + i, e - i);
+    store8(p + (e - i), 0);
+    return p;
+}
+fn p_atoi(s): i64 {
+    var v = 0;
+    var i = 0;
+    while (load8(s + i) >= 48) { if (load8(s + i) > 57) { break; } v = v * 10 + load8(s + i) - 48; i = i + 1; }
+    return v;
+}
+
+var FMAX = 8388608;
+var FBUF = alloc(FMAX);
+var LIST = alloc(65536);
+var ln = file_read_all("fixtures/p10/LIST", LIST, 65535);
+assert(ln > 0, "fixtures/p10/LIST readable (run the Rust p10_codecs first)");
+store8(LIST + ln, 0);
+
+var err = alloc(8);
+var n_ok = 0;
+var n_fail = 0;
+var pos = 0;
+while (pos < ln) {
+    var e = pos;
+    while (e < ln) { if (load8(LIST + e) == 10) { break; } e = e + 1; }
+    if (e > pos) {
+        var line = alloc(e - pos + 1);
+        memcpy(line, LIST + pos, e - pos);
+        store8(line + (e - pos), 0);
+        var name = field(line, 0);
+        var w = p_atoi(field(line, 1));
+        var h = p_atoi(field(line, 2));
+        var fl = file_read_all(cstr_cat3("fixtures/p10/", name, ""), FBUF, FMAX);
+        var img = chitra_image_decode(FBUF, fl, err);
+        if (img == 0) {
+            ps(name); ps("  chitra ERROR "); chitra_err_print_name(chitra_err_code(load64(err))); println("");
+            n_fail = n_fail + 1;
+        } else {
+            var iw = chitra_image_width(img);
+            var ih = chitra_image_height(img);
+            if (iw != w) { ps(name); println("  width mismatch"); }
+            if (ih != h) { ps(name); println("  height mismatch"); }
+            file_write_all(cstr_cat3("out/p10/chitra/", name, ".rgba"), chitra_image_pixels(img), iw * ih * 4);
+            n_ok = n_ok + 1;
+        }
+    }
+    pos = e + 1;
+}
+fmt_int(n_ok); ps(" decoded, "); fmt_int(n_fail); println(" refused");
+assert_eq(n_fail, 0, "chitra decodes every fixture");
+
+# rough wall clock: min and median of 21 decodes, the same files the Rust side timed
+fn time_one(path) {
+    var fl = file_read_all(path, FBUF, FMAX);
+    var t = alloc(21 * 8);
+    var i = 0;
+    while (i < 21) {
+        var t0 = now_ns();
+        var img = chitra_image_decode(FBUF, fl, err);
+        var t1 = now_ns();
+        assert(img != 0, "timed decode");
+        store64(t + i * 8, t1 - t0);
+        i = i + 1;
+    }
+    # insertion sort
+    i = 1;
+    while (i < 21) {
+        var v = load64(t + i * 8);
+        var j = i - 1;
+        while (j >= 0) {
+            if (load64(t + j * 8) <= v) { break; }
+            store64(t + (j + 1) * 8, load64(t + j * 8));
+            j = j - 1;
+        }
+        store64(t + (j + 1) * 8, v);
+        i = i + 1;
+    }
+    ps("time "); ps(path); ps(": min "); fmt_int(load64(t) / 1000); ps(" us, median "); fmt_int(load64(t + 80) / 1000); println(" us (21 runs, wall clock)");
+    return 0;
+}
+var heap0 = alloc_used();
+time_one("fixtures/p10/photo-1024x1024.rgba8.png");
+time_one("fixtures/p10/photo-1024x1024.q90.jpg");
+ps("heap growth over the 42 timed decodes (global bump, never freed): "); fmt_int((alloc_used() - heap0) / 1048576); println(" MiB");
+var r = assert_summary();

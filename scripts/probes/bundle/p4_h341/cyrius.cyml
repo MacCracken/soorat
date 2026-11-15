@@ -1,0 +1,50 @@
+# P4 "one hisab" (soorat port plan §4 step 1, D9): the five hisab-adjacent science bundles in one compile,
+# on hisab 3.4.1 pinned at the root. A root [deps.hisab] resolves first (closest wins), so ushma's
+# production pin (3.4.1) agrees, and goonj's (3.5.0) is the diamond's "not used" side. prakash, pravash and impetus pin hisab
+# with scope = "test", which a consumer never walks.
+#   cd scripts/probes/bundle/p4_h341 && cyrius deps && cyrius test --bounds tests/p4_one_hisab.tcyr
+[package]
+name = "soorat-probes-p4-h341"
+version = "0.0.0"
+description = "soorat M0 probe P4: goonj + prakash + ushma + pravash + impetus on hisab 3.4.1"
+license = "GPL-3.0-only"
+language = "cyrius"
+cyrius = "6.7.18"
+
+[deps]
+stdlib = ["syscalls", "string", "alloc", "str", "fmt", "vec", "io", "args", "math", "ganita", "tagged",
+    "result", "boxed", "overflow", "slice", "fnptr", "freelist", "callback", "simd", "atomic", "thread",
+    "chrono", "log", "bayan", "sakshi"]
+
+[deps.hisab]
+git = "https://github.com/MacCracken/hisab.git"
+tag = "3.4.1"
+modules = ["dist/hisab.cyr"]
+
+[deps.prakash]
+git = "https://github.com/MacCracken/prakash.git"
+tag = "2.15.2"
+modules = ["dist/prakash.cyr"]
+
+[deps.impetus]
+git = "https://github.com/MacCracken/impetus.git"
+tag = "2.0.0"
+modules = ["dist/impetus.cyr"]
+
+[deps.pravash]
+git = "https://github.com/MacCracken/pravash.git"
+tag = "2.0.1"
+modules = ["dist/pravash.cyr"]
+
+[deps.goonj]
+git = "https://github.com/MacCracken/goonj.git"
+tag = "2.3.2"
+modules = ["dist/goonj.cyr"]
+
+[deps.ushma]
+git = "https://github.com/MacCracken/ushma.git"
+tag = "2.0.0"
+modules = ["dist/ushma.cyr"]
+
+[test]
+stdlib = ["assert", "bench"]

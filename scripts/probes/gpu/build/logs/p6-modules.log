@@ -1,0 +1,15 @@
+P6 case: modules
+mabda: DEPRECATION - AMD-on-wgpu is deprecated (v4.0.1); use BACKEND_KIND_AMD native.
+  The AMD wgpu route retires in a future release; build -D MABDA_AMD_WGPU_STRICT to enforce now.
+context OK backend_kind=1
+adapter vendor_id=0x1002 device_id=0x1638 name=AMD Radeon Graphics (RADV RENOIR)
+  sprite.wgsl bytes=942 ... module OK handle=0x5652f2c1d770 create_us=295
+  line.wgsl bytes=642 ... module OK handle=0x5652f2c22730 create_us=68
+  pbr.wgsl bytes=12124 ... module OK handle=0x5652f2c28970 create_us=852
+  pbr_skinned.wgsl bytes=11262 ... module OK handle=0x5652f2c1d6e0 create_us=854
+  shadow.wgsl bytes=542 ... module OK handle=0x5652f2c1eb50 create_us=58
+  ssao.wgsl bytes=3422 ... module OK handle=0x5652f2b681c0 create_us=294
+  bloom.wgsl bytes=2702 ... module OK handle=0x5652f2c29070 create_us=255
+  postprocess.wgsl bytes=2429 ... module OK handle=0x5652f2c89fa0 create_us=230
+  gpu_particles.wgsl bytes=1572 ... module OK handle=0x5652f2c9aa90 create_us=130
+modules created: 9 of 9

@@ -1,0 +1,13 @@
+[package]
+name = "soorat-probes-math"
+version = "0.0.0"
+description = "soorat M0 step 1 probes P1-P3: layouts, f32 traps, f32 transcendentals"
+license = "GPL-3.0-only"
+language = "cyrius"
+cyrius = "6.7.18"
+
+[deps]
+stdlib = ["syscalls", "string", "alloc", "str", "fmt", "io", "vec", "math", "ganita", "tagged", "result"]
+
+[test]
+stdlib = ["assert", "bench"]

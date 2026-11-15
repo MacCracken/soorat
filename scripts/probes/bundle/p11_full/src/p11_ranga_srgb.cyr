@@ -1,0 +1,27 @@
+# P11 (soorat port plan §4 step 1): ranga's sRGB <-> linear path, as a duplicate fn leaves it.
+# ranga 2.4.0's srgb_to_linear (u8 -> f32 bits) and linear_to_srgb (f32 bits -> u8) share their names with
+# hisab's public f64 -> f64 pair. The last definition wins, and hisab is prepended after ranga. This compares
+# ranga's public conversion of sRGB 128 with ranga's own kernel (_c_srgb_to_linear, which nothing else
+# defines), prints both bit patterns and the round trip, and answers 1 when ranga's answer survives.
+
+fn _p11_put(s): i64 {
+    print(s, strlen(s));
+    return 0;
+}
+
+fn p11_ranga_srgb(): i64 {
+    var lin = srgba_to_lin_rgba(srgba_new(128, 128, 128, 255));
+    var got = lin_rgba_r(lin);
+    var want = _c_srgb_to_linear(f32_from(128.0));
+    _p11_put("p11: ranga srgba_to_lin_rgba(128).r = 0x");
+    fmt_hex(got);
+    _p11_put(", ranga's kernel = 0x");
+    fmt_hex(want);
+    _p11_put("\n");
+    var back = srgba_r(lin_rgba_to_srgba(lin));
+    _p11_put("p11: ranga lin_rgba_to_srgba(that).r = ");
+    fmt_int(back);
+    _p11_put(" (128 in ranga alone)\n");
+    if (got == want && back == 128) { return 1; }
+    return 0;
+}

@@ -1,0 +1,53 @@
+# P9 memory: what one bayan parse of a glTF JSON chunk costs, through the global bump
+# allocator (never freed) and through a growable arena reset between parses.
+alloc_init();
+test_group("p9_mem");
+
+fn json_chunk(path, buf, max, out_len): i64 {
+    var n = file_read_all(path, buf, max);
+    if (n < 20) { return 0; }
+    store64(out_len, load32(buf + 12));
+    return buf + 20;
+}
+
+fn ps(s) { print(s, strlen(s)); return 0; }
+fn measure(path, iters) {
+    var buf = alloc(1048576);
+    var jl = 0;
+    var jp = json_chunk(path, buf, 1048576, &jl);
+    assert(jp != 0, "fixture readable");
+    # 1. bump allocator
+    var u0 = alloc_used();
+    var t0 = now_ns();
+    var i = 0;
+    while (i < iters) {
+        var v = bayan_json_v_parse_buf(jp, jl);
+        assert(v != 0, "parse");
+        i = i + 1;
+    }
+    var t1 = now_ns();
+    var grow = alloc_used() - u0;
+    # 2. arena, reset per parse
+    var a = arena_allocator_growable(65536);
+    var u1 = alloc_used();
+    i = 0;
+    while (i < iters) {
+        var v2 = bayan_json_v_parse_buf_a(a, jp, jl);
+        assert(v2 != 0, "parse_a");
+        reset_via(a);
+        i = i + 1;
+    }
+    var grow2 = alloc_used() - u1;
+    var cap = arena_capacity_total(allocator_state(a));
+    ps(path);
+    println("");
+    ps("  json bytes "); fmt_int(jl); println("");
+    ps("  bump: heap growth per parse "); fmt_int(grow / iters); ps(" bytes ("); fmt_int(grow); ps(" over "); fmt_int(iters); println(" parses)");
+    ps("  bump: ns per parse "); fmt_int((t1 - t0) / iters); println("");
+    ps("  arena+reset: heap growth over all parses "); fmt_int(grow2); ps(" bytes; arena capacity "); fmt_int(cap); println("");
+    return 0;
+}
+
+measure("fixtures/p9/rich.glb", 1000);
+measure("fixtures/p9/float_stress.glb", 100);
+var r = assert_summary();

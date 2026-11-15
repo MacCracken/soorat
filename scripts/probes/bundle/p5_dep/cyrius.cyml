@@ -1,0 +1,24 @@
+# P5 "mabda on 6.7.18" (soorat port plan §4 step 1, D9 / L12), the [deps.mabda] route soorat's own
+# manifest takes (§4 step 3): mabda's tag 4.2.0 (it pins cyrius 6.7.5), whose own production deps
+# (samvada 1.0.1, chitra 1.0.3) the resolver walks. mmap / dynlib / sakshi stay stdlib leaves, as the
+# README quickstart asks.
+#   cd scripts/probes/bundle/p5_dep && cyrius deps && cyrius test --bounds tests/p5_mabda.tcyr
+[package]
+name = "soorat-probes-p5-dep"
+version = "0.0.0"
+description = "soorat M0 probe P5: mabda 4.2.0 ([deps.mabda] git tag) on cyrius 6.7.18, minimal wgpu consumer"
+license = "GPL-3.0-only"
+language = "cyrius"
+cyrius = "6.7.18"
+
+[deps]
+stdlib = ["syscalls", "string", "alloc", "str", "fmt", "vec", "io", "args", "hashmap", "chrono", "tagged",
+    "fnptr", "result", "mmap", "dynlib", "sakshi"]
+
+[deps.mabda]
+git = "https://github.com/MacCracken/mabda.git"
+tag = "4.2.0"
+modules = ["dist/mabda.cyr"]
+
+[test]
+stdlib = ["assert", "bench"]

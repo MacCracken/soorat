@@ -1,0 +1,66 @@
+P6 case: rpb sprite
+mabda: DEPRECATION - AMD-on-wgpu is deprecated (v4.0.1); use BACKEND_KIND_AMD native.
+  The AMD wgpu route retires in a future release; build -D MABDA_AMD_WGPU_STRICT to enforce now.
+context OK backend_kind=1
+adapter vendor_id=0x1002 device_id=0x1638 name=AMD Radeon Graphics (RADV RENOIR)
+  sprite.wgsl bytes=942 ... module OK handle=0x5649e1bb1770 create_us=333
+  rpb_new + rpb_vertex_layout(vertex2d_attributes()) + rpb_cull_mode + rpb_build ... 
+thread '<unnamed>' (1341300) panicked at src/lib.rs:422:5:
+wgpu uncaptured error:
+Validation Error
+
+Caused by:
+  In wgpuDeviceCreateRenderPipeline
+    Error matching ShaderStages(VERTEX) shader requirements against the pipeline
+      Location[0] Float32x2 interpolated as Some(Perspective) with sampling Some(Center) is not provided by the previous stage outputs
+        Input is not provided by the earlier stage in the pipeline
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread '<unnamed>' (1341300) panicked at library/core/src/panicking.rs:225:5:
+panic in a function that cannot unwind
+stack backtrace:
+   0:     0x5649cb0041a2 - std::backtrace_rs::backtrace::libunwind::trace::h73aabaf37ceb5073
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/libunwind.rs:117:9
+   1:     0x5649cb0041a2 - std::backtrace_rs::backtrace::trace_unsynchronized::h30862f246760437f
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/../../backtrace/src/backtrace/mod.rs:66:14
+   2:     0x5649cb0041a2 - std::sys::backtrace::_print_fmt::h2d1afd8848eb5d7a
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/backtrace.rs:68:9
+   3:     0x5649cb0041a2 - <std::sys::backtrace::BacktraceLock::print::DisplayBacktrace as core::fmt::Display>::fmt::h1851ca2a850bd9a9
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/backtrace.rs:38:26
+   4:     0x5649cb032ba7 - core::fmt::rt::Argument::fmt::he8640bda190d4d38
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/fmt/rt.rs:152:76
+   5:     0x5649cb032ba7 - core::fmt::write::h22467d3ad5dd5554
+   6:     0x5649cafbd016 - std::io::default_write_fmt::h351a88ae8ee5bcc5
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/io/mod.rs:639:11
+   7:     0x5649cafbd016 - std::io::Write::write_fmt::h5e3b6a876f7a20bf
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/io/mod.rs:1994:13
+   8:     0x5649cafd8dc1 - std::sys::backtrace::BacktraceLock::print::hc25d10722ea4032d
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/backtrace.rs:41:9
+   9:     0x5649cafd8dc1 - std::panicking::default_hook::{{closure}}::he43c3ac33dfa4b50
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:292:27
+  10:     0x5649cafd8c21 - std::panicking::default_hook::hd124da54acf1152f
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:319:9
+  11:     0x5649cafd8ffb - std::panicking::panic_with_hook::h9b5f1f19954f65a8
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:825:13
+  12:     0x5649cafd8eaa - std::panicking::panic_handler::{{closure}}::hf431df8c849ee0d6
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:691:13
+  13:     0x5649cafd10c9 - std::sys::backtrace::__rust_end_short_backtrace::hf97362b31a346cc0
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/sys/backtrace.rs:176:18
+  14:     0x5649cafaef7d - __rustc[9e6a08e89e4b9111]::rust_begin_unwind
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/std/src/panicking.rs:689:5
+  15:     0x5649caa5e7dd - core::panicking::panic_nounwind_fmt::runtime::hccb3971791e1afcd
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panicking.rs:122:22
+  16:     0x5649caa5e7dd - core::panicking::panic_nounwind_fmt::hf349702e3facb1fd
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/intrinsics/mod.rs:2449:9
+  17:     0x5649caa5e71b - core::panicking::panic_nounwind::h9a55331e46709e5f
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panicking.rs:225:5
+  18:     0x5649caa5e8e7 - core::panicking::panic_cannot_unwind::h9d41c6c1d0e0d4e5
+                               at /rustc/01f6ddf7588f42ae2d7eb0a2f21d44e8e96674cf/library/core/src/panicking.rs:337:5
+  19:     0x5649caa1d54a - wgpu_native::default_uncaptured_error_handler::hd9a274798be081ec
+  20:     0x5649cab180f0 - wgpu_native::ErrorSinkRaw::handle_error::hd1455e7c9117a163
+  21:     0x5649cab34e10 - wgpuDeviceCreateRenderPipeline
+  22:     0x5649caa9b9e5 - <unknown>
+thread caused non-unwinding panic. aborting.
+timeout: the monitored command dumped core

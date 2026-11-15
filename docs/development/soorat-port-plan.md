@@ -1,7 +1,14 @@
 # soorat Rust → Cyrius port plan
 
 > **Decided 2026-11-15: the maintainer took every recommendation in §0.2 (D1–D9).**
-> **M0 step 0's code is done (2026-11-15, committed as `7f3213a`); only the tag remains.** 1.1.0 was tagged and released on 2026-11-15 (`0a94507`, GitHub release 14:26 UTC) before the oracle work started. The hooks and D2's fixes therefore ship together as **1.2.0**, the final Rust release and the oracle. It is a minor release, not 1.2.0, because it adds public API (`set_bloom`, `clear_bloom`, `with_bloom_intensity` and the `oracle` feature). The maintainer tags 1.2.0.
+> **M0 steps 0 and 1 are done (2026-11-15).** 1.2.0 is tagged and released (`6625dc2`). The probes are recorded in [port-parity.md](port-parity.md) §1. They confirmed the language and the math (P1–P3, P7 and P8). They also found three things the plan didn't have:
+> - **dependency name clashes** that stop the full bundle compiling, and in one case give a silently wrong sRGB result (P11, ledger L18–L20);
+> - a **render-loop leak** in mabda (P8, L17);
+> - mabda's **missing compute** (P6, MB4).
+>
+> Next: M0 step 2 (`cyrius port`). M1 can proceed. The `ranga` feature cannot be combined with `acoustics` or `thermo` until L18 lands.
+>
+> **Step 0 detail (2026-11-15, committed as `7f3213a`, tagged as 1.2.0).** 1.1.0 was tagged and released on 2026-11-15 (`0a94507`, GitHub release 14:26 UTC) before the oracle work started. The hooks and D2's fixes therefore ship together as **1.2.0**, the final Rust release and the oracle. It is a minor release, not 1.2.0, because it adds public API (`set_bloom`, `clear_bloom`, `with_bloom_intensity` and the `oracle` feature). The maintainer tags 1.2.0.
 > - Part 1, the hooks: done, every gate green.
 > - Part 2, the fixes: particle damping and the bloom composite are done, each with a GPU regression test. The bathymetry item was not a defect (§6.3). CUBICSPLINE moved to the Cyrius port (ADR 0002 #13, decided 2026-11-15), because the fix needs tangent storage in public types.
 
@@ -72,10 +79,10 @@
 | ✅ D3 | **GPU route for 2.0** | **WGSL on mabda's wgpu-native backend.** The nine shaders carry over verbatim. Native AMD and NVIDIA follow once mabda has a render-capable shader path (§13). Two consequences: wgpu-on-AMD is deprecated in mabda 4.0.1 (a one-shot warning; `-D MABDA_AMD_WGPU_STRICT` must stay off), and mabda's v5.1 retirement gate waits on soorat going native | Hand-encoded GFX9 and SM75 shaders for 2.0: 9 × 2 programs, no compiler, and every GPU milestone blocked. SPIR-V on native AMD: the lowerer parses only `GLCompute` and caps a shader at 256 ids |
 | ✅ D4 | **Precision policy.** soorat computes in f32 because the GPU does; the Cyrius science crates now hand over f64 | **Three rules.** (a) Quantized or bit-defined outputs (u8 colours, sRGB tables, f16 packing, indices, counts, glyph lookups, UV rects) follow **Rust's f32 sequence exactly**: class A. (b) Geometry and matrices bound for the GPU are **computed in f64 and rounded once to f32** at packing: an ADR 0002 divergence, checked against Rust and against an f64 reference (§5). (c) Science inputs stay f64 until vertex packing | Bit-faithful f32 everywhere ("compute in Rust's precision, not more", ranga): the cheapest parity, but it gives up §6's gains. f64 everywhere: it flips quantized outputs (ranga: f32 `0x3f010101` gave 129 in Rust, 128 in f64) |
 | ✅ D5 | **Who owns the window.** mabda's wgpu path already makes the application own the entry point: a C launcher calls `mabda_main(fn_table, preinit)` | **soorat 2.0 owns no window or event loop.** The application passes a mabda `GpuContext` and a surface. A shared Wayland window library is its own project: the `win_*` client exists in four copies, in puka, cyrius-doom, jalwa and thoth | A Wayland client inside soorat, which would be the fifth copy |
-| ✅ D6 | **glTF loading** | A soorat-owned `src/gltf.cyr`, built on bayan's JSON tree, `load8/16/32` and chitra for embedded images. It carries exactly 1.1.0's subset and validation: GLB plus embedded buffers, triangles only, index range checks, checked buffer views, skins, LINEAR/STEP/CUBICSPLINE | A separate glTF package first. Only soorat needs one today; wait for the third instance |
+| ✅ D6 | **glTF loading** | A soorat-owned `src/gltf.cyr`, built on bayan's JSON tree, `load8/16/32` and chitra for embedded images. It carries exactly 1.1.0's subset and validation: GLB plus embedded buffers, triangles only, index range checks, checked buffer views, skins, LINEAR/STEP/CUBICSPLINE. P9 (port-parity §1.6) widened it: 1.2.0 also loads **JSON-text `.gltf`**, and the `gltf` crate reads **sparse accessors**; bayan carries everything soorat reads (42 of 51 fixtures identical, and the rest are ADR 0002 #14) | A separate glTF package first. Only soorat needs one today; wait for the third instance |
 | ✅ D7 | **em_render and bijli** | Port `em_render` in M5 **if bijli 2.0.0 (its M7) has shipped**. Otherwise 2.0.0 ships without the `em` feature and `em_render` follows in 2.1.0. The EM axis-convention fix (roadmap backlog) goes in with it as an ADR 0002 row | Hold 2.0.0 for bijli, or port against bijli's pre-M7 API |
 | ✅ D8 | **Reshaped modules** | `egui_bridge`: **not carried** (Cyrius has no egui; dhancha is retained-mode). `window`: reduced per D5. `drm`: reduced to what agnodrm 1.8.1 offers (device list, driver version, capabilities) until agnodrm adds connector, mode and render-node queries (L10). `screenshot` encoding: a selah request for a public raw-RGBA PNG/JPEG/BMP encoder (L9), with selah's private encoders vendored as the stand-in | Writing new encoders in soorat |
-| ✅ D9 | **Shared dependency pins** | M0 probe P4 builds the full bundle on **one hisab** and on cyrius 6.7.18. Alignment requests are filed: the hisab 3.4.1 consumers move to 3.5.x (L11), and mabda's pin moves to 6.7.18 (L12). **soorat itself declares no hisab dependency**, because goonj's `soorat_*` accessors return plain values | soorat pinning its own hisab |
+| ✅ D9 | **Shared dependency pins** | M0 probe P4 builds the full bundle on **one hisab** and on cyrius 6.7.18. Alignment requests are filed: the hisab 3.4.1 consumers move to 3.5.x (L11), and mabda's pin moves to 6.7.18 (L12). **soorat itself declares no hisab dependency**, because goonj's `soorat_*` accessors return plain values. *P4 note:* with no root pin, the hisab version follows `[deps]` order, so §4 step 3 must declare goonj before ushma, which resolves 3.5.0. hisab 3.4.1 lacks `hisab_alloc_scope`, which goonj needs. If order-dependence proves fragile, the alternative is pinning 3.5.0 at the root, an amendment to this row | soorat pinning its own hisab |
 
 ---
 
@@ -277,6 +284,8 @@ Finalized at M0 step 2. Each row says how the harness still compares the functio
 | 11 | `drm` | agnodrm's subset (D8) | class A on what remains |
 | 12 | `em_render` axis convention (if ported in 2.0, D7) | one convention for 2D data | rows mapped by name |
 | 13 | CUBICSPLINE samplers keep each key's value and drop its tangents, so playback is linear (slerp for rotations) between keys | channels carry their interpolation mode and the in/out tangents, and CUBICSPLINE plays back as the glTF cubic Hermite spline (rotations normalized) | **class R** against the glTF spec formula, evaluated independently in f64. The 1.2.0 value-only rows stay for LINEAR and STEP, and for CUBICSPLINE at key times, where both agree |
+| 14 | glTF verdicts on malformed input: 4 inputs that 1.2.0 accepts and bayan refuses (duplicate keys and an integer above i64::MAX in `extras`, both open bayan issues; nesting deeper than 128); 4 inputs that **panic** Rust 1.2.0 (`byteStride: 4` on POSITION, an out-of-range POSITION accessor, a float index type, an unknown target path); and document refusals D6 didn't list (POSITION without min/max, non-object `extras`, an unknown semantic, `extensionsRequired`, an invalid interpolation, mode > 6) | each is a defined `SR_ERR_*`; joint TRS numbers parse correctly rounded (bayan: 4,000 of 4,000; serde_json: 3,959) | class A on every other fixture; these rows are named in the harness (P9)
+| 15 | `image` decodes up to its 512 MiB limit | chitra caps an image at 16,777,216 pixels, and the decode goes through a freeing allocator (`chitra_image_decode_budget_via`) | larger images are refused with `SR_ERR_*`; PNG/BMP class A, JPEG B-img (P10) |
 
 ---
 
@@ -313,7 +322,7 @@ Finalized at M0 step 2. Each row says how the harness still compares the functio
    - it leaves `bench` out of `[test] stdlib`;
    - it writes undocumented stubs, so `cyrius audit` fails.
 3. **`cyrius.cyml`:**
-   - `[deps]`: mabda, chitra, bayan, prakash, ranga, impetus, pravash, goonj, ushma, selah, agnodrm, and bijli once D7 allows;
+   - `[deps]`: mabda, chitra, bayan, prakash, ranga, impetus, pravash, **goonj before ushma** (P4: that order resolves hisab 3.5.0), ushma and selah, with bijli once D7 allows. **agnodrm only behind a `drm` feature**: Rust's `full` excludes `drm`, and agnodrm clashes with sigil when selah is present (P11, L19). The science crates are optional per feature;
    - `[embed]`: the nine shaders;
    - `[lib]`: bundle order;
    - `[build] dce = true`;
@@ -463,7 +472,17 @@ This is done in mabda's repository, by mabda's process: its own gates, its own C
 | **MB4** | compute on the `gpu_*` tier for wgpu: today `_backend_wgpu_compute_dispatch` returns `GPU_ERR_OTHER`. Storage plus uniform bind groups | — (existing compute slots) | M8 |
 | **MB5** | surface creation from a Wayland `wl_display`/`wl_surface` pair; BGRA swapchain formats; present modes (AutoVsync, AutoNoVsync) | InstanceCreateSurface (a chained `WGPUSurfaceSourceWaylandSurface` descriptor), SurfaceGetCapabilities | M9 |
 
-Land MB1–MB5's launcher slots as **one** `wgpu_main.c` change if the scope is known up front, so every mabda consumer rebuilds once (§2.1).
+Land MB1–MB5's launcher slots as **one** `wgpu_main.c` change if the scope is known up front, so every mabda consumer rebuilds once (§2.1). That change should also carry the command-buffer release from L17.
+
+Probe P6 (port-parity §1.5) confirmed the table above by running it, and adds:
+- **MB4 is missing, not partial.** `compute_pipeline_new` builds storage-only layouts and cannot make soorat's particle pipeline.
+- MB1 needs **explicit entry-point names** (bloom's `fs_threshold`/`fs_blur_h`/`fs_blur_v`, postprocess's `fs_no_bloom`) and an **optional fragment stage** (shadow is depth-only).
+- MB1 needs an **error channel**, because a validation error currently aborts the process.
+- Public calls should take constants with public names.
+
+P8 found that the render loop leaks (L17).
+
+All of this is filed in mabda: `docs/development/issues/2026-11-15-render-tier-for-geometry-consumers.md` and `2026-11-15-wgpu-render-loop-leaks-command-buffers-and-pass-records.md`.
 
 ---
 
@@ -512,13 +531,17 @@ Each row is filed in the named project with soorat's numbers. Each has a stand-i
 | L | Project | Request | Stand-in |
 |---|---|---|---|
 | L1 | ganita | correctly rounded f64 tier (the open request; soorat joins as a consumer) | vendored `crmath`/`crlog` (impetus, kimiya) |
-| L2–L6 | mabda | MB1–MB5 (§8) | **none allowed** (D3, §0.1); the GPU track waits |
+| L2–L6 | mabda | MB1–MB5 (§8), **filed 2026-11-15** as `mabda/docs/development/issues/2026-11-15-render-tier-for-geometry-consumers.md`. It includes P6's additions: explicit entry points, an optional fragment stage, an error channel, public constant names, and MB4 as missing | **none allowed** (D3, §0.1); the GPU track waits |
+| L17 | mabda | the render loop's leaks (P8): command buffers never released, plus 432 B per pass begin and 224 B per textured draw from the bump heap; about 1.6 KB a frame. **Filed 2026-11-15** as `mabda/docs/development/issues/2026-11-15-wgpu-render-loop-leaks-command-buffers-and-pass-records.md` | none (a launcher change). It lands with L2–L6's single launcher revision |
 | L7 | mabda | a WGSL front end (or another render-capable shader path) for the native backends | none; after 2.0 (§13) |
 | L8 | cyrius | `fn f(): f32` returns; `const` of f32; an f16 helper pair | return the bits as i64; `var` constants; local f16 code |
 | L9 | selah | a public raw-RGBA encoder: PNG, JPEG, BMP | selah's private encoders, vendored |
 | L10 | agnodrm | connector, mode and render-node queries (mabda's `backend_native_kms.cyr` has the ioctls internally) | the reduced `drm` subset (D8) |
-| L11 | hisab consumers | prakash, ushma, pravash and impetus move to hisab 3.5.x (goonj's pin) | P4's result decides whether this blocks the `full` bundle |
-| L12 | mabda | toolchain pin 6.7.5 → 6.7.18 | P5's result |
+| L11 | hisab consumers | prakash, ushma, pravash and impetus move to hisab 3.5.x (goonj's pin). *P4: tidy-up only.* 3.5.0 serves all five; prakash, pravash and impetus are test-scoped; ushma calls only `calc_lerp` and `calc_integral_simpson` | P4's result decides whether this blocks the `full` bundle |
+| L12 | mabda | toolchain pin 6.7.5 → 6.7.18 (*P5: tidy-up*, 0 warnings on 6.7.18), plus making `[deps.chitra]` and `[deps.samvada]` optional: as production dependencies they reach every consumer's compile | P5's result |
+| L18 | **hisab or ranga** | **name clash.** Both define `srgb_to_linear`, `linear_to_srgb`, `premultiply_alpha` and `unpremultiply_alpha`. The last two differ in arity, which is a compile **error**; the first two silently take hisab's, and ranga's `srgba_to_lin_rgba(128).r` becomes `0xa` instead of `0x3e5d0a8b` (P11). One side must prefix or privatize | **none possible** (a dependency's names): blocks `ranga` together with `acoustics`/`thermo` |
+| L19 | agnodrm or sigil | name clash: `result_print_err`, `is_syscall_err`, `wrap_syscall`, plus the agreeing `Errno`/`SysErrorKind` enums (P11) | agnodrm behind `drm` only |
+| L20 | goonj or pravash | name clash: `logging_init` (P11) | none; warning only, last definition wins |
 | L13 | cyrius | `memcpy`/`memset` word copies (the open byte-loop issue) | measured by P7; arena reuse |
 | L14 | cyrius | `cyrius port` doc clobbering (the open issue) | M0 step 2's repairs |
 | L15 | new project | a shared Wayland window and input library, extracted from the four `win_*` copies | none needed by 2.0 (D5) |
@@ -555,7 +578,8 @@ Where the gap matters (sprite batching at scale), the remedies are the sibling o
 | Result-ABI pitfalls (8-byte payloads, 16- and 32-byte structs, `callptr`) | crashes in otherwise correct code | out-pointers by convention (§9.2); fuzz harnesses on every entry that takes external data |
 | Bump allocator: per-frame allocation leaks | unbounded RSS in a render loop | frame arena (§9.4); P8 soak test gated |
 | The f32 operator rule (`x * 2.0` reads 0) | silent wrong values | `test --bounds` zero-warning gate; class B/E rows on every f32 function |
-| The 24 MB preprocess cap with mabda (≈ 1.2 MB), six science crates and soorat | `full` fails to compile | measure at P11; dead-code elimination; the science crates stay optional |
+| ~~The 24 MB preprocess cap~~ (retired by P11: the full bundle is ≈ 17.6 MB, 70 % of the cap; DCE takes the binary from 9.7 MB to 2.6 MB) | — | — |
+| **Dependency name clashes** (P11): the flat namespace makes two dependencies' same-named functions collide, as a compile error when arities differ and as a silently wrong result when they agree | `full` doesn't compile; ranga's sRGB is silently wrong | L18–L20 requests; P11's `names.py` scan rerun at every dependency bump |
 | Class G needs the dev box's GPU | GPU parity isn't checked in CI | CPU classes in CI on 3 targets; class G per milestone locally, as mabda's HW gates are |
 | bijli M7 slips | no `em` in 2.0 | D7 |
 | Consumers (kiran, salai, joshua) aren't local and still Rust | API decisions made blind | migration guide by M10; review D5 with the kiran maintainer before M6 |
@@ -581,7 +605,7 @@ Where the gap matters (sprite batching at scale), the remedies are the sibling o
 | Milestone | Status | Golden rows | Rust tests ported | Benches | Notes |
 |---|---|---|---|---|---|
 | D1–D9 | ✅ decided 2026-11-15 | — | — | — | |
-| M0 Prepare and initialize | ◐ step 0's code is done; the 1.2.0 tag is the maintainer's | — | — | — | then steps 1–8 |
+| M0 Prepare and initialize | ◐ steps 0–1 done (1.2.0 released; 11 probes in port-parity §1) | — | — | — | next: step 2, `cyrius port` |
 | M1 Foundation | ☐ | | | | |
 | M2 2D | ☐ | | | | |
 | M3 Geometry and animation | ☐ | | | | |

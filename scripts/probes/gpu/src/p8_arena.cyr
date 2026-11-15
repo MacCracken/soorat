@@ -1,0 +1,233 @@
+# p8_arena.cyr — soorat M0 probe P8: the per-frame memory of soorat's sprite and debug-line
+# batches under Cyrius's allocators, with RSS read from /proc/self/statm.
+#
+# Each frame builds, in soorat's order:
+#   a SpriteBatch of 1,000 sprites       1000 x 64 B  =  64,000 B   (sprites_fill)
+#   its Vertex2D stream                  4000 x 32 B  = 128,000 B   (sr_batch_to_vertices_into)
+#   its u16 index stream                 6000 x  2 B  =  12,000 B
+#   a 500-line debug LineBatch           1000 x 28 B  =  28,000 B   (sr_line_batch_fill)
+#                                                       232,000 B per frame
+# Modes (argv[1]), frames = argv[2]:
+#   arena     arena_new(262144), ARENA_FULL_ABORT; arena_reset every frame (plan §9.4)
+#   growable  arena_new_growable(65536); the chain grows on frame 1, arena_reset keeps it
+#   freelist  fl_alloc / fl_free per buffer (all four are > 4096 B: mmap / munmap each)
+#   global    alloc() and no reset — the contrast (expected to grow)
+# RSS is printed at frames 1, 10, 100, 1,000, 10,000 and 100,000 (those <= frames).
+#
+# Build: cyrius build --no-deps src/p8_arena.cyr build/p8_arena
+# Run:   ./build/p8_arena arena 100000   (see run_p8.sh)
+
+include "lib/syscalls.cyr"
+include "lib/string.cyr"
+include "lib/alloc.cyr"
+include "lib/fmt.cyr"
+include "lib/vec.cyr"
+include "lib/str.cyr"
+include "lib/io.cyr"
+include "lib/mmap.cyr"
+include "lib/freelist.cyr"
+include "lib/math.cyr"
+include "src/batch.cyr"
+
+var SPRITE_BYTES = 64000;
+var VERT_BYTES = 128000;
+var IDX_BYTES = 12000;
+var LINE_BYTES = 28000;
+var FRAME_BYTES = 232000;
+
+fn out(s): i64 { syscall(1, 1, s, strlen(s)); return 0; }
+fn outn(n): i64 {
+    var b[32];
+    memset(&b, 0, 32);
+    fmt_int_buf(n, &b);
+    syscall(1, 1, &b, strlen(&b));
+    return 0;
+}
+fn nl(): i64 { syscall(1, 1, "\n", 1); return 0; }
+
+# argv from /proc/self/cmdline, read into a stack buffer (no heap use).
+var _cmd[512];
+var _cmd_len = 0;
+fn arg(i): i64 {
+    if (_cmd_len == 0) {
+        var fd = syscall(2, "/proc/self/cmdline", 0, 0);
+        if (fd < 0) { return 0; }
+        _cmd_len = syscall(0, fd, &_cmd, 511);
+        syscall(3, fd);
+        if (_cmd_len < 0) { _cmd_len = 0; return 0; }
+    }
+    var p = 0;
+    var k = 0;
+    while (p < _cmd_len) {
+        if (k == i) { return &_cmd + p; }
+        p = p + strlen(&_cmd + p) + 1;
+        k = k + 1;
+    }
+    return 0;
+}
+
+fn parse_int(s): i64 {
+    var n = 0;
+    var i = 0;
+    while (load8(s + i) >= 48) {
+        if (load8(s + i) > 57) { break; }
+        n = n * 10 + load8(s + i) - 48;
+        i = i + 1;
+    }
+    return n;
+}
+
+# Resident set size in bytes: /proc/self/statm field 2 (pages) x 4096. Stack buffer only.
+fn rss_bytes(): i64 {
+    var buf[128];
+    memset(&buf, 0, 128);
+    var fd = syscall(2, "/proc/self/statm", 0, 0);
+    if (fd < 0) { return 0 - 1; }
+    var n = syscall(0, fd, &buf, 127);
+    syscall(3, fd);
+    if (n <= 0) { return 0 - 1; }
+    var i = 0;
+    while (load8(&buf + i) != 32) { i = i + 1; }
+    return parse_int(&buf + i + 1) * 4096;
+}
+
+var g_frame_heap = 0;   # bytes the frame's allocations asked for (all modes)
+
+fn build_frame(sp, vb, ib, lb): i64 {
+    sprites_fill(sp, 1000, 0.0);
+    sr_batch_to_vertices_into(sp, 1000, vb, ib);
+    sr_line_batch_fill(lb, 500);
+    return 0;
+}
+
+fn checkpoint(f): i64 {
+    if (f == 1) { return 1; }
+    if (f == 10) { return 1; }
+    if (f == 100) { return 1; }
+    if (f == 1000) { return 1; }
+    if (f == 10000) { return 1; }
+    if (f == 100000) { return 1; }
+    return 0;
+}
+
+fn report(mode, f, t0, extra): i64 {
+    out("  ");
+    out(mode);
+    out(" frame ");
+    outn(f);
+    out(": rss=");
+    outn(rss_bytes());
+    out(" B  alloc_used=");
+    outn(alloc_used());
+    out(" B  ");
+    out(extra);
+    out("elapsed_ms=");
+    outn((clock_now_ns_local() - t0) / 1000000);
+    nl();
+    return 0;
+}
+
+fn clock_now_ns_local(): i64 {
+    var ts[16];
+    syscall(228, 1, &ts);
+    return load64(&ts) * 1000000000 + load64(&ts + 8);
+}
+
+fn main(): i64 {
+    alloc_init();
+    var mode = arg(1);
+    if (mode == 0) { mode = "arena"; }
+    var frames = 100000;
+    if (arg(2) != 0) { frames = parse_int(arg(2)); }
+    out("P8 mode=");
+    out(mode);
+    out(" frames=");
+    outn(frames);
+    out(" bytes/frame=");
+    outn(FRAME_BYTES);
+    out(" (sprites 64000 + Vertex2D 128000 + u16 12000 + LineVertex 28000)");
+    nl();
+    out("  start: rss=");
+    outn(rss_bytes());
+    out(" B  alloc_used=");
+    outn(alloc_used());
+    out(" B");
+    nl();
+    var t0 = clock_now_ns_local();
+
+    if (streq(mode, "arena") == 1) {
+        var a = arena_new(262144);
+        arena_set_on_full(a, ARENA_FULL_ABORT);
+        for (var f = 1; f <= frames; f = f + 1) {
+            var sp = arena_alloc(a, SPRITE_BYTES);
+            var vb = arena_alloc(a, VERT_BYTES);
+            var ib = arena_alloc(a, IDX_BYTES);
+            var lb = arena_alloc(a, LINE_BYTES);
+            build_frame(sp, vb, ib, lb);
+            if (checkpoint(f) == 1) {
+                var used = arena_used(a);
+                report("arena", f, t0, "");
+                out("    arena_used before reset=");
+                outn(used);
+                nl();
+            }
+            arena_reset(a);
+        }
+    }
+    if (streq(mode, "growable") == 1) {
+        var g = arena_new_growable(65536);
+        for (var f = 1; f <= frames; f = f + 1) {
+            var sp = arena_alloc(g, SPRITE_BYTES);
+            var vb = arena_alloc(g, VERT_BYTES);
+            var ib = arena_alloc(g, IDX_BYTES);
+            var lb = arena_alloc(g, LINE_BYTES);
+            if (sp == 0) { out("growable: alloc returned 0"); nl(); return 1; }
+            if (vb == 0) { out("growable: alloc returned 0"); nl(); return 1; }
+            build_frame(sp, vb, ib, lb);
+            if (checkpoint(f) == 1) {
+                report("growable", f, t0, "");
+                out("    arena_capacity_total=");
+                outn(arena_capacity_total(g));
+                nl();
+            }
+            arena_reset(g);
+        }
+    }
+    if (streq(mode, "freelist") == 1) {
+        fl_init();
+        for (var f = 1; f <= frames; f = f + 1) {
+            var sp = fl_alloc(SPRITE_BYTES);
+            var vb = fl_alloc(VERT_BYTES);
+            var ib = fl_alloc(IDX_BYTES);
+            var lb = fl_alloc(LINE_BYTES);
+            build_frame(sp, vb, ib, lb);
+            if (checkpoint(f) == 1) { report("freelist", f, t0, ""); }
+            fl_free(lb);
+            fl_free(ib);
+            fl_free(vb);
+            fl_free(sp);
+        }
+    }
+    if (streq(mode, "global") == 1) {
+        for (var f = 1; f <= frames; f = f + 1) {
+            var sp = alloc(SPRITE_BYTES);
+            var vb = alloc(VERT_BYTES);
+            var ib = alloc(IDX_BYTES);
+            var lb = alloc(LINE_BYTES);
+            if (lb == 0) { out("global: alloc returned 0 at frame "); outn(f); nl(); return 1; }
+            build_frame(sp, vb, ib, lb);
+            if (checkpoint(f) == 1) { report("global", f, t0, ""); }
+        }
+    }
+    var t1 = clock_now_ns_local();
+    out("  done: ");
+    outn(frames);
+    out(" frames, mean frame time ");
+    outn((t1 - t0) / frames);
+    out(" ns");
+    nl();
+    return 0;
+}
+
+var rc = main();
+syscall(60, rc);

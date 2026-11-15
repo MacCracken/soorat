@@ -1,0 +1,49 @@
+# P11 (soorat port plan §4 step 1): one call into each bundle of the full soorat 2.0 dependency set, so
+# every bundle is linked and reachable from main. Shared by tests/p11_full.tcyr (diagnostics) and
+# src/main.cyr (binary size with and without dead-code elimination). Returns the number of checks that
+# failed; nothing here needs a GPU, a display or a file.
+
+fn _p11_check(ok, what): i64 {
+    if (ok == 1) { return 0; }
+    print("p11: FAILED ", 12);
+    print(what, strlen(what));
+    print("\n", 1);
+    return 1;
+}
+
+fn p11_calls(): i64 {
+    var bad = 0;
+    # mabda: the default backend, and a descriptor built without a device
+    bad = bad + _p11_check(MABDA_BACKEND_KIND == BACKEND_KIND_WGPU, "mabda wgpu backend");
+    bad = bad + _p11_check(wgpu_buffer_descriptor("p11", WGPU_BUFFER_USAGE_STORAGE, 64, 0) != 0, "mabda descriptor");
+    # chitra: a PNG signature check on 8 bytes that are not one
+    var sig[8];
+    memset(&sig, 0, 8);
+    bad = bad + _p11_check(chitra_png_check_signature(&sig, 8) == 0, "chitra refuses a bad signature");
+    # bayan (stdlib fold): a JSON parse
+    bad = bad + _p11_check(bayan_json_parse(str_from("{\"a\": 1}")) != 0, "bayan json");
+    # prakash
+    bad = bad + _p11_check(rgb_white() != 0, "prakash rgb_white");
+    # ranga
+    bad = bad + _p11_check(rg_bv_new(16) != 0, "ranga rg_bv_new");
+    # impetus
+    var ball: ImColliderShape = ImColliderShape_ball(0.5);
+    bad = bad + _p11_check(ball.kind == IM_SHAPE_BALL, "impetus ball");
+    # pravash
+    var sw: PvShallowWater;
+    var tw, vw = PvShallowWater_new(4, 4, 0.1, 1.0, &sw);
+    bad = bad + _p11_check(is_ok(tw), "pravash shallow water");
+    # goonj (on hisab 3.5.0 HVec3)
+    var viz = soorat_ray_visualization_new(hvec3_zero(), vec_new());
+    bad = bad + _p11_check(vec_len(soorat_ray_visualization_paths(viz)) == 0, "goonj soorat accessor");
+    bad = bad + _p11_check(find_nearest_wall_bvh(hvec3_zero(), hvec3_zero(), 0, 0, -1) == 0, "goonj bvh path");
+    # ushma (hisab calc_lerp)
+    var e: UsSaturated;
+    var te, ve = us_saturated_by_temperature(373.15, &e);
+    bad = bad + _p11_check(is_ok(te), "ushma steam table");
+    # selah
+    bad = bad + _p11_check(selah_error_name(0) != 0, "selah error name");
+    # agnodrm
+    bad = bad + _p11_check(drm_syserr_errno(drm_syserr_new(1, 13, 0)) == 13, "agnodrm syserr");
+    return bad;
+}

@@ -1,0 +1,15 @@
+# P11 (soorat port plan §4 step 1): the full soorat 2.0 dependency bundle as a production build, every bundle
+# reached from main, for the binary size with and without dead-code elimination.
+#   CYRIUS_DCE=0 cyrius build src/main.cyr build/p11_nodce
+#   CYRIUS_DCE=1 cyrius build src/main.cyr build/p11_dce
+include "src/p11_calls.cyr"
+
+fn main(): i64 {
+    alloc_init();
+    var bad = p11_calls();
+    if (bad == 0) { print("p11: ok\n", 8); }
+    return bad;
+}
+
+var rc = main();
+syscall(60, rc);

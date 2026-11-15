@@ -1,0 +1,169 @@
+# p7_upload.cyr — soorat M0 probe P7, GPU half (c): 1,000 sprites' vertex data written to a
+# GPU buffer every frame through mabda 4.2.0's public API (gpu_buffer_create /
+# gpu_buffer_write, which is wgpuQueueWriteBuffer on the wgpu backend), then submitted
+# with an (empty) render pass and waited on.
+#
+# Per frame:  gen   = sr_batch_to_vertices_into(1000)          (CPU, Cyrius)
+#             write = gpu_buffer_write(vb, 128000) + gpu_buffer_write(ib, 12000)
+#             submit= gpu_render_pass_begin + gpu_render_pass_end (clear 64x64, submit)
+#             wait  = gpu_device_wait_idle
+# The same loop without the two writes is the baseline. Afterwards the vertex buffer is read
+# back with gpu_buffer_read and compared with the CPU bytes.
+#
+# The buffer usage flag WGPU_BUFFER_USAGE_VERTEX is from wgpu_types.cyr (@internal): the
+# public tier has no buffer-usage names of its own.
+#
+# Build/run: sh build.sh p7_upload && ./build/p7_upload
+
+include "src/common.cyr"
+include "lib/math.cyr"
+include "src/batch.cyr"
+
+var FRAMES = 2000;
+var WARMUP = 100;
+
+fn isort(a, n): i64 {
+    # Shell sort, gaps n/2 ...
+    var gap = n / 2;
+    while (gap > 0) {
+        for (var i = gap; i < n; i = i + 1) {
+            var t = load64(a + i * 8);
+            var j = i;
+            while (j >= gap) {
+                var u = load64(a + (j - gap) * 8);
+                if (u <= t) { break; }
+                store64(a + j * 8, u);
+                j = j - gap;
+            }
+            store64(a + j * 8, t);
+        }
+        gap = gap / 2;
+    }
+    return 0;
+}
+
+# Print "name: mean=.. median=.. p99=.. min=.. max=.. (ns)" for n samples at a.
+fn stats(name, a, n): i64 {
+    var sum = 0;
+    for (var i = 0; i < n; i = i + 1) { sum = sum + load64(a + i * 8); }
+    isort(a, n);
+    out("  ");
+    out(name);
+    out(": mean=");
+    outn(sum / n);
+    out(" median=");
+    outn(load64(a + (n / 2) * 8));
+    out(" p99=");
+    outn(load64(a + ((n * 99) / 100) * 8));
+    out(" min=");
+    outn(load64(a));
+    out(" max=");
+    outn(load64(a + (n - 1) * 8));
+    out(" ns");
+    nl();
+    return 0;
+}
+
+fn mabda_main(fn_table_ptr, preinit_ptr): i64 {
+    color_init();
+    wgpu_ffi_init_table(fn_table_ptr);
+    var res_tag, res = gpu_context_from_preinit(preinit_ptr);
+    if (is_err_result(res_tag) == 1) { out("SKIP: no GPU"); nl(); return 0; }
+    var ctx = res;
+    print_adapter(ctx);
+
+    var sprites = alloc(1000 * SPRITE_STRIDE);
+    sprites_fill(sprites, 1000, 0.0);
+    var verts = alloc(128000);
+    var idx = alloc(12000);
+    sr_batch_to_vertices_into(sprites, 1000, verts, idx);
+
+    var vb = gpu_buffer_create(ctx, 131072, WGPU_BUFFER_USAGE_VERTEX);
+    var ib = gpu_buffer_create(ctx, 12288, WGPU_BUFFER_USAGE_INDEX);
+    if (vb == 0) { out("vertex buffer create FAILED"); nl(); return 1; }
+    if (ib == 0) { out("index buffer create FAILED"); nl(); return 1; }
+    var rt = gpu_render_target_create_2d_rgba8(ctx, 64, 64);
+    var clear = color_new(F64_0, F64_0, F64_0, F64_1);
+
+    var t_gen = alloc(FRAMES * 8);
+    var t_write = alloc(FRAMES * 8);
+    var t_submit = alloc(FRAMES * 8);
+    var t_wait = alloc(FRAMES * 8);
+    var t_frame = alloc(FRAMES * 8);
+    var t_base = alloc(FRAMES * 8);
+
+    # Warm-up: both paths.
+    for (var w = 0; w < WARMUP; w = w + 1) {
+        sr_batch_to_vertices_into(sprites, 1000, verts, idx);
+        gpu_buffer_write(ctx, vb, 0, verts, 128000);
+        gpu_buffer_write(ctx, ib, 0, idx, 12000);
+        var p0 = gpu_render_pass_begin(ctx, rt, clear);
+        gpu_render_pass_end(ctx, p0);
+        gpu_device_wait_idle(ctx);
+    }
+
+    # Baseline: gen + submit + wait, no writes.
+    for (var f = 0; f < FRAMES; f = f + 1) {
+        var a0 = clock_now_ns();
+        sr_batch_to_vertices_into(sprites, 1000, verts, idx);
+        var p1 = gpu_render_pass_begin(ctx, rt, clear);
+        gpu_render_pass_end(ctx, p1);
+        gpu_device_wait_idle(ctx);
+        var a1 = clock_now_ns();
+        store64(t_base + f * 8, a1 - a0);
+    }
+
+    # Upload frames.
+    var heap0 = alloc_used();
+    for (var f = 0; f < FRAMES; f = f + 1) {
+        var b0 = clock_now_ns();
+        sr_batch_to_vertices_into(sprites, 1000, verts, idx);
+        var b1 = clock_now_ns();
+        gpu_buffer_write(ctx, vb, 0, verts, 128000);
+        gpu_buffer_write(ctx, ib, 0, idx, 12000);
+        var b2 = clock_now_ns();
+        var p2 = gpu_render_pass_begin(ctx, rt, clear);
+        gpu_render_pass_end(ctx, p2);
+        var b3 = clock_now_ns();
+        gpu_device_wait_idle(ctx);
+        var b4 = clock_now_ns();
+        store64(t_gen + f * 8, b1 - b0);
+        store64(t_write + f * 8, b2 - b1);
+        store64(t_submit + f * 8, b3 - b2);
+        store64(t_wait + f * 8, b4 - b3);
+        store64(t_frame + f * 8, b4 - b0);
+    }
+    var heap1 = alloc_used();
+
+    out("P7 (c): ");
+    outn(FRAMES);
+    out(" frames, 1000 sprites = 128000 B vertices + 12000 B u16 indices per frame");
+    nl();
+    stats("gen (sr_batch_to_vertices_into)", t_gen, FRAMES);
+    stats("write (gpu_buffer_write x2, 140000 B)", t_write, FRAMES);
+    stats("submit (empty pass begin+end)", t_submit, FRAMES);
+    stats("wait (gpu_device_wait_idle)", t_wait, FRAMES);
+    stats("frame total", t_frame, FRAMES);
+    stats("baseline frame (no writes)", t_base, FRAMES);
+    out("  Cyrius heap growth over the upload frames (alloc_used): ");
+    outn(heap1 - heap0);
+    out(" B (");
+    outn((heap1 - heap0) / FRAMES);
+    out(" B/frame; render-pass begin allocates its pass struct per call)");
+    nl();
+
+    # Read back and compare.
+    var back = alloc(128000);
+    memset(back, 0, 128000);
+    var r0 = clock_now_ns();
+    var rc = gpu_buffer_read(ctx, vb, 0, back, 128000);
+    var r1 = clock_now_ns();
+    out("  gpu_buffer_read(128000) rc=");
+    outn(rc);
+    out(" time_us=");
+    outn((r1 - r0) / 1000);
+    out(" bytes_match=");
+    outn(memeq(back, verts, 128000));
+    nl();
+    return 0;
+}

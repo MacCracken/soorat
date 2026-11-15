@@ -1,0 +1,8 @@
+P8 mode=global frames=10000 bytes/frame=232000 (sprites 64000 + Vertex2D 128000 + u16 12000 + LineVertex 28000)
+  start: rss=188416 B  alloc_used=0 B
+  global frame 1: rss=2285568 B  alloc_used=232000 B  elapsed_ms=0
+  global frame 10: rss=4382720 B  alloc_used=2320000 B  elapsed_ms=1
+  global frame 100: rss=25354240 B  alloc_used=23200000 B  elapsed_ms=9
+  global frame 1000: rss=232972288 B  alloc_used=232000000 B  elapsed_ms=96
+  global frame 10000: rss=2321735680 B  alloc_used=2320000000 B  elapsed_ms=966
+  done: 10000 frames, mean frame time 96608 ns

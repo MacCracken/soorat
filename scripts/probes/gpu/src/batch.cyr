@@ -1,0 +1,136 @@
+# batch.cyr — the per-frame vertex work of soorat's sprite and debug-line paths, in
+# Cyrius, for probes P7 and P8. Needs lib/math.cyr (f64_sin / f64_cos) for rotation.
+#
+# Sprite record (64 bytes; the fields soorat's batch_to_vertices reads, src/sprite.rs):
+#   +0 x  +4 y  +8 width  +12 height  +16 rotation          (f32)
+#   +20 r +24 g +28 b +32 a                                  (f32, Color::to_array)
+#   +36 u_min +40 v_min +44 u_max +48 v_max                  (f32, UvRect)
+#   +52 z_order (i32)  +56 texture_id (u64)
+# Vertex2D (mabda, 32 bytes): position[2] +0, tex_coords[2] +8, color[4] +16 (f32).
+# Indices: u16, QUAD_INDICES = [0, 1, 2, 2, 3, 0] per sprite.
+# LineVertex (soorat debug_draw, 28 bytes): position[3] +0, color[4] +12 (f32).
+
+var SPRITE_STRIDE = 64;
+var V2D_STRIDE = 32;
+var LINE_VERTEX_STRIDE = 28;
+
+# Fill n sprites as soorat's benches/benchmarks.rs pipeline/batch_to_vertices_1000 does:
+# Sprite::new(i * 10.0, 0.0, 32.0, 32.0).with_color(WHITE), uv (0, 0)-(1, 1),
+# rotation = i * rot_step (0.0 for the unrotated bench).
+fn sprites_fill(sp, n, rot_step: f64): i64 {
+    var one32 = f32_from(1.0);
+    for (var i = 0; i < n; i = i + 1) {
+        var s = sp + i * SPRITE_STRIDE;
+        store32(s + 0, f32_from(f64_from(i) * 10.0));
+        store32(s + 4, 0);
+        store32(s + 8, f32_from(32.0));
+        store32(s + 12, f32_from(32.0));
+        store32(s + 16, f32_from(f64_from(i) * rot_step));
+        store32(s + 20, one32);
+        store32(s + 24, one32);
+        store32(s + 28, one32);
+        store32(s + 32, one32);
+        store32(s + 36, 0);
+        store32(s + 40, 0);
+        store32(s + 44, one32);
+        store32(s + 48, one32);
+        store32(s + 52, 1000 - i);
+        store64(s + 56, 0);
+    }
+    return 0;
+}
+
+# soorat's batch_to_vertices_into + emit_quad_u16 + sprite_quad, transcribed: every value
+# is an f32 operation in Rust's order. Writes n * 128 bytes of Vertex2D at verts and
+# n * 12 bytes of u16 indices at idx. Returns n.
+fn sr_batch_to_vertices_into(sp, n, verts, idx): i64 {
+    var half: f32 = 0.5;
+    var zero: f32 = 0.0;
+    var one: f32 = 1.0;
+    for (var i = 0; i < n; i = i + 1) {
+        var s = sp + i * SPRITE_STRIDE;
+        var x: f32 = load32(s);
+        var y: f32 = load32(s + 4);
+        var w: f32 = load32(s + 8);
+        var h: f32 = load32(s + 12);
+        var cx: f32 = x + w * half;
+        var cy: f32 = y + h * half;
+        var hw: f32 = w * half;
+        var hh: f32 = h * half;
+        var nhw: f32 = -hw;
+        var nhh: f32 = -hh;
+        var sn: f32 = zero;
+        var cs: f32 = one;
+        var rbits = load32(s + 16);
+        if ((rbits & 0x7FFFFFFF) != 0) {
+            # Rust: f32::sin / f32::cos. Here through f64 (the plan's D4(b) path).
+            var r64 = f32_to(rbits);
+            sn = f32_from(f64_sin(r64));
+            cs = f32_from(f64_cos(r64));
+        }
+        var cr = load32(s + 20);
+        var cg = load32(s + 24);
+        var cb = load32(s + 28);
+        var ca = load32(s + 32);
+        var u0 = load32(s + 36);
+        var v0 = load32(s + 40);
+        var u1 = load32(s + 44);
+        var v1 = load32(s + 48);
+        var v = verts + i * 128;
+        # corner 0: (-hw, -hh), uv (u_min, v_min)
+        var px: f32 = nhw * cs - nhh * sn + cx;
+        var py: f32 = nhw * sn + nhh * cs + cy;
+        store32(v, px); store32(v + 4, py); store32(v + 8, u0); store32(v + 12, v0);
+        store32(v + 16, cr); store32(v + 20, cg); store32(v + 24, cb); store32(v + 28, ca);
+        # corner 1: (hw, -hh), uv (u_max, v_min)
+        px = hw * cs - nhh * sn + cx;
+        py = hw * sn + nhh * cs + cy;
+        store32(v + 32, px); store32(v + 36, py); store32(v + 40, u1); store32(v + 44, v0);
+        store32(v + 48, cr); store32(v + 52, cg); store32(v + 56, cb); store32(v + 60, ca);
+        # corner 2: (hw, hh), uv (u_max, v_max)
+        px = hw * cs - hh * sn + cx;
+        py = hw * sn + hh * cs + cy;
+        store32(v + 64, px); store32(v + 68, py); store32(v + 72, u1); store32(v + 76, v1);
+        store32(v + 80, cr); store32(v + 84, cg); store32(v + 88, cb); store32(v + 92, ca);
+        # corner 3: (-hw, hh), uv (u_min, v_max)
+        px = nhw * cs - hh * sn + cx;
+        py = nhw * sn + hh * cs + cy;
+        store32(v + 96, px); store32(v + 100, py); store32(v + 104, u0); store32(v + 108, v1);
+        store32(v + 112, cr); store32(v + 116, cg); store32(v + 120, cb); store32(v + 124, ca);
+        var base = i * 4;
+        var q = idx + i * 12;
+        store16(q, base); store16(q + 2, base + 1); store16(q + 4, base + 2);
+        store16(q + 6, base + 2); store16(q + 8, base + 3); store16(q + 10, base);
+    }
+    return n;
+}
+
+# soorat's LineBatch::line(from, to, color): two LineVertex. Line k of n runs from
+# (k, 0, 0) to (k, 1, 0), colour (1, 0, 0, 1). Writes n * 56 bytes at lv. Returns 2n.
+fn sr_line_batch_fill(lv, n): i64 {
+    var one32 = f32_from(1.0);
+    for (var k = 0; k < n; k = k + 1) {
+        var a = lv + k * 56;
+        var xk = f32_from(f64_from(k));
+        store32(a + 0, xk); store32(a + 4, 0); store32(a + 8, 0);
+        store32(a + 12, one32); store32(a + 16, 0); store32(a + 20, 0); store32(a + 24, one32);
+        store32(a + 28, xk); store32(a + 32, one32); store32(a + 36, 0);
+        store32(a + 40, one32); store32(a + 44, 0); store32(a + 48, 0); store32(a + 52, one32);
+    }
+    return n * 2;
+}
+
+# Word-copy memcpy (8 bytes per step, byte tail): what L13 asks the stdlib for.
+fn memcpy_words(dst, src, n): i64 {
+    var i = 0;
+    var nw = n & (0 - 8);
+    while (i < nw) {
+        store64(dst + i, load64(src + i));
+        i = i + 8;
+    }
+    while (i < n) {
+        store8(dst + i, load8(src + i));
+        i = i + 1;
+    }
+    return dst;
+}

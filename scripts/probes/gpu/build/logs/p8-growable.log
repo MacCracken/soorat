@@ -1,0 +1,15 @@
+P8 mode=growable frames=100000 bytes/frame=232000 (sprites 64000 + Vertex2D 128000 + u16 12000 + LineVertex 28000)
+  start: rss=192512 B  alloc_used=0 B
+  growable frame 1: rss=2289664 B  alloc_used=259176 B  elapsed_ms=0
+    arena_capacity_total=259072
+  growable frame 10: rss=2289664 B  alloc_used=259176 B  elapsed_ms=1
+    arena_capacity_total=259072
+  growable frame 100: rss=2289664 B  alloc_used=259176 B  elapsed_ms=9
+    arena_capacity_total=259072
+  growable frame 1000: rss=2289664 B  alloc_used=259176 B  elapsed_ms=89
+    arena_capacity_total=259072
+  growable frame 10000: rss=2289664 B  alloc_used=259176 B  elapsed_ms=887
+    arena_capacity_total=259072
+  growable frame 100000: rss=2289664 B  alloc_used=259176 B  elapsed_ms=8919
+    arena_capacity_total=259072
+  done: 100000 frames, mean frame time 89192 ns

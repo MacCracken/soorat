@@ -1,0 +1,49 @@
+# P4 "one hisab" (soorat port plan §4 step 1, D9). The same file runs in p4_h350/, p4_h341/ and p4_nopin/;
+# only the directory's cyrius.cyml differs (which hisab the compile prepends). It compiles the five bundles
+# together and calls one entry of each, the two hisab consumers through their hisab paths:
+#   ushma  us_saturated_by_temperature -> _us_sat_interpolate -> hisab calc_lerp
+#   goonj  soorat_ray_visualization_new / soorat_pressure_map_new on hisab HVec3s
+# The measurement is the compile's diagnostics (warnings name any hisab function a bundle calls that this
+# hisab lacks); the asserts only show the linked program runs.
+#   cyrius test --bounds tests/p4_one_hisab.tcyr
+
+fn p4_ushma() {
+    test_group("ushma steam table through hisab calc_lerp");
+    var e: UsSaturated;
+    var te, ve = us_saturated_by_temperature(373.15, &e);
+    assert_eq(is_ok(te), 1, "us_saturated_by_temperature(373.15) is Ok");
+    var ps: f64 = e.pressure;
+    assert(ps > 100000.0, "p_sat(100 C) > 100 kPa");
+    assert(ps < 103000.0, "p_sat(100 C) < 103 kPa");
+    return 0;
+}
+
+fn p4_goonj() {
+    test_group("goonj soorat accessors on hisab HVec3");
+    var viz = soorat_ray_visualization_new(hvec3_zero(), vec_new());
+    assert_eq(vec_len(soorat_ray_visualization_paths(viz)), 0, "empty paths");
+    assert_eq(f64_to(HVec3_x(soorat_ray_visualization_source(viz))), 0, "source x = 0");
+    var vals = vec_new();
+    for (var k = 0; k < 8; k = k + 1) { vec_push(vals, 0); }
+    var pm = soorat_pressure_map_new(vals, 2, 2, 2, hvec3_zero(), F64_ONE, f64_from(1000));
+    assert_eq(soorat_pressure_map_dimension(pm, 2), 2, "nz = 2");
+    return 0;
+}
+
+fn p4_others() {
+    test_group("prakash, pravash, impetus link");
+    var white = rgb_white();
+    assert(white != 0, "prakash rgb_white allocates");
+    var sw: PvShallowWater;
+    var tw, vw = PvShallowWater_new(4, 4, 0.1, 1.0, &sw);
+    assert_eq(is_ok(tw), 1, "pravash PvShallowWater_new(4, 4) is Ok");
+    var ball: ImColliderShape = ImColliderShape_ball(0.5);
+    assert(ball.kind == IM_SHAPE_BALL, "impetus ImColliderShape_ball");
+    return 0;
+}
+
+alloc_init();
+p4_ushma();
+p4_goonj();
+p4_others();
+var r = assert_summary();

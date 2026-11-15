@@ -1,0 +1,15 @@
+# P4 companion (soorat port plan §4 step 1, D9): makes goonj's BVH wall query REACHABLE.
+# goonj 2.3.2's _nearest_wall_bvh calls hisab_alloc_scope, which hisab added in 3.4.2. In an unreachable fn an
+# undefined function is only a warning; here the call is reachable, so a hisab without it refuses the binary.
+# The zero direction returns before any hisab call at run time; the reachability is what is measured.
+#   cyrius test --bounds tests/p4_goonj_bvh.tcyr
+fn p4_bvh() {
+    test_group("goonj find_nearest_wall_bvh is reachable");
+    var hit = find_nearest_wall_bvh(hvec3_zero(), hvec3_zero(), 0, 0, -1);
+    assert_eq(hit, 0, "a zero direction hits nothing");
+    return 0;
+}
+
+alloc_init();
+p4_bvh();
+var r = assert_summary();

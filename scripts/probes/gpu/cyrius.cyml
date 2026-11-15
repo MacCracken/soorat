@@ -1,0 +1,21 @@
+[package]
+name = "soorat-probes-gpu"
+version = "0.0.0"
+description = "soorat M0 step 1 probes P6-P8: WGSL through mabda, upload cost, frame arena"
+license = "GPL-3.0-only"
+language = "cyrius"
+cyrius = "6.7.18"
+
+# No [build] section: the P6 program has no entry point of its own. It defines
+# mabda_main and is compiled as an object, then linked with mabda's C launcher
+# and wgpu-native (see build.sh).
+
+[deps]
+stdlib = [
+    "syscalls", "string", "alloc", "str", "fmt", "io", "vec", "args",
+    "hashmap", "tagged", "fnptr", "mmap", "dynlib", "sakshi", "thread_local",
+    "chrono", "result", "freelist", "math", "mabda",
+]
+
+[test]
+stdlib = ["assert", "bench"]

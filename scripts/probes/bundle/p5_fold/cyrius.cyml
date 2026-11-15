@@ -1,0 +1,19 @@
+# P5 "mabda on 6.7.18" (soorat port plan §4 step 1, D9 / L12), the stdlib-fold route: mabda 4.2.0 as the
+# 6.7.18 snapshot's opt-in leaf lib/mabda.cyr (byte-identical to mabda's tag-4.2.0 dist/mabda.cyr). The
+# stdlib list ends with the README quickstart's include order, mmap -> dynlib -> sakshi -> mabda, and the
+# test repeats those four includes (include-once by spelling).
+#   cd scripts/probes/bundle/p5_fold && cyrius deps && cyrius test --bounds tests/p5_mabda.tcyr
+[package]
+name = "soorat-probes-p5-fold"
+version = "0.0.0"
+description = "soorat M0 probe P5: mabda 4.2.0 (stdlib fold) on cyrius 6.7.18, minimal wgpu consumer"
+license = "GPL-3.0-only"
+language = "cyrius"
+cyrius = "6.7.18"
+
+[deps]
+stdlib = ["syscalls", "string", "alloc", "str", "fmt", "vec", "io", "args", "hashmap", "chrono", "tagged",
+    "fnptr", "result", "mmap", "dynlib", "sakshi", "mabda"]
+
+[test]
+stdlib = ["assert", "bench"]
