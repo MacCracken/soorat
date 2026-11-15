@@ -1,10 +1,10 @@
 # soorat Rust → Cyrius port plan
 
-> **Proposed 2026-11-15. Not started.** The decisions in §0.2 are recommendations awaiting the maintainer.
+> **Decided 2026-11-15: the maintainer took every recommendation in §0.2 (D1–D9).** Not started. Next: M0 step 0 (§4), the Rust-side freeze.
 
 > **Plan of record** for porting soorat to Cyrius.
 >
-> - **Versions.** Rust **1.1.0** is the final Rust release and the oracle. The Cyrius port ships as **2.0.0**.
+> - **Versions.** Rust **1.1.1** is the final Rust release and the oracle: 1.1.0 (the 2026-11 audit, plus D1's hidden `oracle` feature), then D2's four fixes. The Cyrius port ships as **2.0.0**.
 > - **Method.** tanmatra's ([ADR 0006](../../../tanmatra/docs/adr/0006-cyrius-port-with-rust-oracle.md)), as adapted by impetus, kimiya, pravash, bijli and selah.
 > - **Models.**
 >   - **Process: pravash** ([its plan](../../../pravash/docs/development/pravash-port-plan.md)). It is the most recent completed port and close in size: 6.9k code lines against soorat's 7.6k.
@@ -22,7 +22,7 @@
 
 | Thing | Value | Source |
 |---|---|---|
-| Rust source | **soorat 1.1.0**: the version bump is in the tree, but not committed or tagged. 7,649 code lines in `src/` (no tests, comments or blank lines) across 44 modules, 267 `pub fn`s and 15 `#[repr(C)]` GPU-layout types, plus 9 WGSL shaders (1,009 lines) | `VERSION`; count of `src/` |
+| Rust source | **soorat 1.1.0**: the version bump is in the tree, but not committed or tagged. The oracle will be 1.1.1 (D1, D2); the counts below are 1.1.0's. 7,649 code lines in `src/` (no tests, comments or blank lines) across 44 modules, 267 `pub fn`s and 15 `#[repr(C)]` GPU-layout types, plus 9 WGSL shaders (1,009 lines) | `VERSION`; count of `src/` |
 | Tests | 479: 458 unit, 12 integration, 7 GPU smoke (they skip without an adapter) and 2 shader-validation (naga, all 9 shaders) | `src/`, `tests/` |
 | Benchmarks | 35 criterion benches. History in `bench-history.csv`: a baseline and two post-audit runs (2026-11-15) | `benches/benchmarks.rs` |
 | Features | `optics` (prakash), `ranga`, `physics-debug` (impetus), `fluids` (pravash), `acoustics` (goonj + hisab), `em` (bijli), `thermo` (ushma), `screenshot` (selah, uuid, chrono), `drm` (agnosys, git), `full` | `Cargo.toml` |
@@ -37,7 +37,7 @@
 | Dev hardware | PCI `0x1638`: Cezanne, which RADV reports as RENOIR (gfx90c). This is mabda's HW-verified native-AMD chip | `/sys/class/drm/card1/device/device`; [mabda benchmarks](../../../mabda/docs/benchmarks-rust-v-cyrius.md) |
 | Consumers | kiran (its `rendering` feature), salai and joshua. All Rust; none is checked out locally | [agnosticos kiran.md](../../../agnosticos/docs/applications/libs/kiran.md) |
 | Waiting on this port | tanmatra and kimiya defer their soorat integration modules "until soorat ports". jantu (Rust) produces soorat-shaped data. mabda's **v5.1 wgpu-retirement gate** requires soorat to run native | [tanmatra plan](../../../tanmatra/docs/development/tanmatra-port-plan.md); [kimiya rust-parity](../../../kimiya/docs/development/rust-parity.md); [mabda roadmap](../../../mabda/docs/development/roadmap.md) §v5.1 |
-| Target | **soorat 2.0.0**, Cyrius, carrying everything 1.1.0 does except the not-carried list (§3.2) | this document |
+| Target | **soorat 2.0.0**, Cyrius, carrying everything 1.1.1 does except the not-carried list (§3.2) | this document |
 
 ---
 
@@ -47,9 +47,9 @@
 
 - **No deferral without a language check.** A Rust feature leaves the 2.0 scope only for a written reason against §1.1: a capability Cyrius lacks, a measured cost, or nothing to test against.
 - **The Rust crate is frozen.**
-  - 1.1.0 moves to `rust-old/` and is never edited.
+  - 1.1.1 moves to `rust-old/` and is never edited.
   - A generator crate in `scripts/golden/` drives it by path.
-  - If a value 1.1.0 records is wrong, it is fixed in Rust as 1.1.x and the corpus is regenerated (as tanmatra).
+  - If a value 1.1.1 records is wrong, it is fixed in Rust as 1.1.x and the corpus is regenerated (as tanmatra).
 - **No Rust 2.0.** API-shape fixes land in the Cyrius API only, through ADR 0002 ([kimiya's rule](../../../kimiya/handoff/memory/api-fixes-in-cyrius-port-only.md)).
 - **Upstream requests never block CPU work** (as pravash §0.1).
   - Every gap in a Cyrius library or the stdlib is filed with soorat's numbers.
@@ -60,19 +60,19 @@
 - **Accuracy beats glibc, within D4's scope.** Correctly rounded primitives are used wherever soorat computes in f64. Quantized outputs keep Rust's f32 sequence (D4).
 - **Tables are generated, never retyped.** tanmatra's audit found 17 of 32 hand-transcribed AME rows wrong. The sRGB table, f16 edge rows and BRDF LUT rows come from the oracle.
 
-### 0.2 Proposed decisions
+### 0.2 Decided 2026-11-15 (the maintainer took every recommendation)
 
-| # | Question | Recommendation | Not chosen |
+| # | Question | Decision | Not chosen |
 |---|---|---|---|
-| D1 | **Freezing the oracle.** 1.1.0 is bumped but not committed. The golden generator needs private helpers: `viz`, `math_util`, animation's `slerp` and `bracket`, environment's f16/sRGB/downsample, and shadow's split and basis code | Add a hidden `oracle` feature that re-exports those helpers read-only, plus a test proving they are read-only (as pravash D1). Commit, tag 1.1.0 (the maintainer's step), then port | Tag 1.1.0 now and add the hooks as 1.1.1 |
-| D2 | **Known value defects in 1.1.0's backlog.** CUBICSPLINE keeps values but drops tangents; particle damping is per step, not scaled by dt; shallow water ignores bathymetry; the bloom composite is unreachable, so bloom output is never used | **Fix all four in Rust 1.1.1 before the freeze** (each is effort S). Otherwise the corpus and the reference renders freeze wrong values that the port must reproduce, then fix again. The API-shaped items (per-draw model uniforms, depth load/clear) become Cyrius-only ADR 0002 rows. The feature-shaped items (GGX-prefiltered mips, cascade selection, node-centred heatmaps) wait until after 2.0 | Port 1.1.0 as it is and fix in 2.x |
-| D3 | **GPU route for 2.0** | **WGSL on mabda's wgpu-native backend.** The nine shaders carry over verbatim. Native AMD and NVIDIA follow once mabda has a render-capable shader path (§13). Two consequences: wgpu-on-AMD is deprecated in mabda 4.0.1 (a one-shot warning; `-D MABDA_AMD_WGPU_STRICT` must stay off), and mabda's v5.1 retirement gate waits on soorat going native | Hand-encoded GFX9 and SM75 shaders for 2.0: 9 × 2 programs, no compiler, and every GPU milestone blocked. SPIR-V on native AMD: the lowerer parses only `GLCompute` and caps a shader at 256 ids |
-| D4 | **Precision policy.** soorat computes in f32 because the GPU does; the Cyrius science crates now hand over f64 | **Three rules.** (a) Quantized or bit-defined outputs (u8 colours, sRGB tables, f16 packing, indices, counts, glyph lookups, UV rects) follow **Rust's f32 sequence exactly**: class A. (b) Geometry and matrices bound for the GPU are **computed in f64 and rounded once to f32** at packing: an ADR 0002 divergence, checked against Rust and against an f64 reference (§5). (c) Science inputs stay f64 until vertex packing | Bit-faithful f32 everywhere ("compute in Rust's precision, not more", ranga): the cheapest parity, but it gives up §6's gains. f64 everywhere: it flips quantized outputs (ranga: f32 `0x3f010101` gave 129 in Rust, 128 in f64) |
-| D5 | **Who owns the window.** mabda's wgpu path already makes the application own the entry point: a C launcher calls `mabda_main(fn_table, preinit)` | **soorat 2.0 owns no window or event loop.** The application passes a mabda `GpuContext` and a surface. A shared Wayland window library is its own project: the `win_*` client exists in four copies, in puka, cyrius-doom, jalwa and thoth | A Wayland client inside soorat, which would be the fifth copy |
-| D6 | **glTF loading** | A soorat-owned `src/gltf.cyr`, built on bayan's JSON tree, `load8/16/32` and chitra for embedded images. It carries exactly 1.1.0's subset and validation: GLB plus embedded buffers, triangles only, index range checks, checked buffer views, skins, LINEAR/STEP/CUBICSPLINE | A separate glTF package first. Only soorat needs one today; wait for the third instance |
-| D7 | **em_render and bijli** | Port `em_render` in M5 **if bijli 2.0.0 (its M7) has shipped**. Otherwise 2.0.0 ships without the `em` feature and `em_render` follows in 2.1.0. The EM axis-convention fix (roadmap backlog) goes in with it as an ADR 0002 row | Hold 2.0.0 for bijli, or port against bijli's pre-M7 API |
-| D8 | **Reshaped modules** | `egui_bridge`: **not carried** (Cyrius has no egui; dhancha is retained-mode). `window`: reduced per D5. `drm`: reduced to what agnodrm 1.8.1 offers (device list, driver version, capabilities) until agnodrm adds connector, mode and render-node queries (L10). `screenshot` encoding: a selah request for a public raw-RGBA PNG/JPEG/BMP encoder (L9), with selah's private encoders vendored as the stand-in | Writing new encoders in soorat |
-| D9 | **Shared dependency pins** | M0 probe P4 builds the full bundle on **one hisab** and on cyrius 6.7.18. Alignment requests are filed: the hisab 3.4.1 consumers move to 3.5.x (L11), and mabda's pin moves to 6.7.18 (L12). **soorat itself declares no hisab dependency**, because goonj's `soorat_*` accessors return plain values | soorat pinning its own hisab |
+| ✅ D1 | **Freezing the oracle.** 1.1.0 is bumped but not committed. The golden generator needs private helpers: `viz`, `math_util`, animation's `slerp` and `bracket`, environment's f16/sRGB/downsample, and shadow's split and basis code | Add a hidden `oracle` feature that re-exports those helpers read-only, plus a test proving they are read-only (as pravash D1). Commit, tag 1.1.0 (the maintainer's step), then port | Tag 1.1.0 now and add the hooks as 1.1.1 |
+| ✅ D2 | **Known value defects in 1.1.0's backlog.** CUBICSPLINE keeps values but drops tangents; particle damping is per step, not scaled by dt; shallow water ignores bathymetry; the bloom composite is unreachable, so bloom output is never used | **Fix all four in Rust 1.1.1 before the freeze** (each is effort S). Otherwise the corpus and the reference renders freeze wrong values that the port must reproduce, then fix again. The API-shaped items (per-draw model uniforms, depth load/clear) become Cyrius-only ADR 0002 rows. The feature-shaped items (GGX-prefiltered mips, cascade selection, node-centred heatmaps) wait until after 2.0 | Port 1.1.0 as it is and fix in 2.x |
+| ✅ D3 | **GPU route for 2.0** | **WGSL on mabda's wgpu-native backend.** The nine shaders carry over verbatim. Native AMD and NVIDIA follow once mabda has a render-capable shader path (§13). Two consequences: wgpu-on-AMD is deprecated in mabda 4.0.1 (a one-shot warning; `-D MABDA_AMD_WGPU_STRICT` must stay off), and mabda's v5.1 retirement gate waits on soorat going native | Hand-encoded GFX9 and SM75 shaders for 2.0: 9 × 2 programs, no compiler, and every GPU milestone blocked. SPIR-V on native AMD: the lowerer parses only `GLCompute` and caps a shader at 256 ids |
+| ✅ D4 | **Precision policy.** soorat computes in f32 because the GPU does; the Cyrius science crates now hand over f64 | **Three rules.** (a) Quantized or bit-defined outputs (u8 colours, sRGB tables, f16 packing, indices, counts, glyph lookups, UV rects) follow **Rust's f32 sequence exactly**: class A. (b) Geometry and matrices bound for the GPU are **computed in f64 and rounded once to f32** at packing: an ADR 0002 divergence, checked against Rust and against an f64 reference (§5). (c) Science inputs stay f64 until vertex packing | Bit-faithful f32 everywhere ("compute in Rust's precision, not more", ranga): the cheapest parity, but it gives up §6's gains. f64 everywhere: it flips quantized outputs (ranga: f32 `0x3f010101` gave 129 in Rust, 128 in f64) |
+| ✅ D5 | **Who owns the window.** mabda's wgpu path already makes the application own the entry point: a C launcher calls `mabda_main(fn_table, preinit)` | **soorat 2.0 owns no window or event loop.** The application passes a mabda `GpuContext` and a surface. A shared Wayland window library is its own project: the `win_*` client exists in four copies, in puka, cyrius-doom, jalwa and thoth | A Wayland client inside soorat, which would be the fifth copy |
+| ✅ D6 | **glTF loading** | A soorat-owned `src/gltf.cyr`, built on bayan's JSON tree, `load8/16/32` and chitra for embedded images. It carries exactly 1.1.0's subset and validation: GLB plus embedded buffers, triangles only, index range checks, checked buffer views, skins, LINEAR/STEP/CUBICSPLINE | A separate glTF package first. Only soorat needs one today; wait for the third instance |
+| ✅ D7 | **em_render and bijli** | Port `em_render` in M5 **if bijli 2.0.0 (its M7) has shipped**. Otherwise 2.0.0 ships without the `em` feature and `em_render` follows in 2.1.0. The EM axis-convention fix (roadmap backlog) goes in with it as an ADR 0002 row | Hold 2.0.0 for bijli, or port against bijli's pre-M7 API |
+| ✅ D8 | **Reshaped modules** | `egui_bridge`: **not carried** (Cyrius has no egui; dhancha is retained-mode). `window`: reduced per D5. `drm`: reduced to what agnodrm 1.8.1 offers (device list, driver version, capabilities) until agnodrm adds connector, mode and render-node queries (L10). `screenshot` encoding: a selah request for a public raw-RGBA PNG/JPEG/BMP encoder (L9), with selah's private encoders vendored as the stand-in | Writing new encoders in soorat |
+| ✅ D9 | **Shared dependency pins** | M0 probe P4 builds the full bundle on **one hisab** and on cyrius 6.7.18. Alignment requests are filed: the hisab 3.4.1 consumers move to 3.5.x (L11), and mabda's pin moves to 6.7.18 (L12). **soorat itself declares no hisab dependency**, because goonj's `soorat_*` accessors return plain values | soorat pinning its own hisab |
 
 ---
 
@@ -165,7 +165,7 @@ Adding function-table slots changes `deps/wgpu_main.c`, and **every mabda consum
 
 ### 2.2 Image parity needs a GPU
 
-pravash's corpus is CPU arithmetic. Half of soorat's output is pixels. Class **G** (§5) compares a Cyrius readback against a Rust 1.1.0 readback of the same scene on the **same adapter and driver**:
+pravash's corpus is CPU arithmetic. Half of soorat's output is pixels. Class **G** (§5) compares a Cyrius readback against a Rust 1.1.1 readback of the same scene on the **same adapter and driver**:
 - the dev box's Cezanne, RADV;
 - the same wgpu-native 29 underneath both: Rust's wgpu 29 and mabda's wgpu-native 29.
 
@@ -259,7 +259,7 @@ The `shadow`, `environment` and `debug_draw` splits are estimates. `scripts/surf
 
 Finalized at M0 step 2. Each row says how the harness still compares the function, so nothing leaves parity entirely.
 
-| # | Rust 1.1.0 | Cyrius 2.0.0 | Comparison |
+| # | Rust 1.1.1 | Cyrius 2.0.0 | Comparison |
 |---|---|---|---|
 | 1 | `Result<T, RenderError>` with detail strings | value-form `Result` and an `SR_ERR_*` code | class A on the variant |
 | 2 | soorat creates the device and window (`Window::new`) | the application passes a mabda `GpuContext` and a surface (D5) | — |
@@ -279,10 +279,8 @@ Finalized at M0 step 2. Each row says how the harness still compares the functio
 ## 4. M0: prepare, then initialize with `cyrius port`
 
 0. **Freeze a green Rust oracle (before the move).**
-   1. Fix D2's four value defects as 1.1.1, if the maintainer agrees, each with a regression test.
-   2. Add the `oracle` feature (D1).
-   3. Re-run every gate.
-   4. The commit and the tag are the maintainer's.
+   1. **1.1.0:** add the hidden `oracle` feature and its read-only test (D1) to the audited tree, then re-run every gate. The maintainer commits and tags 1.1.0.
+   2. **1.1.1:** fix D2's four value defects (CUBICSPLINE Hermite tangents, dt-scaled particle damping, shallow-water bathymetry, the bloom composite), each with a regression test that fails before the fix. Re-run every gate and the benchmarks, then add the CHANGELOG entries. The maintainer commits and tags 1.1.1, the final Rust release and the oracle.
 1. **Probes.** Each writes a dated result into `docs/development/port-parity.md`.
    - **P1 Layout.** For each of the 15 `#[repr(C)]` types and mabda's `Vertex2D`/`Vertex3D`, compare Cyrius `sizeof` and field offsets with Rust's `size_of`/`offset_of` and with the WGSL struct layout (vec3 alignment). This proves nested-struct uniforms, since array fields are unavailable.
    - **P2 f32 traps.** Port `math_util` and compile it under `cyrius test --bounds`. Zero warnings is the gate.
@@ -306,14 +304,14 @@ Finalized at M0 step 2. Each row says how the harness still compares the functio
    - `[lib]`: bundle order;
    - `[build] dce = true`;
    - `[test]` with `bench`.
-4. **The golden generator** (`scripts/golden/`, driving `rust-old/` by path with its lock seeded from 1.1.0's):
+4. **The golden generator** (`scripts/golden/`, driving `rust-old/` by path with its lock seeded from 1.1.1's):
    - TSV rows as tanmatra's, with a new **f32 token** `g:<8 hex>` beside `f:<16 hex>`;
    - a header recording glibc, CPU FMA, Mesa and the adapter;
    - `--check` refuses a corpus from another platform;
    - `validate.py` re-derives every f64-reference row (the `.cr.tsv` files).
 5. **The parity harness:** `tests/parity_core.cyr` and `tests/ulp.cyr` from pravash, plus an **f32 ulp** on the ordered-integer line and the class-E reporter (§5).
 6. **The render-reference harness (class G):**
-   - `scripts/golden/render/` renders the reference scenes with Rust 1.1.0 on the Cezanne: a sprite grid, lines, a lit mesh, a shadowed mesh, an IBL sphere, a skinned mesh mid-animation, bloom/tonemap/SSAO, particles and every science renderer;
+   - `scripts/golden/render/` renders the reference scenes with Rust 1.1.1 on the Cezanne: a sprite grid, lines, a lit mesh, a shadowed mesh, an IBL sphere, a skinned mesh mid-animation, bloom/tonemap/SSAO, particles and every science renderer;
    - it writes RGBA8 readbacks and a scene manifest;
    - the Cyrius side renders the same manifest.
 7. **Tooling:** copy `surface_parity.py`, `rust_test_ledger.py`, `bench_record.py`, `doc_examples.py` and `upstream_ledger.py`, all gated in CI.
@@ -336,7 +334,7 @@ tanmatra's classes, with selah's image classes and two additions for soorat.
 | **R — reference** | the tolerance stated in the test | winding against normals; unit normals; mip averages; white → white; slerp endpoints; joint chains against an independent f64 model; the 12 integration tests |
 
 Rules:
-- **Never widen a class to make a row pass.** A failure is a port defect, an upstream defect (filed), or a 1.1.0 defect (fixed as 1.1.x and regenerated). The exception is an ADR-accepted divergence, which the harness still names row by row.
+- **Never widen a class to make a row pass.** A failure is a port defect, an upstream defect (filed), or a 1.1.1 defect (fixed as 1.1.x and regenerated). The exception is an ADR-accepted divergence, which the harness still names row by row.
 - **Branch points, tested on both sides:**
   - slerp's `cos > 0.9995` nlerp switch;
   - the shadow guards `extent ≤ 0`/NaN and `depth_span < 1e-10`;
@@ -352,7 +350,7 @@ Rules:
 
 ---
 
-## 6. Expected accuracy: Rust 1.1.0 → Cyrius 2.0.0
+## 6. Expected accuracy: Rust 1.1.1 → Cyrius 2.0.0
 
 The expectations below are **predictions with a mechanism**. Each is measured at its milestone and recorded in `port-parity.md`, so the claim becomes a number. The sibling measurements that back the method come first.
 
@@ -369,7 +367,7 @@ The expectations below are **predictions with a mechanism**. Each is measured at
 
 ### 6.2 soorat, area by area
 
-| Area | Rust 1.1.0's error source | Cyrius 2.0.0 approach | Expected | Class |
+| Area | Rust 1.1.1's error source | Cyrius 2.0.0 approach | Expected | Class |
 |---|---|---|---|---|
 | u8 colours, sRGB tables, f16, BRDF LUT bytes, UV rects, glyphs | f32 sequence; `round` half away from zero | Rust's sequence exactly; `sr_round`; tables generated from the oracle | **identical** (no gain, by design) | A |
 | Matrix builders (`look_at`, `perspective`, `ortho`, the directional light matrix) | each element is several roundings deep in f32 (dot products, `tan`); typically 0–2 ulp, unbounded relative error under cancellation (for example the translation column for an off-origin center) | f64 arithmetic, one rounding at packing | **≤ 0.5 ulp per element** against the f64 reference (except listed double-rounding rows); against Rust, the gain shows on rows with cancellation | E |
@@ -567,7 +565,7 @@ Where the gap matters (sprite batching at scale), the remedies are the sibling o
 
 | Milestone | Status | Golden rows | Rust tests ported | Benches | Notes |
 |---|---|---|---|---|---|
-| D1–D9 | ☐ awaiting the maintainer | — | — | — | |
+| D1–D9 | ✅ decided 2026-11-15 | — | — | — | |
 | M0 Prepare and initialize | ☐ | — | — | — | |
 | M1 Foundation | ☐ | | | | |
 | M2 2D | ☐ | | | | |

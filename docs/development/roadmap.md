@@ -5,7 +5,11 @@
 Version 1.1.0 — all planned features implemented. Patch sprints 1-3 complete.
 1.1.0 (2026-11-15): language/dependency update (Rust 1.100, MSRV 1.100) + P(-1) audit and hardening.
 
-**Cyrius port — proposed (2026-11-15):** see [soorat-port-plan.md](soorat-port-plan.md). 1.1.0 would be the final Rust release and the oracle, and the Cyrius port would ship as 2.0.0. Sprints 4–8 below were planned for Rust; under the port plan they move after the Cyrius 2.0.0 (the version numbers in their headings would change).
+**Cyrius port — planned (decisions taken 2026-11-15):** see [soorat-port-plan.md](soorat-port-plan.md).
+- 1.1.0 adds a hidden `oracle` feature.
+- 1.1.1 fixes four value defects (CUBICSPLINE tangents, particle damping dt, shallow-water bathymetry, bloom composite) and is the **final Rust release** and the oracle.
+- The Cyrius port ships as 2.0.0.
+- Sprints 4–8 below were planned for Rust; they move after the Cyrius 2.0.0, and the version numbers in their headings no longer apply.
 
 ## Sprint 1 — Correctness & Safety — DONE
 
