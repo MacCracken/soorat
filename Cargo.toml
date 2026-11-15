@@ -1,10 +1,10 @@
 [package]
 name = "soorat"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
+rust-version = "1.100"
 license = "GPL-3.0-only"
 description = "Soorat — GPU rendering engine for AGNOS"
-homepage = "https://github.com/MacCracken/soorat"
 repository = "https://github.com/MacCracken/soorat"
 readme = "README.md"
 documentation = "https://docs.rs/soorat"
@@ -18,7 +18,7 @@ optics = ["dep:prakash"]
 ranga = ["dep:ranga"]
 physics-debug = ["dep:impetus"]
 fluids = ["dep:pravash"]
-acoustics = ["dep:goonj"]
+acoustics = ["dep:goonj", "dep:hisab"]
 em = ["dep:bijli"]
 thermo = ["dep:ushma"]
 screenshot = ["dep:selah", "dep:uuid", "dep:chrono"]
@@ -26,61 +26,65 @@ drm = ["dep:agnosys"]
 full = ["optics", "ranga", "physics-debug", "fluids", "acoustics", "em", "thermo", "screenshot"]
 
 [dependencies]
-# GPU foundation (mabda owns the wgpu lifecycle, buffers, pipelines, textures)
-mabda = { version = "1", features = ["full"] }
-wgpu = "29"
-winit = "0.30"
-
-# Math (hisab re-exports glam + adds transforms, projections, spatial types)
-hisab = "1.1"
+# GPU foundation (mabda owns the wgpu lifecycle, buffers, pipelines, textures).
+# mabda 1.0.0 is the final Rust release (mabda moved to Cyrius) and requires
+# wgpu ^29 — wgpu must stay on 29.x so wgpu types interoperate with mabda.
+mabda = { version = "1.0", features = ["full"] }
+wgpu = "29.0.4"
+winit = "0.30.13"
 
 # Core
-bytemuck = { version = "1", features = ["derive"] }
-pollster = "0.4"
-serde = { version = "1", features = ["derive"] }
-thiserror = "2"
-tracing = "0.1"
+bytemuck = { version = "1.25.2", features = ["derive"] }
+pollster = "1.0.1"
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.21"
+tracing = "0.1.44"
+
+# Math (optional — hisab Vec3 for goonj directivity; must match goonj's hisab)
+hisab = { version = "1.4", optional = true }
 
 # Optics / color science (optional)
-prakash = { version = "1", optional = true, features = ["spectral", "pbr"] }
+prakash = { version = "1.2", optional = true, features = ["spectral", "pbr"] }
 
 # Image processing (optional — ranga pixel buffer integration)
-ranga = { version = "0.29", optional = true }
+ranga = { version = "1.0", optional = true }
 
 # Physics debug rendering (optional — impetus collider wireframes)
-impetus = { version = "1", optional = true }
+impetus = { version = "1.4", optional = true }
 
 # Fluid dynamics rendering (optional — pravash particle/surface visualization)
-pravash = { version = "1", optional = true, features = ["sph", "shallow"] }
+pravash = { version = "1.3", optional = true, features = ["sph", "shallow"] }
 
 # Acoustic visualization (optional — goonj ray paths, pressure maps, directivity)
-goonj = { version = "1", optional = true, features = ["soorat-compat"] }
+goonj = { version = "1.4.3", optional = true, features = ["soorat-compat"] }
 
 # Electromagnetism visualization (optional — bijli FDTD, field lines, charges)
-bijli = { version = "1", optional = true, features = ["soorat-compat"] }
+bijli = { version = "1.2", optional = true, features = ["soorat-compat"] }
 
 # Thermodynamics visualization (optional — ushma thermal grids, cycles, flux)
-ushma = { version = "1", optional = true, features = ["soorat-compat"] }
+ushma = { version = "1.4", optional = true, features = ["soorat-compat"] }
 
 # Screenshot capture, annotation, and redaction (optional — selah integration)
-selah = { version = "0.29", optional = true }
-uuid = { version = "1", features = ["v4"], optional = true }
-chrono = { version = "0.4", optional = true }
+selah = { version = "0.30", optional = true }
+uuid = { version = "1.29.2", features = ["v4"], optional = true }
+chrono = { version = "0.4.45", optional = true }
 
 # DRM device info (optional — Linux-only, agnosys kernel interface)
 # crates.io publish strips this dep — AGNOS builds use git/path directly
 agnosys = { git = "https://github.com/MacCracken/agnosys", tag = "0.29.3", features = ["drm"], optional = true }
 
 # Image loading
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "bmp"] }
 
 # 3D model loading
-gltf = "1"
+gltf = "1.4.1"
 
 [dev-dependencies]
-criterion = { version = "0.8", features = ["html_reports"] }
-serde_json = "1"
-pollster = "0.4"
+criterion = { version = "0.8.2", features = ["html_reports"] }
+serde_json = "1.0.154"
+pollster = "1.0.1"
+# WGSL validation in tests — same naga major as wgpu 29 (already in the tree)
+naga = { version = "29", features = ["wgsl-in"] }
 
 [[bench]]
 name = "benchmarks"

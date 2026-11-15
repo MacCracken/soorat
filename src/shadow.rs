@@ -16,9 +16,10 @@ pub struct ShadowMap {
 }
 
 impl ShadowMap {
-    /// Create a shadow map with the given resolution.
+    /// Create a shadow map with the given resolution (clamped to at least 1).
     #[must_use]
     pub fn new(device: &wgpu::Device, size: u32) -> Self {
+        let size = size.max(1);
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow_map"),
             size: wgpu::Extent3d {
@@ -75,10 +76,14 @@ impl Default for ShadowUniforms {
     }
 }
 
-/// Compute an orthographic light-space matrix for a directional light.
-/// `direction`: normalized light direction (where light points).
-/// `extent`: half-size of the shadow frustum in world units.
-/// `near`/`far`: depth range.
+/// Compute an orthographic light-space matrix for a directional light, with
+/// the shadow frustum centred on the world origin.
+///
+/// Equivalent to [`directional_light_matrix_at`] with `center = [0, 0, 0]`:
+/// light-space depth is `dot(direction, p)`, so the depth range covers points
+/// whose distance **along the light direction from the origin** lies in
+/// `[near, far]`. For a scene around the origin use a symmetric range such as
+/// `near = -50.0, far = 50.0`.
 #[must_use]
 #[inline]
 pub fn directional_light_matrix(
@@ -87,14 +92,38 @@ pub fn directional_light_matrix(
     near: f32,
     far: f32,
 ) -> [f32; 16] {
-    if extent <= 0.0 {
+    directional_light_matrix_at(direction, [0.0; 3], extent, near, far)
+}
+
+/// Compute an orthographic light-space matrix for a directional light whose
+/// shadow frustum is centred on `center`.
+///
+/// - `direction`: light direction (where the light points); need not be unit length.
+/// - `center`: world-space point the frustum is centred on (e.g. the camera target).
+/// - `extent`: half-size of the frustum in world units (X and Y in light space).
+/// - `near`/`far`: depth range measured along `direction` from `center`
+///   (negative `near` reaches toward the light, e.g. `-radius..radius`).
+///
+/// Returns the identity matrix (with a warning) for a non-positive `extent` or
+/// `near ≈ far`. Output depth is in wgpu's `[0, 1]` range.
+#[must_use]
+#[inline]
+pub fn directional_light_matrix_at(
+    direction: [f32; 3],
+    center: [f32; 3],
+    extent: f32,
+    near: f32,
+    far: f32,
+) -> [f32; 16] {
+    if extent.is_nan() || extent <= 0.0 {
         tracing::warn!(
             extent,
             "directional_light_matrix: extent <= 0 — returning identity matrix"
         );
         return IDENTITY_MAT4;
     }
-    if (far - near).abs() < 1e-10 {
+    let depth_span = (far - near).abs();
+    if depth_span.is_nan() || depth_span < 1e-10 {
         tracing::warn!(
             near,
             far,
@@ -103,65 +132,43 @@ pub fn directional_light_matrix(
         return IDENTITY_MAT4;
     }
 
-    // Build a view matrix looking along the light direction
+    // Light view basis: a regular (non-mirrored) view looking along `d`, i.e.
+    // right × up = -d, the same handedness as `math_util::look_at`. Front faces
+    // therefore keep their winding in the shadow pass.
     let d = normalize3(direction);
-
-    // Choose an up vector that isn't parallel to direction
-    let up = if d[1].abs() > 0.99 {
+    let up_ref = if d[1].abs() > 0.99 {
         [1.0, 0.0, 0.0]
     } else {
         [0.0, 1.0, 0.0]
     };
+    let right = normalize3(cross(d, up_ref));
+    let up = cross(right, d);
+    let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
-    let right = normalize3(cross(up, d));
-    let actual_up = cross(d, right);
-
-    // View matrix (look-at from origin along direction)
-    // Column-major: right, up, forward, translation
-    let view = [
-        right[0],
-        actual_up[0],
-        d[0],
+    // proj · view, built directly. The view has rows (right, up, d) translated
+    // by -center (light-space z = dot(d, p - center)); the orthographic
+    // projection only scales x/y by 1/extent and maps z ∈ [near, far] → [0, 1],
+    // so the product needs ~20 flops instead of a general 4×4 multiply.
+    let sx = 1.0 / extent;
+    let sz = 1.0 / (far - near);
+    [
+        sx * right[0],
+        sx * up[0],
+        sz * d[0],
         0.0,
-        right[1],
-        actual_up[1],
-        d[1],
+        sx * right[1],
+        sx * up[1],
+        sz * d[1],
         0.0,
-        right[2],
-        actual_up[2],
-        d[2],
+        sx * right[2],
+        sx * up[2],
+        sz * d[2],
         0.0,
-        0.0,
-        0.0,
-        0.0,
+        -sx * dot(right, center),
+        -sx * dot(up, center),
+        sz * (-dot(d, center) - near),
         1.0,
-    ];
-
-    // Orthographic projection
-    let l = -extent;
-    let r = extent;
-    let b = -extent;
-    let t = extent;
-    let proj = [
-        2.0 / (r - l),
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        2.0 / (t - b),
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-        1.0 / (far - near),
-        0.0,
-        -(r + l) / (r - l),
-        -(t + b) / (t - b),
-        -near / (far - near),
-        1.0,
-    ];
-
-    mul_mat4(proj, view)
+    ]
 }
 
 /// Shadow pass pipeline — renders depth-only from the light's perspective.
@@ -207,7 +214,10 @@ impl ShadowPipeline {
             fragment: None, // depth-only
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: Some(wgpu::Face::Front), // front-face culling reduces shadow acne
+                // Back-face culling: light-facing surfaces are rendered and acne
+                // is handled by the depth bias below. (Open geometry such as a
+                // single-sided plane therefore still casts shadows.)
+                cull_mode: Some(wgpu::Face::Back),
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {
@@ -262,6 +272,11 @@ impl ShadowPipeline {
         shadow_map: &ShadowMap,
         meshes: &[&Mesh],
     ) {
+        tracing::debug!(
+            meshes = meshes.len(),
+            size = shadow_map.size,
+            "rendering shadow pass"
+        );
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("shadow_encoder"),
         });
@@ -326,17 +341,9 @@ impl CascadedShadowMap {
     /// Compute cascade split distances using practical split scheme (Nvidia GPU Gems 3).
     /// `near`/`far`: camera frustum range.
     /// `lambda`: blend between logarithmic (1.0) and uniform (0.0) splits. 0.5 is typical.
+    /// See [`compute_practical_splits`] for how inputs are sanitized.
     pub fn compute_splits(&mut self, near: f32, far: f32, lambda: f32) {
-        let near = if near <= 0.0 { 0.001_f32 } else { near };
-        let count = self.cascades.len();
-        self.split_distances[0] = near;
-        for i in 1..count {
-            let ratio = i as f32 / count as f32;
-            let log_split = near * (far / near).powf(ratio);
-            let uniform_split = near + (far - near) * ratio;
-            self.split_distances[i] = lambda * log_split + (1.0 - lambda) * uniform_split;
-        }
-        self.split_distances[count] = far;
+        self.split_distances = compute_practical_splits(near, far, self.cascades.len(), lambda);
     }
 
     /// Update the view-projection matrix for a specific cascade.
@@ -388,8 +395,12 @@ impl ShadowAtlas {
     /// Create a shadow atlas.
     /// `size`: total atlas resolution (e.g., 4096).
     /// `tile_size`: resolution per light (e.g., 1024 → 4×4 = 16 lights).
+    ///
+    /// `size` is clamped to at least 1. If `tile_size` exceeds `size`, the atlas
+    /// holds a single (clipped) tile.
     pub fn new(device: &wgpu::Device, size: u32, tile_size: u32) -> Self {
-        let columns = size / tile_size.max(1);
+        let size = size.max(1);
+        let columns = atlas_columns(size, tile_size);
 
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow_atlas"),
@@ -429,31 +440,22 @@ impl ShadowAtlas {
     }
 
     /// Get the viewport (x, y, w, h) for a given light index in the atlas.
+    /// `index` should be `< max_lights()`; larger indices map past the atlas.
     #[must_use]
     pub fn tile_viewport(&self, index: u32) -> (u32, u32, u32, u32) {
-        let col = index % self.columns;
-        let row = index / self.columns;
-        (
-            col * self.tile_size,
-            row * self.tile_size,
-            self.tile_size,
-            self.tile_size,
-        )
+        tile_viewport_in(self.columns, self.tile_size, index)
     }
 
     /// Get the UV offset and scale for a tile (for shader sampling).
     #[must_use]
     pub fn tile_uv(&self, index: u32) -> [f32; 4] {
-        let col = index % self.columns;
-        let row = index / self.columns;
-        let scale = self.tile_size as f32 / self.size as f32;
-        [col as f32 * scale, row as f32 * scale, scale, scale]
+        tile_uv_in(self.columns, self.tile_size, self.size, index)
     }
 
     /// Maximum number of lights that fit in the atlas.
     #[must_use]
     pub fn max_lights(&self) -> u32 {
-        self.columns * self.columns
+        self.columns.saturating_mul(self.columns)
     }
 }
 
@@ -493,9 +495,26 @@ impl PointShadowMap {
 }
 
 /// Compute practical cascade split distances (standalone, no GPU needed).
+///
+/// Returns `count + 1` monotonically non-decreasing distances from `near` to
+/// `far` (Nvidia GPU Gems 3 practical split scheme). Inputs are sanitized so
+/// the result is always finite: a non-positive/NaN `near` becomes `0.001`,
+/// `far` is raised to at least `near`, and `lambda` is clamped to `[0, 1]`.
 #[must_use]
 pub fn compute_practical_splits(near: f32, far: f32, count: usize, lambda: f32) -> Vec<f32> {
-    let near = if near <= 0.0 { 0.001_f32 } else { near };
+    let near = if near > 0.0 && near.is_finite() {
+        near
+    } else {
+        0.001_f32
+    };
+    let far = if far.is_finite() { far.max(near) } else { near };
+    let lambda = if lambda.is_nan() {
+        0.5
+    } else {
+        lambda.clamp(0.0, 1.0)
+    };
+    let count = count.max(1);
+
     let mut splits = Vec::with_capacity(count + 1);
     splits.push(near);
     for i in 1..count {
@@ -517,30 +536,175 @@ pub struct ShadowAtlasConfig {
 /// Get viewport for a tile index in an atlas config.
 #[must_use]
 pub fn tile_viewport(config: &ShadowAtlasConfig, index: u32) -> (u32, u32, u32, u32) {
-    let columns = config.size / config.tile_size.max(1);
-    let col = index % columns;
-    let row = index / columns;
-    (
-        col * config.tile_size,
-        row * config.tile_size,
+    tile_viewport_in(
+        atlas_columns(config.size, config.tile_size),
         config.tile_size,
-        config.tile_size,
+        index,
     )
 }
 
 /// Get UV offset+scale for a tile index in an atlas config.
 #[must_use]
 pub fn tile_uv(config: &ShadowAtlasConfig, index: u32) -> [f32; 4] {
-    let columns = config.size / config.tile_size.max(1);
+    tile_uv_in(
+        atlas_columns(config.size, config.tile_size),
+        config.tile_size,
+        config.size,
+        index,
+    )
+}
+
+/// Tiles per atlas row — at least 1, so tile math never divides by zero.
+#[must_use]
+#[inline]
+fn atlas_columns(size: u32, tile_size: u32) -> u32 {
+    (size / tile_size.max(1)).max(1)
+}
+
+#[must_use]
+#[inline]
+fn tile_viewport_in(columns: u32, tile_size: u32, index: u32) -> (u32, u32, u32, u32) {
+    let columns = columns.max(1);
     let col = index % columns;
     let row = index / columns;
-    let scale = config.tile_size as f32 / config.size as f32;
+    (
+        col.saturating_mul(tile_size),
+        row.saturating_mul(tile_size),
+        tile_size,
+        tile_size,
+    )
+}
+
+#[must_use]
+#[inline]
+fn tile_uv_in(columns: u32, tile_size: u32, size: u32, index: u32) -> [f32; 4] {
+    let columns = columns.max(1);
+    let col = index % columns;
+    let row = index / columns;
+    let scale = tile_size as f32 / size.max(1) as f32;
     [col as f32 * scale, row as f32 * scale, scale, scale]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn transform(m: &[f32; 16], p: [f32; 3]) -> [f32; 4] {
+        let mut out = [0.0; 4];
+        for (row, o) in out.iter_mut().enumerate() {
+            *o = m[row] * p[0] + m[4 + row] * p[1] + m[8 + row] * p[2] + m[12 + row];
+        }
+        out
+    }
+
+    #[test]
+    fn light_matrix_at_centres_frustum_and_depth() {
+        let center = [10.0, 3.0, -4.0];
+        let d = [0.0, -1.0, 0.0];
+        let m = directional_light_matrix_at(d, center, 5.0, -20.0, 20.0);
+        // Center maps to the middle of the depth range and the XY origin.
+        let c = transform(&m, center);
+        assert!(c[0].abs() < 1e-5 && c[1].abs() < 1e-5);
+        assert!((c[2] - 0.5).abs() < 1e-5);
+        // Toward the light (up, against d) is nearer; along d is farther.
+        let near = transform(&m, [10.0, 23.0, -4.0]);
+        let far = transform(&m, [10.0, -17.0, -4.0]);
+        assert!(near[2].abs() < 1e-5, "near plane depth {}", near[2]);
+        assert!((far[2] - 1.0).abs() < 1e-5, "far plane depth {}", far[2]);
+        // Points at the frustum edge map to NDC ±1.
+        let edge = transform(&m, [15.0, 3.0, -4.0]);
+        assert!((edge[0].abs() - 1.0).abs() < 1e-5 || (edge[1].abs() - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn light_matrix_origin_variant_matches_at_origin() {
+        let d = [0.3, -1.0, 0.2];
+        assert_eq!(
+            directional_light_matrix(d, 8.0, -10.0, 10.0),
+            directional_light_matrix_at(d, [0.0; 3], 8.0, -10.0, 10.0)
+        );
+    }
+
+    #[test]
+    fn light_view_is_not_mirrored() {
+        // A ground triangle wound CCW around +Y faces a light shining down.
+        // In light NDC (x right, y up) it must stay CCW so that the shadow
+        // pipeline's back-face culling keeps light-facing surfaces.
+        for d in [[0.0, -1.0, 0.0], [0.4, -1.0, 0.1], [0.0, -0.5, -1.0]] {
+            let m = directional_light_matrix_at(d, [0.0; 3], 10.0, -10.0, 10.0);
+            let tri = [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]]; // CCW around +Y
+            let p: Vec<[f32; 4]> = tri.iter().map(|&v| transform(&m, v)).collect();
+            let area = (p[1][0] - p[0][0]) * (p[2][1] - p[0][1])
+                - (p[2][0] - p[0][0]) * (p[1][1] - p[0][1]);
+            assert!(
+                area > 0.0,
+                "light-facing triangle turned clockwise for d={d:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn light_matrix_rejects_bad_inputs() {
+        assert_eq!(
+            directional_light_matrix(d3(), f32::NAN, 0.0, 1.0),
+            IDENTITY_MAT4
+        );
+        assert_eq!(
+            directional_light_matrix(d3(), 1.0, 1.0, f32::NAN),
+            IDENTITY_MAT4
+        );
+    }
+
+    fn d3() -> [f32; 3] {
+        [0.0, -1.0, 0.0]
+    }
+
+    #[test]
+    fn atlas_tile_math_never_divides_by_zero() {
+        let cfg = ShadowAtlasConfig {
+            size: 512,
+            tile_size: 1024,
+        };
+        assert_eq!(tile_viewport(&cfg, 0), (0, 0, 1024, 1024));
+        assert_eq!(tile_viewport(&cfg, 3), (0, 3 * 1024, 1024, 1024));
+        let uv = tile_uv(&cfg, 1);
+        assert!(uv.iter().all(|v| v.is_finite()));
+        let zero = ShadowAtlasConfig {
+            size: 0,
+            tile_size: 0,
+        };
+        let _ = tile_viewport(&zero, 7);
+        assert!(tile_uv(&zero, 7).iter().all(|v| v.is_finite()));
+        // Huge index: saturates instead of overflowing.
+        let _ = tile_viewport(
+            &ShadowAtlasConfig {
+                size: 4096,
+                tile_size: 1,
+            },
+            u32::MAX,
+        );
+    }
+
+    #[test]
+    fn practical_splits_sanitize_inputs() {
+        for (near, far, lambda) in [
+            (0.1, -5.0, 0.5),
+            (f32::NAN, 100.0, 0.5),
+            (0.1, f32::NAN, 0.5),
+            (0.1, 100.0, f32::NAN),
+            (0.1, 100.0, 7.0),
+            (-1.0, f32::INFINITY, -3.0),
+        ] {
+            let s = compute_practical_splits(near, far, 4, lambda);
+            assert_eq!(s.len(), 5);
+            assert!(
+                s.iter().all(|v| v.is_finite()),
+                "{s:?} for {near},{far},{lambda}"
+            );
+            assert!(s.windows(2).all(|w| w[1] >= w[0]), "not monotonic: {s:?}");
+        }
+        assert_eq!(compute_practical_splits(1.0, 10.0, 0, 0.5).len(), 2);
+    }
 
     #[test]
     fn shadow_uniforms_size() {

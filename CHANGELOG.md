@@ -7,7 +7,97 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-15
+
+### Changed
+
+#### Language & dependencies (2026-11)
+- **MSRV 1.89 → 1.100** (`rust-version = "1.100"`); edition 2024 remains the latest edition. selah 0.30 already requires 1.100, and impetus/pravash/bijli/ushma require 1.99.
+- **Dependencies updated to latest compatible**: wgpu 29.0.1 → 29.0.4, ranga 0.29 → 1.0 (`PixelBuffer` accessors), selah 0.29 → 0.30, pollster 0.4 → 1.0, hisab 1.3 → 1.4, impetus 1.3 → 1.4, pravash 1.2 → 1.3, goonj 1.1 → 1.4.3, bijli 1.1 → 1.2, ushma 1.3 → 1.4, uuid 1.23 → 1.29, chrono 0.4.44 → 0.4.45; patch/minor floors raised for the rest.
+- **wgpu stays on 29.x** — mabda 1.0.0 (the final Rust mabda) requires `wgpu ^29`; see `docs/development/dependency-watch.md`.
+- **`hisab` is now optional** — only `acoustics` uses it, so the default build no longer pulls hisab/glam.
+- `image` gains the `bmp` codec — `ScreenshotFormat::Bmp` previously failed at runtime unless another crate enabled it.
+- `deny.toml` checks the all-features graph; stale `paste` advisory ignore and unused license allowances removed; `ttf-parser` (unmaintained, via winit → sctk-adwaita) ignored with justification.
+- CI: clippy/test/doc/coverage on all features, macOS on `full`, new MSRV (1.100) job.
+
+#### Behavior (2026-11 audit)
+- **Visualization grids must be backed by their data** — a grid whose `product(dims)` exceeds its value count now yields an empty mesh (with a warning) instead of zero-filling, so output size stays proportional to input size.
+- **Signed color modes are centred on zero** (`v / max|v|`) instead of on the data's midpoint — zero now always renders black (EM `Signed`, acoustic `SignedPressure`).
+- **EM `Magnitude` mode colors `|v|`** (it colored the signed value, so −1 and +1 differed).
+- **Field lines share one normalization** across all lines (weak lines no longer look as hot as strong ones).
+- **Radiation patterns are looked up by azimuth φ** (bijli's NF2FF angles), with wrap-around, and the in-plane pattern fades toward the poles (previously looked up by polar θ, losing half the pattern).
+- **Coupled decay curves fall** from 0 dB at `origin` (they rose as energy decayed).
+- **Acoustic ray segments** are colored by the energy they carry (full energy to the first bounce).
+- Shadow pass uses an explicit regular light view + `Face::Back` (same triangles rendered as before; the previous mirrored basis made `Face::Front` act as back-face culling).
+- `RenderGraph::add_pass` with an existing name updates that pass instead of orphaning a duplicate.
+- `SpriteBuffers` grow geometrically (×1.5) and cap at `MAX_SPRITES_PER_BATCH`.
+- `DepthBuffer` textures are also `TEXTURE_BINDING` (sampleable, e.g. for SSAO).
+
+#### Attributes (Sprint 2)
+- `#[must_use]` added to ~50 pure functions across 17 files.
+- `#[inline]` added to ~15 hot-path functions.
+- `#[non_exhaustive]` added to `AnimationProperty` enum.
+- `#[deprecated]` added to `Material` re-export (use `MaterialUniforms` for PBR).
+
+#### Observability (Sprint 2)
+- `tracing::debug!` spans added to 22 functions across 12 files (all pipelines, glTF loading, screenshot, DRM, particles, render graph).
+
+### Added
+- `shadow::directional_light_matrix_at(direction, center, extent, near, far)` — shadow frustum centred on a point (the existing function is anchored at the world origin, now documented).
+- `Texture::from_rgba_linear` — `Rgba8Unorm` upload for non-color data (LUTs, normal/roughness maps).
+- `Color::to_rgba8` — clamped, rounded 8-bit conversion.
+- `GpuParticleSystem::live_count`, `GpuParticleSystem::capacity`, `gpu_particles::MAX_PARTICLES`.
+- `tests/shaders.rs` — naga parse + validation of all 9 WGSL shaders (no GPU needed; first time `pbr_skinned.wgsl` is compiled anywhere).
+- `tests/gpu_smoke.rs` — builds every pipeline and renders offscreen frames on a real adapter (skips without one).
+- In-memory GLB fixtures for loader tests; winding checks for every mesh generator.
+- Docs: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `docs/development/threat-model.md`, `docs/development/dependency-watch.md`.
+- 71 new tests (408 → 479 with all features); 6 new benchmarks.
+
+#### Tests (Sprint 3)
+- 34 new tests (374 → 408): math edge cases (9), div-by-zero regression (6), error conversion (5), render graph cycles (1), animation crash (3), primitive zero-input (3), feature-gated adversarial (5), additional edge cases (2).
+
+### Performance
+
+Baseline `86ffcb6` (2026-11-15T05:07Z) vs final audit run (2026-11-15T05:48Z), same machine/toolchain. Untouched benchmarks varied by up to ~±15% between runs, so only changes well beyond that band are listed.
+
+- terrain/generate_32x32: 16.05 µs → 11.87 µs (−26%) — shared height-field builder precomputes sanitized heights once instead of 5 bounds-checked lookups per vertex.
+- terrain/generate_64x64: 60.84 µs → 45.52 µs (−25%).
+- animation/compute_joints_16: 380.74 ns → 277.16 ns (−27%) — single-pass world/joint matrix construction on the sorted fast path.
+- animation/compute_joints_64: 1.56 µs → 1.10 µs (−29%).
+- shadow/directional_matrix: 24.08 ns → 19.01 ns (−21%) — `proj · view` built directly instead of a general 4×4 multiply (also covers the new centred variant, 19.82 ns).
+- New baselines: terrain/generate_256x256 701.75 µs, animation/compute_joints_64_unsorted 1.43 µs, animation/sample_rotation_64x32 3.13 µs (slerp + binary search), primitives/sphere_32x16 5.18 µs, screenshot/encode_png_256 403.21 µs.
+
 ### Fixed
+
+#### Rendering correctness (2026-11 audit)
+- **Normal matrix uploaded transposed** — `CameraUniforms::set_model` produced M⁻¹ instead of M⁻ᵀ, so rotated meshes were lit as if rotated the opposite way (a +X normal under a 90° Z rotation became −Y).
+- **Environment-map mips were never written** — cubemaps allocated a full mip chain but uploaded only mip 0; wgpu zero-fills the rest, so specular IBL went black for roughness ≥ 0.25 and irradiance darkened when minified. Mip chains are now generated on the CPU (2×2 box filter in linear space, sRGB and f16 aware).
+- **BRDF LUT uploaded as sRGB** — sampling decoded the linear scale/bias, making specular IBL 2–4× too dark; now `Rgba8Unorm` with a bilinear sampler.
+- **Inward-facing meshes** (culled by back-face culling): `primitives::sphere`, cylinder caps, every viz heatmap (acoustic, EM 2D/3D, thermal), SPH particle quads, directivity and radiation balloons.
+- **SSAO** reconstructed the centre pixel's view position with Y flipped.
+- **Shadow lookups**: per-fragment perspective divide (perspective light matrices were wrong), `textureSampleCompareLevel` instead of `textureSampleCompare` after non-uniform early returns (rejected by WebGPU/Tint).
+- **Skinned shader**: weights renormalized; tangents transformed by the model matrix and re-orthogonalized.
+- **`SpritePipeline::draw_batched` overran its index buffer** for batches above 16,383 sprites (wgpu validation panic); now clamped and logged.
+- **`WindowConfig::fullscreen` was ignored**.
+- Sprite/line projection uniforms initialized to an all-zero matrix (documented as identity).
+
+#### Animation (2026-11 audit)
+- Rotation channels were lerped component-wise (non-unit quaternions shrank/sheared joints mid-blend) → shortest-path slerp.
+- `STEP` and `CUBICSPLINE` samplers were ignored; cubic-spline outputs (3 per key) were paired with the wrong times.
+- Channels targeting non-joint nodes animated joint 0.
+- Joints listed before their parents (allowed by glTF) were treated as roots; cycles are now broken safely.
+- Negative times wrapped incorrectly; NaN times produced NaN poses.
+
+#### Robustness / untrusted input (2026-11 audit)
+- glTF: unchecked `offset + length` for image buffer views; primitives with out-of-range indices (GPU out-of-bounds reads) or non-triangle modes are skipped.
+- Textures larger than the device's `max_texture_dimension_2d` returned a wgpu validation panic → `RenderError::Texture`.
+- Visualization: NaN/±inf samples panicked the heat map in debug builds (`Color::new` assert) or produced NaN colors; unbounded segment counts; unchecked grid products; stale/zero `max_magnitude` produced arrows up to 10¹⁶ long; thermal alpha outside [0, 1]; shallow-water meshes with NaN normals or panics on inconsistent public fields, and a dx/2 centring error.
+- Zero-size `DepthBuffer`/`HdrFramebuffer`/`ShadowMap`/`ShadowAtlas`/`GpuParticleSystem` (e.g. minimized window) tripped wgpu validation → clamped to 1.
+- `ShadowAtlas`/`tile_viewport`/`tile_uv` divided by zero when `tile_size > size`.
+- Cascade splits produced NaN for `far ≤ 0` or NaN inputs.
+- `GpuParticleSystem` read back past its buffer when `particle_count` exceeded capacity, and could exceed the dispatch limit.
+- `UvRect::from_pixel_rect` / `BitmapFont::glyph_uv` integer overflow; terrain vertex-count overflow; terrain edge normals used a halved slope.
+- `BloomPipeline::new` discarded the pipeline error (now logged).
 
 #### Correctness (Sprint 1)
 - **Eliminated all `expect()`/`assert_eq!()` in library code** — 15 panic sites across 8 files converted to `Result` propagation.
@@ -25,22 +115,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **TextureCache triple lookup** — replaced `contains_key`×2 + `get` with single `entry()` call.
 - **Error chain preservation** — `From<mabda::GpuError>` now uses `format!("{other:#}")` for full context.
 - **gltf_loader label allocation** — `format!()` in loop replaced with reusable `write!` buffer.
-
-### Changed
-
-#### Attributes (Sprint 2)
-- `#[must_use]` added to ~50 pure functions across 17 files.
-- `#[inline]` added to ~15 hot-path functions.
-- `#[non_exhaustive]` added to `AnimationProperty` enum.
-- `#[deprecated]` added to `Material` re-export (use `MaterialUniforms` for PBR).
-
-#### Observability (Sprint 2)
-- `tracing::debug!` spans added to 22 functions across 12 files (all pipelines, glTF loading, screenshot, DRM, particles, render graph).
-
-### Added
-
-#### Tests (Sprint 3)
-- 34 new tests (374 → 408): math edge cases (9), div-by-zero regression (6), error conversion (5), render graph cycles (1), animation crash (3), primitive zero-input (3), feature-gated adversarial (5), additional edge cases (2).
 
 ## [1.0.0] - 2026-03-29
 

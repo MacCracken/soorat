@@ -33,18 +33,16 @@ impl BitmapFont {
             return UvRect::default();
         }
 
-        let code = ch as u32;
-        let index =
-            if code >= self.first_char as u32 && code < self.first_char as u32 + self.glyph_count {
-                code - self.first_char as u32
-            } else {
-                0 // fallback to first glyph
-            };
+        // Characters outside the atlas fall back to the first glyph.
+        let index = (ch as u32)
+            .checked_sub(u32::from(self.first_char))
+            .filter(|&i| i < self.glyph_count)
+            .unwrap_or(0);
 
         let col = index % self.columns;
         let row = index / self.columns;
-        let x = col * self.glyph_width;
-        let y = row * self.glyph_height;
+        let x = col.saturating_mul(self.glyph_width);
+        let y = row.saturating_mul(self.glyph_height);
 
         UvRect::from_pixel_rect(
             x,
@@ -63,12 +61,14 @@ pub struct TextBatch {
 }
 
 impl TextBatch {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             batch: SpriteBatch::new(),
         }
     }
 
+    #[must_use]
     pub fn with_capacity(chars: usize) -> Self {
         Self {
             batch: SpriteBatch::with_capacity(chars),

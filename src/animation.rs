@@ -42,30 +42,86 @@ pub struct Skeleton {
 impl Skeleton {
     /// Compute the joint matrices for the current pose.
     /// Returns up to MAX_JOINTS matrices (each 4x4 column-major).
+    ///
+    /// Parents may appear in any order relative to their children (glTF does
+    /// not require topological joint order). A parent index that is out of
+    /// range, refers to the joint itself, or closes a cycle is treated as a
+    /// root.
     #[must_use]
     pub fn compute_joint_matrices(&self) -> Vec<[f32; 16]> {
         let count = self.joints.len().min(MAX_JOINTS);
-        let mut world_transforms = vec![IDENTITY_MAT4; count];
-        let mut joint_matrices = Vec::with_capacity(count);
+        let joints = &self.joints[..count];
+        let local = |j: &Joint| compose_trs(j.translation, j.rotation, j.scale);
+        let mut world = vec![IDENTITY_MAT4; count];
 
-        // Forward pass: compute world transforms from local transforms
-        for i in 0..count {
-            let joint = &self.joints[i];
-            let local = compose_trs(joint.translation, joint.rotation, joint.scale);
-
-            if joint.parent >= 0 && (joint.parent as usize) < i {
-                world_transforms[i] = mul_mat4(world_transforms[joint.parent as usize], local);
-            } else {
-                world_transforms[i] = local;
+        // Fast path: parents precede children (the common, sorted case).
+        let sorted = joints
+            .iter()
+            .enumerate()
+            .all(|(i, j)| j.parent < 0 || (j.parent as usize) < i);
+        if sorted {
+            for (i, joint) in joints.iter().enumerate() {
+                world[i] = if joint.parent >= 0 {
+                    mul_mat4(world[joint.parent as usize], local(joint))
+                } else {
+                    local(joint)
+                };
             }
+        } else {
+            resolve_world_transforms(joints, &mut world, local);
         }
 
         // Joint matrix = world_transform * inverse_bind
-        for (wt, joint) in world_transforms.iter().zip(self.joints.iter()).take(count) {
-            joint_matrices.push(mul_mat4(*wt, joint.inverse_bind));
-        }
+        world
+            .iter()
+            .zip(joints)
+            .map(|(wt, joint)| mul_mat4(*wt, joint.inverse_bind))
+            .collect()
+    }
+}
 
-        joint_matrices
+/// Resolve world transforms for joints in arbitrary parent order, walking each
+/// unresolved ancestor chain once (O(n)) and breaking cycles.
+fn resolve_world_transforms(
+    joints: &[Joint],
+    world: &mut [[f32; 16]],
+    local: impl Fn(&Joint) -> [f32; 16],
+) {
+    const UNVISITED: u8 = 0;
+    const VISITING: u8 = 1;
+    const DONE: u8 = 2;
+    let count = joints.len();
+    let parent_of = |i: usize| -> Option<usize> {
+        let p = joints[i].parent;
+        (p >= 0 && (p as usize) < count && p as usize != i).then_some(p as usize)
+    };
+
+    let mut state = vec![UNVISITED; count];
+    let mut chain = Vec::new();
+    for start in 0..count {
+        if state[start] == DONE {
+            continue;
+        }
+        // Climb to the first ancestor that is resolved, a root, or on the
+        // current chain (a cycle).
+        chain.clear();
+        let mut j = start;
+        loop {
+            state[j] = VISITING;
+            chain.push(j);
+            match parent_of(j) {
+                Some(p) if state[p] == UNVISITED => j = p,
+                _ => break,
+            }
+        }
+        // Resolve top-down.
+        for &k in chain.iter().rev() {
+            world[k] = match parent_of(k) {
+                Some(p) if state[p] == DONE => mul_mat4(world[p], local(&joints[k])),
+                _ => local(&joints[k]),
+            };
+            state[k] = DONE;
+        }
     }
 }
 
@@ -131,40 +187,76 @@ pub struct Keyframe {
 
 impl AnimationClip {
     /// Sample the animation at a given time, applying to a skeleton.
+    ///
+    /// Time wraps into `[0, duration)` (negative times wrap backwards);
+    /// non-finite times sample the first keyframe. Translation and scale are
+    /// interpolated linearly; rotation uses shortest-path spherical linear
+    /// interpolation, so joints never shear or shrink mid-blend.
     pub fn sample(&self, skeleton: &mut Skeleton, time: f32) {
-        let t = if self.duration > 0.0 {
-            time % self.duration
+        let t = if self.duration > 0.0 && time.is_finite() {
+            time.rem_euclid(self.duration)
         } else {
             0.0
         };
 
         for channel in &self.channels {
-            if channel.joint_index >= skeleton.joints.len() {
+            let Some(joint) = skeleton.joints.get_mut(channel.joint_index) else {
                 continue;
-            }
-
-            let value = interpolate_keyframes(&channel.keyframes, t);
-            let joint = &mut skeleton.joints[channel.joint_index];
+            };
 
             match channel.property {
                 AnimationProperty::Translation => {
-                    if value.len() >= 3 {
-                        joint.translation = [value[0], value[1], value[2]];
+                    if let [x, y, z, ..] = *interpolate_keyframes(&channel.keyframes, t) {
+                        joint.translation = [x, y, z];
                     }
                 }
                 AnimationProperty::Rotation => {
-                    if value.len() >= 4 {
-                        joint.rotation = [value[0], value[1], value[2], value[3]];
+                    if let [x, y, z, w, ..] = *interpolate_rotation(&channel.keyframes, t) {
+                        joint.rotation = [x, y, z, w];
                     }
                 }
                 AnimationProperty::Scale => {
-                    if value.len() >= 3 {
-                        joint.scale = [value[0], value[1], value[2]];
+                    if let [x, y, z, ..] = *interpolate_keyframes(&channel.keyframes, t) {
+                        joint.scale = [x, y, z];
                     }
                 }
             }
         }
     }
+}
+
+/// Position of `time` within a keyframe track.
+enum Bracket<'a> {
+    /// Exactly one keyframe applies (before the first, after the last, or a
+    /// single-key track).
+    At(&'a [f32]),
+    /// Between two keyframes at normalized parameter `t ∈ [0, 1]`.
+    Between(&'a [f32], &'a [f32], f32),
+}
+
+/// Locate `time` in a time-sorted keyframe track (binary search).
+/// Returns `None` for an empty track.
+fn bracket(keyframes: &[Keyframe], time: f32) -> Option<Bracket<'_>> {
+    let (first, last) = (keyframes.first()?, keyframes.last()?);
+    if keyframes.len() == 1 || time.is_nan() || time <= first.time {
+        return Some(Bracket::At(&first.value));
+    }
+    if time >= last.time {
+        return Some(Bracket::At(&last.value));
+    }
+    // First keyframe strictly after `time`; clamped in case the track is not
+    // sorted (partition_point stays in bounds but may then return 0 or len).
+    let hi = keyframes
+        .partition_point(|k| k.time <= time)
+        .clamp(1, keyframes.len() - 1);
+    let (a, b) = (&keyframes[hi - 1], &keyframes[hi]);
+    let dt = b.time - a.time;
+    let t = if dt.abs() > f32::EPSILON {
+        ((time - a.time) / dt).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    Some(Bracket::Between(&a.value, &b.value, t))
 }
 
 /// Linear interpolation between keyframes.
@@ -172,120 +264,157 @@ impl AnimationClip {
 /// Returns a `Cow::Borrowed` when an exact keyframe is returned (no interpolation),
 /// avoiding allocation in the common boundary cases (before first, after last, single keyframe).
 fn interpolate_keyframes(keyframes: &[Keyframe], time: f32) -> std::borrow::Cow<'_, [f32]> {
-    if keyframes.is_empty() {
-        return std::borrow::Cow::Borrowed(&[]);
+    use std::borrow::Cow;
+    match bracket(keyframes, time) {
+        None => Cow::Borrowed(&[]),
+        Some(Bracket::At(v)) => Cow::Borrowed(v),
+        Some(Bracket::Between(a, b, t)) => Cow::Owned(
+            a.iter()
+                .zip(b.iter())
+                .map(|(&va, &vb)| va + (vb - va) * t)
+                .collect(),
+        ),
     }
-    if keyframes.len() == 1 || time <= keyframes[0].time {
-        return std::borrow::Cow::Borrowed(&keyframes[0].value);
-    }
-    if let Some(last) = keyframes.last()
-        && time >= last.time
-    {
-        return std::borrow::Cow::Borrowed(&last.value);
-    }
+}
 
-    // Find the two surrounding keyframes
-    let mut i = 0;
-    while i < keyframes.len() - 1 && keyframes[i + 1].time < time {
-        i += 1;
+/// Rotation interpolation: shortest-path slerp between unit quaternions (xyzw).
+/// Keyframes with fewer than 4 components fall back to linear interpolation.
+fn interpolate_rotation(keyframes: &[Keyframe], time: f32) -> std::borrow::Cow<'_, [f32]> {
+    use std::borrow::Cow;
+    match bracket(keyframes, time) {
+        Some(Bracket::Between(a, b, t)) if a.len() >= 4 && b.len() >= 4 => {
+            Cow::Owned(slerp([a[0], a[1], a[2], a[3]], [b[0], b[1], b[2], b[3]], t).to_vec())
+        }
+        _ => interpolate_keyframes(keyframes, time),
     }
+}
 
-    let a = &keyframes[i];
-    let b = &keyframes[i + 1];
-    let dt = b.time - a.time;
-    let t = if dt.abs() > f32::EPSILON {
-        (time - a.time) / dt
+/// Shortest-path spherical linear interpolation of quaternions (xyzw).
+/// The result is normalized; a degenerate result falls back to identity.
+#[must_use]
+#[inline]
+pub(crate) fn slerp(a: [f32; 4], mut b: [f32; 4], t: f32) -> [f32; 4] {
+    let mut cos = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+    // q and -q are the same rotation: take the shorter arc.
+    if cos < 0.0 {
+        b = [-b[0], -b[1], -b[2], -b[3]];
+        cos = -cos;
+    }
+    let (wa, wb) = if cos > 0.9995 {
+        // Nearly parallel: normalized lerp is accurate and avoids 0/0.
+        (1.0 - t, t)
     } else {
-        0.0
+        let theta = cos.clamp(-1.0, 1.0).acos();
+        let sin = theta.sin();
+        (((1.0 - t) * theta).sin() / sin, (t * theta).sin() / sin)
     };
-
-    // Lerp each component
-    std::borrow::Cow::Owned(
-        a.value
-            .iter()
-            .zip(b.value.iter())
-            .map(|(&va, &vb)| va + (vb - va) * t)
-            .collect(),
-    )
+    let q = [
+        wa * a[0] + wb * b[0],
+        wa * a[1] + wb * b[1],
+        wa * a[2] + wb * b[2],
+        wa * a[3] + wb * b[3],
+    ];
+    let len = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]).sqrt();
+    if len.is_finite() && len > 1e-12 {
+        [q[0] / len, q[1] / len, q[2] / len, q[3] / len]
+    } else {
+        [0.0, 0.0, 0.0, 1.0]
+    }
 }
 
 /// Load animation clips from a glTF.
+///
+/// - Each skin becomes a [`Skeleton`]; joint parents are derived from the node
+///   hierarchy (only joints of the same skin count as parents). Skins with
+///   more than [`MAX_JOINTS`] joints are loaded fully but only the first
+///   `MAX_JOINTS` are posed by [`Skeleton::compute_joint_matrices`].
+/// - Animation channels are mapped onto the **first** skin's joints; channels
+///   that target nodes outside that skin, or morph-target weights, are skipped.
+/// - `LINEAR` and `STEP` samplers are reproduced exactly (`STEP` is encoded as
+///   duplicate-time keyframes); `CUBICSPLINE` keeps the keyframe values and
+///   interpolates between them (tangents are dropped).
 pub fn load_gltf_animations(bytes: &[u8]) -> Result<(Vec<Skeleton>, Vec<AnimationClip>)> {
     let gltf = gltf::Gltf::from_slice(bytes).map_err(|e| RenderError::Model(e.to_string()))?;
 
     let blob = gltf.blob.as_deref().unwrap_or(&[]);
-    let buffer_sources: Vec<&[u8]> = gltf
-        .buffers()
-        .map(|buffer| match buffer.source() {
-            gltf::buffer::Source::Bin => blob,
-            gltf::buffer::Source::Uri(_) => &[] as &[u8],
-        })
-        .collect();
+    let buffer_sources = crate::gltf_loader::collect_buffer_sources(&gltf, blob);
+    let node_count = gltf.nodes().len();
 
     let mut skeletons = Vec::new();
-    let mut clips = Vec::new();
+    let mut first_skin_joint_of_node: Option<Vec<Option<usize>>> = None;
 
     // Load skins → skeletons
     for skin in gltf.skins() {
         let reader = skin.reader(|buf| buffer_sources.get(buf.index()).copied());
-
         let inverse_binds: Vec<[[f32; 4]; 4]> = reader
             .read_inverse_bind_matrices()
             .map(|iter| iter.collect())
             .unwrap_or_default();
 
-        let gltf_joints = skin.joints().collect::<Vec<_>>();
-        let mut joints = Vec::with_capacity(gltf_joints.len());
-
-        for (i, gltf_joint) in gltf_joints.iter().enumerate() {
-            let (t, r, s) = gltf_joint.transform().decomposed();
-            let ibm = if i < inverse_binds.len() {
-                flatten_mat4(inverse_binds[i])
-            } else {
-                IDENTITY_MAT4
-            };
-
-            // Find parent: the joint in our list whose children contain this joint
-            let parent = gltf_joints
-                .iter()
-                .position(|candidate| {
-                    candidate
-                        .children()
-                        .any(|child| child.index() == gltf_joint.index())
-                })
-                .map(|idx| idx as i32)
-                .unwrap_or(-1);
-
-            joints.push(Joint {
-                parent,
-                inverse_bind: ibm,
-                translation: t,
-                rotation: r,
-                scale: s,
-            });
+        let gltf_joints: Vec<gltf::Node<'_>> = skin.joints().collect();
+        if gltf_joints.len() > MAX_JOINTS {
+            tracing::warn!(
+                joints = gltf_joints.len(),
+                max = MAX_JOINTS,
+                "glTF skin exceeds MAX_JOINTS — extra joints will not be posed"
+            );
         }
 
+        // Node index → joint index within this skin (node indices are
+        // validated by gltf to be < node_count).
+        let mut joint_of_node = vec![None; node_count];
+        for (ji, node) in gltf_joints.iter().enumerate() {
+            joint_of_node[node.index()] = Some(ji);
+        }
+        let mut parents = vec![-1i32; gltf_joints.len()];
+        for (ji, node) in gltf_joints.iter().enumerate() {
+            for child in node.children() {
+                if let Some(cj) = joint_of_node[child.index()] {
+                    parents[cj] = ji as i32;
+                }
+            }
+        }
+
+        let joints = gltf_joints
+            .iter()
+            .enumerate()
+            .map(|(i, node)| {
+                let (translation, rotation, scale) = node.transform().decomposed();
+                Joint {
+                    parent: parents[i],
+                    inverse_bind: inverse_binds
+                        .get(i)
+                        .map_or(IDENTITY_MAT4, |m| flatten_mat4(*m)),
+                    translation,
+                    rotation,
+                    scale,
+                }
+            })
+            .collect();
+
         skeletons.push(Skeleton { joints });
+        if first_skin_joint_of_node.is_none() {
+            first_skin_joint_of_node = Some(joint_of_node);
+        }
     }
 
     // Load animations
+    let joint_of_node = first_skin_joint_of_node.unwrap_or_default();
+    let mut clips = Vec::new();
     for anim in gltf.animations() {
         let mut channels = Vec::new();
         let mut duration = 0.0f32;
 
         for channel in anim.channels() {
-            let reader = channel.reader(|buf| buffer_sources.get(buf.index()).copied());
             let target = channel.target();
-
-            // Find joint index
-            let joint_index = gltf
-                .skins()
-                .next()
-                .and_then(|skin| {
-                    skin.joints()
-                        .position(|j| j.index() == target.node().index())
-                })
-                .unwrap_or(0);
+            let Some(joint_index) = joint_of_node.get(target.node().index()).copied().flatten()
+            else {
+                tracing::debug!(
+                    node = target.node().index(),
+                    "animation channel targets a non-joint node — skipped"
+                );
+                continue;
+            };
 
             let property = match target.property() {
                 gltf::animation::Property::Translation => AnimationProperty::Translation,
@@ -294,11 +423,11 @@ pub fn load_gltf_animations(bytes: &[u8]) -> Result<(Vec<Skeleton>, Vec<Animatio
                 _ => continue,
             };
 
+            let reader = channel.reader(|buf| buffer_sources.get(buf.index()).copied());
             let times: Vec<f32> = reader
                 .read_inputs()
                 .map(|iter| iter.collect())
                 .unwrap_or_default();
-
             let values: Vec<Vec<f32>> = match reader.read_outputs() {
                 Some(gltf::animation::util::ReadOutputs::Translations(iter)) => {
                     iter.map(|v| v.to_vec()).collect()
@@ -312,16 +441,13 @@ pub fn load_gltf_animations(bytes: &[u8]) -> Result<(Vec<Skeleton>, Vec<Animatio
                 _ => continue,
             };
 
-            if let Some(&last_time) = times.last() {
+            if let Some(&last_time) = times.last()
+                && last_time.is_finite()
+            {
                 duration = duration.max(last_time);
             }
 
-            let keyframes: Vec<Keyframe> = times
-                .into_iter()
-                .zip(values)
-                .map(|(time, value)| Keyframe { time, value })
-                .collect();
-
+            let keyframes = build_keyframes(times, values, channel.sampler().interpolation());
             channels.push(AnimationChannel {
                 joint_index,
                 property,
@@ -336,12 +462,283 @@ pub fn load_gltf_animations(bytes: &[u8]) -> Result<(Vec<Skeleton>, Vec<Animatio
         });
     }
 
+    tracing::debug!(
+        skeletons = skeletons.len(),
+        clips = clips.len(),
+        "loaded gltf animations"
+    );
     Ok((skeletons, clips))
+}
+
+/// Pair sampler inputs with outputs according to the glTF interpolation mode.
+fn build_keyframes(
+    times: Vec<f32>,
+    values: Vec<Vec<f32>>,
+    interpolation: gltf::animation::Interpolation,
+) -> Vec<Keyframe> {
+    use gltf::animation::Interpolation;
+    match interpolation {
+        Interpolation::Linear => times
+            .into_iter()
+            .zip(values)
+            .map(|(time, value)| Keyframe { time, value })
+            .collect(),
+        // Outputs are (in-tangent, value, out-tangent) triplets: keep values.
+        Interpolation::CubicSpline => times
+            .into_iter()
+            .zip(values.into_iter().skip(1).step_by(3))
+            .map(|(time, value)| Keyframe { time, value })
+            .collect(),
+        // Hold each value until the next key: add a duplicate-time key carrying
+        // the previous value, so linear sampling reproduces the step exactly.
+        Interpolation::Step => {
+            let n = times.len().min(values.len());
+            let mut out = Vec::with_capacity(n.saturating_mul(2));
+            for k in 0..n {
+                if k > 0 {
+                    out.push(Keyframe {
+                        time: times[k],
+                        value: values[k - 1].clone(),
+                    });
+                }
+                out.push(Keyframe {
+                    time: times[k],
+                    value: values[k].clone(),
+                });
+            }
+            out
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn quat_len(q: [f32; 4]) -> f32 {
+        (q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]).sqrt()
+    }
+
+    #[test]
+    fn slerp_halfway_is_half_angle_and_unit() {
+        let h = std::f32::consts::FRAC_1_SQRT_2;
+        let q = slerp([0.0, 0.0, 0.0, 1.0], [0.0, 0.0, h, h], 0.5);
+        // 45° about Z: (0, 0, sin 22.5°, cos 22.5°)
+        let half = std::f32::consts::FRAC_PI_8;
+        assert!((q[2] - half.sin()).abs() < 1e-5, "{q:?}");
+        assert!((q[3] - half.cos()).abs() < 1e-5, "{q:?}");
+        assert!((quat_len(q) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn slerp_takes_shortest_path() {
+        let h = std::f32::consts::FRAC_1_SQRT_2;
+        // -q is the same rotation; the blend must not swing the long way.
+        let a = slerp([0.0, 0.0, 0.0, 1.0], [0.0, 0.0, -h, -h], 0.5);
+        let b = slerp([0.0, 0.0, 0.0, 1.0], [0.0, 0.0, h, h], 0.5);
+        for k in 0..4 {
+            assert!((a[k] - b[k]).abs() < 1e-5, "{a:?} vs {b:?}");
+        }
+        // Endpoints are reproduced.
+        let e = slerp([0.0, 0.0, 0.0, 1.0], [0.0, 0.0, h, h], 1.0);
+        assert!((e[2] - h).abs() < 1e-5 && (e[3] - h).abs() < 1e-5);
+    }
+
+    #[test]
+    fn sample_rotation_stays_unit_length() {
+        let h = std::f32::consts::FRAC_1_SQRT_2;
+        let clip = AnimationClip {
+            name: "spin".into(),
+            duration: 1.0,
+            channels: vec![AnimationChannel {
+                joint_index: 0,
+                property: AnimationProperty::Rotation,
+                keyframes: vec![
+                    Keyframe {
+                        time: 0.0,
+                        value: vec![0.0, 0.0, 0.0, 1.0],
+                    },
+                    Keyframe {
+                        time: 1.0,
+                        value: vec![h, 0.0, 0.0, h],
+                    },
+                ],
+            }],
+        };
+        let mut skel = Skeleton {
+            joints: vec![Joint::default()],
+        };
+        for i in 0..=10 {
+            clip.sample(&mut skel, i as f32 * 0.099);
+            let len = quat_len(skel.joints[0].rotation);
+            assert!(
+                (len - 1.0).abs() < 1e-5,
+                "non-unit rotation {len} at step {i}"
+            );
+        }
+    }
+
+    #[test]
+    fn sample_wraps_negative_and_non_finite_time() {
+        let clip = AnimationClip {
+            name: "move".into(),
+            duration: 2.0,
+            channels: vec![AnimationChannel {
+                joint_index: 0,
+                property: AnimationProperty::Translation,
+                keyframes: vec![
+                    Keyframe {
+                        time: 0.0,
+                        value: vec![0.0, 0.0, 0.0],
+                    },
+                    Keyframe {
+                        time: 2.0,
+                        value: vec![2.0, 0.0, 0.0],
+                    },
+                ],
+            }],
+        };
+        let mut skel = Skeleton {
+            joints: vec![Joint::default()],
+        };
+        clip.sample(&mut skel, -0.5); // wraps to 1.5
+        assert!((skel.joints[0].translation[0] - 1.5).abs() < 1e-5);
+        clip.sample(&mut skel, f32::NAN);
+        assert_eq!(skel.joints[0].translation, [0.0, 0.0, 0.0]);
+        // Out-of-range joint index is ignored, not a panic.
+        let mut empty = Skeleton { joints: vec![] };
+        clip.sample(&mut empty, 1.0);
+    }
+
+    fn joint(parent: i32, translation: [f32; 3]) -> Joint {
+        Joint {
+            parent,
+            translation,
+            ..Joint::default()
+        }
+    }
+
+    #[test]
+    fn joint_matrices_handle_unsorted_parents() {
+        // Sorted: 0 root, 1 child of 0, 2 child of 1.
+        let sorted = Skeleton {
+            joints: vec![
+                joint(-1, [1.0, 0.0, 0.0]),
+                joint(0, [0.0, 2.0, 0.0]),
+                joint(1, [0.0, 0.0, 3.0]),
+            ],
+        };
+        // Same hierarchy listed leaf-first: 0 = leaf (parent 1), 1 = mid (parent 2), 2 = root.
+        let unsorted = Skeleton {
+            joints: vec![
+                joint(1, [0.0, 0.0, 3.0]),
+                joint(2, [0.0, 2.0, 0.0]),
+                joint(-1, [1.0, 0.0, 0.0]),
+            ],
+        };
+        let a = sorted.compute_joint_matrices();
+        let b = unsorted.compute_joint_matrices();
+        assert_eq!(a[2], b[0], "leaf world transform differs");
+        assert_eq!(a[1], b[1]);
+        assert_eq!(a[0], b[2]);
+        assert_eq!(&a[2][12..15], &[1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn joint_matrices_break_cycles() {
+        let skel = Skeleton {
+            joints: vec![
+                joint(1, [1.0, 0.0, 0.0]),
+                joint(0, [0.0, 1.0, 0.0]),
+                joint(2, [0.0, 0.0, 1.0]),  // self-parent
+                joint(99, [0.0, 0.0, 0.0]), // out of range
+            ],
+        };
+        let m = skel.compute_joint_matrices();
+        assert_eq!(m.len(), 4);
+        assert!(m.iter().flatten().all(|v| v.is_finite()));
+        assert_eq!(&m[2][12..15], &[0.0, 0.0, 1.0]); // treated as root
+    }
+
+    #[test]
+    fn build_keyframes_step_and_cubic() {
+        use gltf::animation::Interpolation;
+        let step = build_keyframes(
+            vec![0.0, 1.0, 2.0],
+            vec![vec![0.0], vec![10.0], vec![20.0]],
+            Interpolation::Step,
+        );
+        let at = |t: f32| interpolate_keyframes(&step, t)[0];
+        assert_eq!(at(0.5), 0.0);
+        assert_eq!(at(0.999), 0.0);
+        assert_eq!(at(1.0), 10.0);
+        assert_eq!(at(1.5), 10.0);
+        assert_eq!(at(2.5), 20.0);
+
+        let cubic = build_keyframes(
+            vec![0.0, 1.0],
+            vec![
+                vec![9.0],
+                vec![1.0],
+                vec![9.0],
+                vec![9.0],
+                vec![3.0],
+                vec![9.0],
+            ],
+            Interpolation::CubicSpline,
+        );
+        assert_eq!(cubic.len(), 2);
+        assert_eq!(cubic[0].value, vec![1.0]);
+        assert_eq!(cubic[1].value, vec![3.0]);
+    }
+
+    #[test]
+    fn load_fixture_animations() {
+        let bytes = crate::test_support::skinned_animation_glb();
+        let (skeletons, clips) = load_gltf_animations(&bytes).expect("fixture should parse");
+
+        assert_eq!(skeletons.len(), 1);
+        let joints = &skeletons[0].joints;
+        assert_eq!(joints.len(), 2);
+        assert_eq!(
+            joints[0].parent, 1,
+            "child joint (node 1) parented to node 0"
+        );
+        assert_eq!(joints[1].parent, -1);
+
+        assert_eq!(clips.len(), 1);
+        let clip = &clips[0];
+        assert_eq!(clip.name, "fixture");
+        assert_eq!(clip.duration, 1.0);
+        // Channel targeting the non-joint node 2 is skipped.
+        assert_eq!(clip.channels.len(), 2);
+
+        let rot = &clip.channels[0];
+        assert_eq!(rot.property, AnimationProperty::Rotation);
+        assert_eq!(rot.joint_index, 1);
+        assert_eq!(rot.keyframes.len(), 3, "STEP encodes a duplicate-time key");
+
+        let tr = &clip.channels[1];
+        assert_eq!(tr.property, AnimationProperty::Translation);
+        assert_eq!(tr.joint_index, 0);
+        assert_eq!(tr.keyframes[0].value, vec![1.0, 0.0, 0.0]);
+        assert_eq!(tr.keyframes[1].value, vec![2.0, 0.0, 0.0]);
+
+        let mut skel = skeletons[0].clone();
+        clip.sample(&mut skel, 0.5);
+        assert_eq!(
+            skel.joints[1].rotation,
+            [0.0, 0.0, 0.0, 1.0],
+            "STEP holds key 0"
+        );
+        assert!((skel.joints[0].translation[0] - 1.5).abs() < 1e-5);
+        assert!(
+            skel.compute_joint_matrices()
+                .iter()
+                .flatten()
+                .all(|v| v.is_finite())
+        );
+    }
 
     #[test]
     fn joint_default() {

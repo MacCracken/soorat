@@ -52,7 +52,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let sample_count = i32(uniforms.params.w);
 
     let depth = textureSample(t_depth, s_depth, in.tex_coords);
-    let pos = view_pos_from_depth(in.tex_coords, depth);
+    // tex_coords has v pointing down; view_pos_from_depth expects NDC-style uv
+    // (v up), matching the sample reprojection below.
+    let pos = view_pos_from_depth(vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y), depth);
     let normal = textureSample(t_normal, s_normal, in.tex_coords).rgb * 2.0 - 1.0;
 
     var occlusion = 0.0;

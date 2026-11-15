@@ -2,6 +2,7 @@
 
 use crate::mesh_pipeline::Mesh;
 use crate::vertex::Vertex3D;
+use crate::viz::{HeightField, heightfield_mesh};
 
 /// Terrain configuration.
 #[derive(Debug, Clone)]
@@ -38,91 +39,54 @@ pub struct TerrainData {
 
 /// Generate terrain mesh data from a heightmap.
 /// `heights`: row-major grid of height values, size = (config.width+1) * (config.depth+1).
-/// Returns vertices and indices suitable for MeshPipeline.
+/// Missing (short `heights`) or non-finite samples are treated as 0.
+/// Returns vertices and indices suitable for MeshPipeline (triangles face +Y).
+///
+/// Returns empty data if `width`/`depth` is 0 or the vertex count would not fit
+/// `u32` indices.
 #[must_use]
 pub fn generate_terrain(config: &TerrainConfig, heights: &[f32]) -> TerrainData {
+    let empty = || TerrainData {
+        vertices: Vec::new(),
+        indices: Vec::new(),
+    };
     if config.width == 0 || config.depth == 0 {
         tracing::warn!(
             width = config.width,
             depth = config.depth,
             "generate_terrain: width or depth is 0 — returning empty terrain"
         );
-        return TerrainData {
-            vertices: Vec::new(),
-            indices: Vec::new(),
-        };
+        return empty();
     }
 
-    let cols = config.width.saturating_add(1);
-    let rows = config.depth.saturating_add(1);
-    let expected = (cols * rows) as usize;
-
-    let cell_w = config.world_width / config.width as f32;
-    let cell_d = config.world_depth / config.depth as f32;
-
-    let mut vertices = Vec::with_capacity(expected);
-
-    // Generate vertices
-    for z in 0..rows {
-        for x in 0..cols {
-            let idx = (z * cols + x) as usize;
-            let h = if idx < heights.len() {
-                heights[idx] * config.height_scale
-            } else {
-                0.0
-            };
-
-            let pos = [
-                x as f32 * cell_w - config.world_width * 0.5,
-                h,
-                z as f32 * cell_d - config.world_depth * 0.5,
-            ];
-
-            let u = x as f32 / config.width as f32;
-            let v = z as f32 / config.depth as f32;
-
-            // Compute normal from neighboring heights
-            let normal = compute_normal(
-                heights,
-                x,
-                z,
-                cols,
-                rows,
-                cell_w,
-                cell_d,
-                config.height_scale,
-            );
-
-            vertices.push(Vertex3D {
-                position: pos,
-                normal,
-                tex_coords: [u, v],
-                color: [1.0, 1.0, 1.0, 1.0],
-            });
-        }
+    let cols = config.width as usize + 1;
+    let rows = config.depth as usize + 1;
+    let Some(expected) = cols.checked_mul(rows) else {
+        tracing::warn!(cols, rows, "generate_terrain: vertex count overflows");
+        return empty();
+    };
+    if heights.len() < expected {
+        tracing::debug!(
+            expected,
+            actual = heights.len(),
+            "generate_terrain: heightmap shorter than grid — missing samples are 0"
+        );
     }
 
-    // Generate indices (two triangles per grid cell)
-    let quad_count = (config.width * config.depth) as usize;
-    let mut indices = Vec::with_capacity(quad_count * 6);
-
-    for z in 0..config.depth {
-        for x in 0..config.width {
-            let tl = z * cols + x;
-            let tr = tl + 1;
-            let bl = tl + cols;
-            let br = bl + 1;
-
-            // Triangle 1
-            indices.push(tl);
-            indices.push(bl);
-            indices.push(tr);
-            // Triangle 2
-            indices.push(tr);
-            indices.push(bl);
-            indices.push(br);
-        }
-    }
+    let field = HeightField {
+        cols,
+        rows,
+        origin_x: -config.world_width * 0.5,
+        origin_z: -config.world_depth * 0.5,
+        dx: config.world_width / config.width as f32,
+        dz: config.world_depth / config.depth as f32,
+    };
+    let scale = config.height_scale;
+    let (vertices, indices) = heightfield_mesh(
+        &field,
+        |ix, iz| heights.get(iz * cols + ix).map_or(0.0, |&h| h * scale),
+        |_, _, _| [1.0, 1.0, 1.0, 1.0],
+    );
 
     TerrainData { vertices, indices }
 }
@@ -134,49 +98,29 @@ pub fn create_terrain_mesh(device: &wgpu::Device, config: &TerrainConfig, height
     Mesh::new(device, &data.vertices, &data.indices)
 }
 
-/// Generate a flat heightmap (all zeros).
+/// Generate a flat heightmap (all zeros) sized `(width+1) * (depth+1)`.
+/// Returns an empty vector if that size overflows `usize`.
 #[must_use]
 pub fn flat_heightmap(width: u32, depth: u32) -> Vec<f32> {
-    vec![0.0; ((width + 1) * (depth + 1)) as usize]
-}
-
-#[allow(clippy::too_many_arguments)]
-fn compute_normal(
-    heights: &[f32],
-    x: u32,
-    z: u32,
-    cols: u32,
-    rows: u32,
-    cell_w: f32,
-    cell_d: f32,
-    height_scale: f32,
-) -> [f32; 3] {
-    let h = |ix: u32, iz: u32| -> f32 {
-        let idx = (iz * cols + ix) as usize;
-        if idx < heights.len() {
-            heights[idx] * height_scale
-        } else {
-            0.0
-        }
-    };
-
-    let hc = h(x, z);
-    let hl = if x > 0 { h(x - 1, z) } else { hc };
-    let hr = if x < cols - 1 { h(x + 1, z) } else { hc };
-    let hd = if z > 0 { h(x, z - 1) } else { hc };
-    let hu = if z < rows - 1 { h(x, z + 1) } else { hc };
-
-    let dx = (hl - hr) / (2.0 * cell_w);
-    let dz = (hd - hu) / (2.0 * cell_d);
-
-    // Normal = normalize(dx, 1, dz)
-    let len = (dx * dx + 1.0 + dz * dz).sqrt();
-    [dx / len, 1.0 / len, dz / len]
+    let len = (width as usize + 1).checked_mul(depth as usize + 1);
+    vec![0.0; len.unwrap_or(0)]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terrain_winds_upward() {
+        let cfg = TerrainConfig {
+            width: 4,
+            depth: 3,
+            ..Default::default()
+        };
+        let heights: Vec<f32> = (0..20).map(|i| (i as f32 * 0.37).sin()).collect();
+        let data = generate_terrain(&cfg, &heights);
+        crate::viz::assert_winding_matches_normals(&data.vertices, &data.indices);
+    }
 
     #[test]
     fn terrain_config_default() {

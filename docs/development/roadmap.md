@@ -2,7 +2,8 @@
 
 > **Soorat** (Arabic/Urdu: صورت — form, image, appearance) — GPU rendering engine for the Kiran game engine and AGNOS ecosystem.
 
-Version 1.0.0 — all planned features implemented. Patch sprints 1-3 complete.
+Version 1.1.0 — all planned features implemented. Patch sprints 1-3 complete.
+1.1.0 (2026-11-15): language/dependency update (Rust 1.100, MSRV 1.100) + P(-1) audit and hardening.
 
 ## Sprint 1 — Correctness & Safety — DONE
 
@@ -39,6 +40,24 @@ Version 1.0.0 — all planned features implemented. Patch sprints 1-3 complete.
 - [x] NaN guard fix: `vector_field_to_arrows` now skips non-finite magnitudes
 - [x] Additional: batch u32 overflow, singular camera matrix (2 tests)
 
+## Audit & Hardening — 2026-11 (P(-1)) — DONE
+
+- [x] Rust 1.100 / MSRV 1.100 (edition 2024 is still the latest); all dependencies to latest compatible (wgpu stays 29.x — pinned by mabda 1.0, the final Rust mabda)
+- [x] `hisab` made optional (only `acoustics` needs it)
+- [x] Normal matrix uploaded transposed — rotated meshes were lit as if rotated the opposite way
+- [x] Environment-map mip chains were allocated but never written (black specular IBL on rough surfaces) — CPU box-filter mip generation
+- [x] BRDF LUT uploaded as sRGB — now `Rgba8Unorm` + bilinear sampler (`Texture::from_rgba_linear`)
+- [x] Back-facing geometry: `primitives::sphere`, cylinder caps, all viz heatmaps, particle quads, directivity/radiation balloons
+- [x] Animation: quaternion slerp, STEP/CUBICSPLINE samplers, unsorted/cyclic joint hierarchies, non-joint channels no longer hijack joint 0, O(log n) keyframe lookup
+- [x] Shadows: non-mirrored light basis, centred frustum (`directional_light_matrix_at`), perspective-correct lookups, `textureSampleCompareLevel` (WebGPU uniformity), atlas division by zero, NaN-safe splits
+- [x] SSAO view-position Y flip; skinned shader weight renormalization + tangent transform
+- [x] `draw_batched` index-buffer overrun above 16,383 sprites; `WindowConfig::fullscreen` ignored
+- [x] Untrusted-input hardening: glTF (index ranges, buffer-view ranges, non-triangle primitives), image size vs device limits, viz grids backed by data, NaN-safe color maps, segment caps
+- [x] Zero-size GPU resource guards (depth/HDR/shadow/atlas/particles), particle dispatch limit
+- [x] Shared viz helpers (`viz.rs`): one heatmap + one height-field implementation (was 4 + 3 copies)
+- [x] naga validation of all WGSL in CI (`tests/shaders.rs`) + GPU smoke tests (`tests/gpu_smoke.rs`)
+- [x] `deny.toml` checks all features; CI runs all features + MSRV job
+
 ## Sprint 4 — Performance Foundations (v1.1.0)
 
 > Priority: low-effort, high-impact performance wins. Unlocks scene scaling for kiran.
@@ -50,6 +69,8 @@ Version 1.0.0 — all planned features implemented. Patch sprints 1-3 complete.
 - [ ] **Debug draw buffer reuse** — `LinePipeline` creates GPU buffers per-frame; reuse with grow-on-demand (effort: S)
 - [ ] **Pipeline warm-up API** — `PipelineCache::warm_up()` pre-populates to avoid first-frame hitches (effort: S)
 - [ ] **Render graph auto-profiling** — wire `RenderGraph` execution to insert GPU timestamp queries per pass (effort: S)
+- [ ] **Per-draw model uniforms** — `MeshPipeline`/`ShadowPipeline` hold one model matrix, so every mesh in a pass shares the last-written transform; use dynamic offsets or a per-draw buffer (effort: M, found in 2026-11 audit)
+- [ ] **Depth load/clear control** — `MeshPipeline::draw` always clears depth, so successive `draw` calls ignore each other's depth (needs an API addition; `MeshDrawParams` is not `#[non_exhaustive]`) (effort: S)
 
 ## Sprint 5 — Visual Quality (v1.2.0)
 
@@ -60,11 +81,19 @@ Version 1.0.0 — all planned features implemented. Patch sprints 1-3 complete.
 - [ ] **Shader permutation management** — consolidate pbr.wgsl + pbr_skinned.wgsl via naga `override` constants or string preprocessing (effort: M)
 - [ ] **Skinned mesh IBL** — add IBL bind group to pbr_skinned.wgsl for feature parity with static PBR (effort: S)
 - [ ] **SSAO hash quality** — replace sin-based hash with algebraic hash to eliminate banding on mobile GPUs (effort: S)
-- [ ] **naga build-time shader validation** — validate all `include_str!()` WGSL in build.rs (effort: S)
+- [x] **naga shader validation** — every WGSL file is parsed + validated by naga in `tests/shaders.rs` (2026-11)
+- [ ] **Bloom composite** — `PostProcessPipeline` only builds `fs_no_bloom`; `fs_main` + bind group 1 are unreachable, so `BloomPipeline` output is never composited (effort: S)
+- [ ] **GGX-prefiltered environment mips** — mips are box-filtered now (no longer black); proper split-sum prefiltering would match roughness (effort: M)
+- [ ] **SSAO inputs** — no pass writes the view-space normals SSAO expects (effort: M)
+- [ ] **Cascade selection in pbr.wgsl** — `CascadeUniforms`, `ShadowAtlas` and `PointShadowMap` have no shader consumer yet (effort: M)
 
 ## Sprint 6 — Scientific Visualization (v1.3.0)
 
 > Priority: joshua consumer needs. Shared infrastructure across viz modules.
+
+- [ ] **Axis convention** — EM `vector_field_to_arrows` maps sim y → world Y while field slices map sim y → world Z; pick one convention for 2D data (effort: S)
+- [ ] **Heatmap alignment** — samples render as cells starting at the node (half-cell offset vs arrows at nodes); offer node-centred mode (effort: S)
+- [ ] **Shallow water bathymetry** — render `ground + height` as the free surface (effort: S)
 
 - [ ] **Perceptually uniform color maps** — `ColorMap` struct with viridis/inferno/magma/plasma/coolwarm presets as 1D LUT; wire into all viz modules (effort: S, critical for scientific accuracy)
 - [ ] **Volume rendering** — 3D texture upload, ray-march fragment shader, transfer function mapping (effort: L)
@@ -81,6 +110,9 @@ Version 1.0.0 — all planned features implemented. Patch sprints 1-3 complete.
 - [ ] **Hi-Z occlusion pyramid** — generate from depth pre-pass, feed into culling shader (effort: M)
 - [ ] **Order-independent transparency** — weighted blended OIT (two render targets + composite) (effort: M)
 - [ ] **Device-lost error recovery** — device lost callback, resource recreation registry, graceful restart (effort: M)
+- [ ] **CUBICSPLINE Hermite interpolation** — tangents are currently dropped (values interpolate linearly/slerp) (effort: S)
+- [ ] **Multi-skin animation targeting** — channels map onto the first skin only (effort: S)
+- [ ] **Frame-rate-independent particle damping** — damping is applied per step, not scaled by `dt` (effort: S)
 
 ## Sprint 8 — Advanced Rendering (v2.0.0)
 
@@ -105,17 +137,17 @@ Version 1.0.0 — all planned features implemented. Patch sprints 1-3 complete.
 
 ## Publish Blockers
 
-- [ ] **mabda v1.0 on crates.io** — soorat currently uses `path = "../mabda"` dep
-- [ ] All Sprint 1 fixes landed and released
+- [x] **mabda v1.0 on crates.io** — soorat depends on `mabda = "1.0"` from crates.io
+- [ ] All Sprint 1 fixes and the 2026-11 audit landed and released
+- [ ] **wgpu 30** — blocked: mabda 1.0 (final Rust release) requires `wgpu ^29`
 
 ## Dependency Map
 
 ```
 soorat (rendering engine)
-  ├── mabda        — GPU foundation (device, buffers, pipelines)
-  ├── wgpu         — GPU abstraction (Vulkan/Metal/DX12/WebGPU)
+  ├── mabda        — GPU foundation (device, buffers, pipelines) — 1.0, final Rust release
+  ├── wgpu         — GPU abstraction (Vulkan/Metal/DX12/WebGPU) — 29.x, pinned by mabda
   ├── winit        — window management + event loop
-  ├── hisab        — math (vectors, matrices, transforms)
   ├── bytemuck     — vertex type zero-copy casting
   ├── image        — texture loading (png, jpeg)
   ├── gltf         — 3D model loading
@@ -124,8 +156,11 @@ soorat (rendering engine)
   ├── impetus      — physics (collider debug wireframes)       [optional: physics-debug]
   ├── pravash      — fluid dynamics (particle/surface render)  [optional: fluids]
   ├── goonj        — acoustics (ray paths, pressure, modes)    [optional: acoustics]
+  ├── hisab        — math (goonj Vec3)                         [optional: acoustics]
   ├── bijli        — electromagnetism (fields, FDTD, charges)  [optional: em]
-  └── ushma        — thermodynamics (thermal grids, cycles)    [optional: thermo]
+  ├── ushma        — thermodynamics (thermal grids, cycles)    [optional: thermo]
+  ├── selah        — screenshot annotate/redact/clipboard      [optional: screenshot]
+  └── agnosys      — DRM device info (git tag, Linux)          [optional: drm]
 ```
 
 ## Context for Agent
@@ -135,4 +170,4 @@ Soorat is consumed by:
 - **salai** (`src/viewport.rs`) — uses `draw_into_pass()` APIs + egui_bridge for 3D viewport
 - **joshua** — scientific visualization
 
-Current: 408 tests, 29 benchmarks, 42 modules, 9 WGSL shaders.
+Current: 479 tests (all features; 391 default), 35 benchmarks, 44 modules, 9 WGSL shaders.

@@ -72,24 +72,34 @@ pub fn encode_pixels(
     }
 
     let mut buf = Cursor::new(Vec::with_capacity(rgba.len() / 2));
+    let encode_err = |e: image::ImageError| RenderError::Screenshot(format!("encode failed: {e}"));
 
     match format {
         // JPEG doesn't support alpha — strip to RGB
         ScreenshotFormat::Jpeg => {
-            let rgb: Vec<u8> = rgba
-                .chunks_exact(4)
-                .flat_map(|px| [px[0], px[1], px[2]])
-                .collect();
-            let img = image::RgbImage::from_raw(width, height, rgb)
-                .ok_or_else(|| RenderError::Screenshot("RGB conversion failed".into()))?;
-            img.write_to(&mut buf, image::ImageFormat::Jpeg)
-                .map_err(|e| RenderError::Screenshot(format!("encode failed: {e}")))?;
+            let (pixels, _) = rgba.as_chunks::<4>();
+            let rgb: Vec<u8> = pixels.iter().flat_map(|px| [px[0], px[1], px[2]]).collect();
+            image::write_buffer_with_format(
+                &mut buf,
+                &rgb,
+                width,
+                height,
+                image::ExtendedColorType::Rgb8,
+                image::ImageFormat::Jpeg,
+            )
+            .map_err(encode_err)?;
         }
+        // Encode straight from the borrowed buffer (no full-image copy).
         _ => {
-            let img = image::RgbaImage::from_raw(width, height, rgba.to_vec())
-                .ok_or_else(|| RenderError::Screenshot("RGBA buffer construction failed".into()))?;
-            img.write_to(&mut buf, format.to_image_format())
-                .map_err(|e| RenderError::Screenshot(format!("encode failed: {e}")))?;
+            image::write_buffer_with_format(
+                &mut buf,
+                rgba,
+                width,
+                height,
+                image::ExtendedColorType::Rgba8,
+                format.to_image_format(),
+            )
+            .map_err(encode_err)?;
         }
     }
 
@@ -201,13 +211,18 @@ pub fn capture_screenshot_region(
         )));
     }
 
-    // Extract the sub-rectangle from the full RGBA buffer
-    let stride = (target.width * 4) as usize;
-    let row_bytes = (rw * 4) as usize;
-    let mut cropped = Vec::with_capacity((rw * rh * 4) as usize);
-    for row in ry..(ry + rh) {
-        let start = row as usize * stride + (rx * 4) as usize;
-        cropped.extend_from_slice(&rgba[start..start + row_bytes]);
+    // Extract the sub-rectangle from the full (tightly packed) RGBA buffer.
+    // usize math: the region is within the target, so no product overflows
+    // the buffer that `read_pixels` already allocated.
+    let stride = target.width as usize * 4;
+    let row_bytes = rw as usize * 4;
+    let mut cropped = Vec::with_capacity(row_bytes * rh as usize);
+    for row in ry as usize..ry_end as usize {
+        let start = row * stride + rx as usize * 4;
+        let src = rgba.get(start..start + row_bytes).ok_or_else(|| {
+            RenderError::Screenshot("render target readback shorter than expected".into())
+        })?;
+        cropped.extend_from_slice(src);
     }
 
     let encoded = encode_pixels(rw, rh, &cropped, format)?;
@@ -263,6 +278,27 @@ pub fn copy_to_clipboard(encoded: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encode_every_format_roundtrips_dimensions() {
+        let (w, h) = (5u32, 3u32);
+        let rgba: Vec<u8> = (0..w * h * 4).map(|i| (i * 7 % 251) as u8).collect();
+        for format in [
+            ScreenshotFormat::Png,
+            ScreenshotFormat::Jpeg,
+            ScreenshotFormat::Bmp,
+        ] {
+            let bytes = encode_pixels(w, h, &rgba, format).expect("encode");
+            let img = image::load_from_memory(&bytes).expect("decode");
+            assert_eq!((img.width(), img.height()), (w, h), "{format:?}");
+        }
+        // PNG is lossless.
+        let png = encode_pixels(w, h, &rgba, ScreenshotFormat::Png).unwrap();
+        assert_eq!(
+            image::load_from_memory(&png).unwrap().to_rgba8().into_raw(),
+            rgba
+        );
+    }
 
     #[test]
     fn encode_pixels_roundtrip_png() {

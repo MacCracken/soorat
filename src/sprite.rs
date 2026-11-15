@@ -31,16 +31,18 @@ impl UvRect {
     /// Create a UV rect from pixel coordinates and atlas dimensions.
     ///
     /// Returns [`Self::FULL`] if `atlas_w` or `atlas_h` is zero (avoids division by zero).
+    /// Coordinates are computed in `f64`, so `x + w` cannot overflow.
     #[must_use]
     pub fn from_pixel_rect(x: u32, y: u32, w: u32, h: u32, atlas_w: u32, atlas_h: u32) -> Self {
         if atlas_w == 0 || atlas_h == 0 {
             return Self::FULL;
         }
+        let (aw, ah) = (f64::from(atlas_w), f64::from(atlas_h));
         Self {
-            u_min: x as f32 / atlas_w as f32,
-            v_min: y as f32 / atlas_h as f32,
-            u_max: (x + w) as f32 / atlas_w as f32,
-            v_max: (y + h) as f32 / atlas_h as f32,
+            u_min: (f64::from(x) / aw) as f32,
+            v_min: (f64::from(y) / ah) as f32,
+            u_max: ((f64::from(x) + f64::from(w)) / aw) as f32,
+            v_max: ((f64::from(y) + f64::from(h)) / ah) as f32,
         }
     }
 
@@ -158,10 +160,12 @@ pub struct SpriteBatch {
 }
 
 impl SpriteBatch {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             sprites: Vec::with_capacity(capacity),

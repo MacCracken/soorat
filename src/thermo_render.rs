@@ -68,6 +68,10 @@ impl Default for CycleDiagramParams {
 // ── CPU-only helpers (no feature gate) ──────────────────────────────────────
 
 use crate::color::visualization_heat_map;
+#[cfg(feature = "thermo")]
+use crate::viz::{
+    XzGrid, finite_min_max, grid_is_backed, heat_rgba, unit_t, with_alpha, xz_heatmap_mesh,
+};
 
 /// Thermal heat map exposed for general use.
 #[must_use]
@@ -79,8 +83,11 @@ pub fn thermal_heat_map(t: f32) -> Color {
 
 /// Generate a mesh for a 2D thermal grid as a colored heatmap.
 ///
-/// Each grid cell becomes a colored quad on the XZ plane at `y_pos`.
-/// Temperature values are normalized to \[0,1\] using min/max for color mapping.
+/// Each grid cell becomes a colored, +Y-facing quad on the XZ plane at `y_pos`.
+/// Temperatures are normalized to \[0,1\] over the grid's `min_temp..max_temp`
+/// (values outside that range are clamped; non-finite values map to 0).
+///
+/// Returns an empty mesh if `values` holds fewer than `nx * ny` samples.
 #[must_use]
 #[cfg(feature = "thermo")]
 pub fn thermal_grid_to_mesh(
@@ -89,96 +96,28 @@ pub fn thermal_grid_to_mesh(
     params: &ThermalVisParams,
 ) -> (Vec<Vertex3D>, Vec<u32>) {
     let [nx, ny] = grid.dimensions;
-    if nx == 0 || ny == 0 || grid.values.is_empty() {
+    if !grid_is_backed(&grid.dimensions, grid.values.len(), "thermal_grid_to_mesh") {
         return (Vec::new(), Vec::new());
     }
+    tracing::debug!(nx, ny, "building thermal grid heatmap");
 
-    let range = (grid.max_temp - grid.min_temp).max(f64::EPSILON);
-
-    let mut vertices = Vec::with_capacity(nx * ny * 4);
-    let mut indices = Vec::with_capacity(nx * ny * 6);
-
-    let ox = grid.origin[0] as f32;
-    let oz = grid.origin[1] as f32;
-    let dx = grid.spacing[0] as f32;
-    let dz = grid.spacing[1] as f32;
-
-    for iy in 0..ny {
-        for ix in 0..nx {
-            let idx = iy * nx + ix;
-            let v = if idx < grid.values.len() {
-                grid.values[idx]
-            } else {
-                grid.min_temp
-            };
-
-            let t = ((v - grid.min_temp) / range) as f32;
-            let color = match params.color_mode {
-                ThermalColorMode::Temperature => {
-                    let mut c = visualization_heat_map(t);
-                    c.a = params.alpha;
-                    c
-                }
-                ThermalColorMode::AlphaBlend => {
-                    let mut c = params.base_color;
-                    c.a = t * params.alpha;
-                    c
-                }
-            };
-            let c = color.to_array();
-
-            let x0 = ox + ix as f32 * dx;
-            let z0 = oz + iy as f32 * dz;
-
-            let base = match (vertices.len() as u64).checked_mul(1) {
-                Some(v) if v <= u32::MAX as u64 => vertices.len() as u32,
-                _ => continue,
-            };
-
-            vertices.push(Vertex3D {
-                position: [x0, y_pos, z0],
-                normal: [0.0, 1.0, 0.0],
-                tex_coords: [ix as f32 / nx.max(1) as f32, iy as f32 / ny.max(1) as f32],
-                color: c,
-            });
-            vertices.push(Vertex3D {
-                position: [x0 + dx, y_pos, z0],
-                normal: [0.0, 1.0, 0.0],
-                tex_coords: [
-                    (ix + 1) as f32 / nx.max(1) as f32,
-                    iy as f32 / ny.max(1) as f32,
-                ],
-                color: c,
-            });
-            vertices.push(Vertex3D {
-                position: [x0 + dx, y_pos, z0 + dz],
-                normal: [0.0, 1.0, 0.0],
-                tex_coords: [
-                    (ix + 1) as f32 / nx.max(1) as f32,
-                    (iy + 1) as f32 / ny.max(1) as f32,
-                ],
-                color: c,
-            });
-            vertices.push(Vertex3D {
-                position: [x0, y_pos, z0 + dz],
-                normal: [0.0, 1.0, 0.0],
-                tex_coords: [
-                    ix as f32 / nx.max(1) as f32,
-                    (iy + 1) as f32 / ny.max(1) as f32,
-                ],
-                color: c,
-            });
-
-            indices.push(base);
-            indices.push(base + 1);
-            indices.push(base + 2);
-            indices.push(base + 2);
-            indices.push(base + 3);
-            indices.push(base);
+    let cells = &grid.values[..nx * ny];
+    let plane = XzGrid {
+        nx,
+        nz: ny,
+        origin_x: grid.origin[0] as f32,
+        origin_z: grid.origin[1] as f32,
+        y: y_pos,
+        dx: grid.spacing[0] as f32,
+        dz: grid.spacing[1] as f32,
+    };
+    xz_heatmap_mesh(&plane, |ix, iy| {
+        let t = unit_t(cells[iy * nx + ix], grid.min_temp, grid.max_temp);
+        match params.color_mode {
+            ThermalColorMode::Temperature => heat_rgba(t, params.alpha),
+            ThermalColorMode::AlphaBlend => with_alpha(params.base_color, t * params.alpha),
         }
-    }
-
-    (vertices, indices)
+    })
 }
 
 // ── 2. Temperature profile ────────────────────────────────────────────────
@@ -279,27 +218,24 @@ fn draw_diagram_lines(
         return;
     }
 
-    // Find ranges for normalization
-    let (mut min_x, mut max_x) = (f64::MAX, f64::MIN);
-    let (mut min_y, mut max_y) = (f64::MAX, f64::MIN);
-    for p in points {
-        if p[0] < min_x {
-            min_x = p[0];
-        }
-        if p[0] > max_x {
-            max_x = p[0];
-        }
-        if p[1] < min_y {
-            min_y = p[1];
-        }
-        if p[1] > max_y {
-            max_y = p[1];
-        }
-    }
+    // Ranges over finite coordinates only.
+    let Some((min_x, max_x)) = finite_min_max(points.iter().map(|p| p[0])) else {
+        return;
+    };
+    let Some((min_y, max_y)) = finite_min_max(points.iter().map(|p| p[1])) else {
+        return;
+    };
     let rx = (max_x - min_x).max(f64::EPSILON);
     let ry = (max_y - min_y).max(f64::EPSILON);
 
     for i in 0..points.len() - 1 {
+        if !points[i]
+            .iter()
+            .chain(points[i + 1].iter())
+            .all(|c| c.is_finite())
+        {
+            continue;
+        }
         let nx0 = ((points[i][0] - min_x) / rx) as f32;
         let ny0 = ((points[i][1] - min_y) / ry) as f32;
         let nx1 = ((points[i + 1][0] - min_x) / rx) as f32;
@@ -446,37 +382,42 @@ pub fn heat_flux_to_arrows(
     batch: &mut LineBatch,
 ) {
     let [nx, ny] = flux.dimensions;
-    if flux.fluxes.is_empty() || nx == 0 || ny == 0 {
+    if !grid_is_backed(&flux.dimensions, flux.fluxes.len(), "heat_flux_to_arrows") {
         return;
     }
+    tracing::debug!(nx, ny, "building heat flux arrows");
 
-    let max_mag = (flux.max_magnitude as f32).max(f32::EPSILON);
+    let magnitude = |q: [f64; 2]| (q[0] * q[0] + q[1] * q[1]).sqrt();
+    // Trust the stored maximum only if it is usable; otherwise measure it.
+    let max_mag = if flux.max_magnitude.is_finite() && flux.max_magnitude > 0.0 {
+        flux.max_magnitude as f32
+    } else {
+        finite_min_max(flux.fluxes.iter().map(|&q| magnitude(q))).map_or(0.0, |(_, hi)| hi as f32)
+    }
+    .max(f32::EPSILON);
     let dx = flux.spacing[0] as f32;
     let dy = flux.spacing[1] as f32;
 
     for iy in 0..ny {
         for ix in 0..nx {
-            let idx = iy * nx + ix;
-            if idx >= flux.fluxes.len() {
-                continue;
-            }
-
-            let qx = flux.fluxes[idx][0] as f32;
-            let qy = flux.fluxes[idx][1] as f32;
+            // In bounds: nx * ny <= fluxes.len() was checked above.
+            let q = flux.fluxes[iy * nx + ix];
+            let (qx, qy) = (q[0] as f32, q[1] as f32);
             let mag = (qx * qx + qy * qy).sqrt();
 
-            if mag < f32::EPSILON {
+            if !mag.is_finite() || mag < f32::EPSILON {
                 continue;
             }
 
             let dir_x = qx / mag;
             let dir_z = qy / mag; // map 2D Y → 3D Z
-            let len = (mag / max_mag) * arrow_scale;
+            // Never longer than `arrow_scale`, even if the stored maximum is stale.
+            let t = (mag / max_mag).clamp(0.0, 1.0);
+            let len = t * arrow_scale;
 
             let base = [ix as f32 * dx, y_pos, iy as f32 * dy];
             let tip = [base[0] + dir_x * len, y_pos, base[2] + dir_z * len];
 
-            let t = (mag / max_mag).clamp(0.0, 1.0);
             let color = visualization_heat_map(t);
 
             // Shaft
@@ -577,6 +518,57 @@ mod tests {
     mod thermo_tests {
         use super::*;
         use crate::debug_draw::LineBatch;
+
+        use crate::viz::assert_winding_matches_normals;
+
+        #[test]
+        fn alpha_blend_alpha_stays_in_range() {
+            let grid = ushma::integration::soorat::ThermalGridVisualization {
+                values: vec![250.0, 500.0, f64::NAN, 350.0],
+                dimensions: [2, 2],
+                origin: [0.0, 0.0],
+                spacing: [1.0, 1.0],
+                min_temp: 300.0,
+                max_temp: 400.0,
+            };
+            let params = ThermalVisParams {
+                color_mode: ThermalColorMode::AlphaBlend,
+                ..ThermalVisParams::default()
+            };
+            let (v, i) = thermal_grid_to_mesh(&grid, 0.0, &params);
+            assert_eq!(v.len(), 16);
+            for vert in &v {
+                assert!(
+                    (0.0..=1.0).contains(&vert.color[3]),
+                    "alpha {}",
+                    vert.color[3]
+                );
+            }
+            assert_eq!(v[0].color[3], 0.0); // below range
+            assert_eq!(v[4].color[3], 1.0); // above range
+            assert_winding_matches_normals(&v, &i);
+        }
+
+        #[test]
+        fn heat_flux_nan_and_stale_max_are_safe() {
+            let flux = ushma::integration::soorat::HeatFluxField {
+                fluxes: vec![[f64::NAN, 0.0], [50.0, 0.0]],
+                dimensions: [2, 1],
+                spacing: [1.0, 1.0],
+                max_magnitude: 0.0,
+            };
+            let mut batch = LineBatch::new();
+            heat_flux_to_arrows(&flux, 0.0, 1.0, &mut batch);
+            assert_eq!(batch.line_count(), 3, "only the finite vector draws");
+            assert!(
+                batch
+                    .vertices
+                    .iter()
+                    .all(|v| v.position.iter().all(|c| c.is_finite()))
+            );
+            let shaft_len = batch.vertices[1].position[0] - batch.vertices[0].position[0];
+            assert!((shaft_len - 1.0).abs() < 1e-5, "arrow length {shaft_len}");
+        }
 
         #[test]
         fn thermal_grid_empty() {

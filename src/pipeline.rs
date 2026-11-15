@@ -52,9 +52,11 @@ pub struct SpriteBuffers {
 }
 
 impl SpriteBuffers {
-    /// Create persistent buffers sized for the given sprite count.
+    /// Create persistent buffers sized for the given sprite count (clamped to
+    /// [`MAX_SPRITES_PER_BATCH`], the most a u16-indexed batch can address).
     #[must_use]
     pub fn new(device: &wgpu::Device, sprite_capacity: usize) -> Self {
+        let sprite_capacity = sprite_capacity.min(MAX_SPRITES_PER_BATCH);
         let vert_cap = sprite_capacity.saturating_mul(4);
         let idx_cap = sprite_capacity.saturating_mul(6);
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -80,12 +82,21 @@ impl SpriteBuffers {
     }
 
     /// Prepare buffers for a batch. Grows GPU buffers if needed, then writes via queue.
+    ///
+    /// Growth is geometric (×1.5, at least to the required size) so a batch that
+    /// grows a little each frame does not reallocate every frame. At most
+    /// [`MAX_SPRITES_PER_BATCH`] sprites are uploaded (u16 indices).
     pub fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, batch: &SpriteBatch) {
         batch_to_vertices_into(batch, &mut self.vertices, &mut self.indices);
+        let grow = |cap: usize, need: usize| need.max(cap.saturating_add(cap / 2));
 
         // Regrow GPU buffers if CPU data exceeds capacity
         if self.vertices.len() > self.vertex_capacity {
-            self.vertex_capacity = self.vertices.len();
+            self.vertex_capacity = grow(self.vertex_capacity, self.vertices.len());
+            tracing::debug!(
+                capacity = self.vertex_capacity,
+                "growing sprite vertex buffer"
+            );
             self.vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("sprite_vertex_buffer_persistent"),
                 size: (self.vertex_capacity * std::mem::size_of::<Vertex2D>()) as u64,
@@ -94,7 +105,8 @@ impl SpriteBuffers {
             });
         }
         if self.indices.len() > self.index_capacity {
-            self.index_capacity = self.indices.len();
+            // Keep the byte size a multiple of COPY_BUFFER_ALIGNMENT (4).
+            self.index_capacity = grow(self.index_capacity, self.indices.len()).next_multiple_of(2);
             self.index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("sprite_index_buffer_persistent"),
                 size: (self.index_capacity * std::mem::size_of::<u16>()) as u64,
@@ -171,7 +183,7 @@ impl SpritePipeline {
         // Create uniform buffer with identity projection (updated per frame)
         let uniform_buffer = mabda::create_uniform_buffer(
             device,
-            bytemuck::cast_slice(&[0.0_f32; 16]),
+            bytemuck::cast_slice(&crate::math_util::IDENTITY_MAT4),
             "sprite_uniform_buffer",
         );
 
@@ -243,7 +255,7 @@ impl SpritePipeline {
         }
 
         let (vertices, indices) = batch_to_vertices(batch);
-        stats.sprites = batch.sprites.len() as u32;
+        stats.sprites = (vertices.len() / 4) as u32;
         stats.triangles = indices.len() as u32 / 3;
 
         let (vertex_buffer, index_buffer) = Self::upload_buffers(device, &vertices, &indices);
@@ -338,7 +350,17 @@ impl SpritePipeline {
         }
 
         let (vertices, indices) = batch_to_vertices(params.batch);
-        stats.sprites = params.batch.sprites.len() as u32;
+        // batch_to_vertices truncates to MAX_SPRITES_PER_BATCH (u16 indices);
+        // only those sprites have geometry in the index buffer.
+        let sprites = &params.batch.sprites[..vertices.len() / 4];
+        if sprites.len() < params.batch.sprites.len() {
+            tracing::warn!(
+                total = params.batch.sprites.len(),
+                drawn = sprites.len(),
+                "sprite batch exceeds MAX_SPRITES_PER_BATCH — extra sprites not drawn"
+            );
+        }
+        stats.sprites = sprites.len() as u32;
         stats.triangles = indices.len() as u32 / 3;
 
         let (vertex_buffer, index_buffer) = Self::upload_buffers(device, &vertices, &indices);
@@ -349,7 +371,7 @@ impl SpritePipeline {
         {
             let mut render_pass = Self::begin_pass(&mut encoder, params.view, params.clear_color);
 
-            if !params.batch.is_empty() {
+            if let Some(first) = sprites.first() {
                 render_pass.set_pipeline(self.pipeline.raw());
                 render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
@@ -357,9 +379,9 @@ impl SpritePipeline {
 
                 // Issue draw calls grouped by consecutive texture_id
                 let mut run_start: u32 = 0;
-                let mut current_tex_id = params.batch.sprites[0].texture_id;
+                let mut current_tex_id = first.texture_id;
 
-                for (i, sprite) in params.batch.sprites.iter().enumerate() {
+                for (i, sprite) in sprites.iter().enumerate() {
                     if sprite.texture_id != current_tex_id {
                         let bind_group = params
                             .texture_cache
@@ -382,7 +404,7 @@ impl SpritePipeline {
                     .unwrap_or(params.fallback_bind_group);
                 render_pass.set_bind_group(1, bind_group, &[]);
                 let idx_start = run_start * 6;
-                let idx_end = params.batch.sprites.len() as u32 * 6;
+                let idx_end = sprites.len() as u32 * 6;
                 render_pass.draw_indexed(idx_start..idx_end, 0, 0..1);
                 stats.draw_calls += 1;
             }

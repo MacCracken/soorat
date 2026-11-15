@@ -102,8 +102,7 @@ pub fn sphere(segments: u32, rings: u32) -> (Vec<Vertex3D>, Vec<u32>) {
     let segments = segments.max(3);
     let rings = rings.max(2);
 
-    let mut vertices = Vec::with_capacity(((rings + 1) * (segments + 1)) as usize);
-    let mut indices = Vec::with_capacity((rings * segments * 6) as usize);
+    let mut vertices = Vec::with_capacity((rings as usize + 1) * (segments as usize + 1));
 
     for y in 0..=rings {
         let v = y as f32 / rings as f32;
@@ -126,13 +125,8 @@ pub fn sphere(segments: u32, rings: u32) -> (Vec<Vertex3D>, Vec<u32>) {
         }
     }
 
-    for y in 0..rings {
-        for x in 0..segments {
-            let a = y * (segments + 1) + x;
-            let b = a + segments + 1;
-            indices.extend_from_slice(&[a, b, a + 1, b, b + 1, a + 1]);
-        }
-    }
+    // Counter-clockwise when viewed from outside (front-facing under back-face culling).
+    let indices = crate::viz::lattice_indices(rings, segments);
 
     (vertices, indices)
 }
@@ -206,7 +200,7 @@ pub fn cylinder(segments: u32) -> (Vec<Vertex3D>, Vec<u32>) {
         indices.extend_from_slice(&[a, b, a + 1, b, b + 1, a + 1]);
     }
 
-    // Top cap
+    // Top cap (counter-clockwise viewed from +Y: +X → -Z → -X → +Z)
     let top_center = vertices.len() as u32;
     vertices.push(Vertex3D {
         position: [0.0, 0.5, 0.0],
@@ -225,7 +219,7 @@ pub fn cylinder(segments: u32) -> (Vec<Vertex3D>, Vec<u32>) {
     }
     for i in 0..segments {
         let next = if i + 1 < segments { i + 1 } else { 0 };
-        indices.extend_from_slice(&[top_center, top_center + 1 + i, top_center + 1 + next]);
+        indices.extend_from_slice(&[top_center, top_center + 1 + next, top_center + 1 + i]);
     }
 
     // Bottom cap
@@ -247,7 +241,7 @@ pub fn cylinder(segments: u32) -> (Vec<Vertex3D>, Vec<u32>) {
     }
     for i in 0..segments {
         let next = if i + 1 < segments { i + 1 } else { 0 };
-        indices.extend_from_slice(&[bot_center, bot_center + 1 + next, bot_center + 1 + i]);
+        indices.extend_from_slice(&[bot_center, bot_center + 1 + i, bot_center + 1 + next]);
     }
 
     (vertices, indices)
@@ -256,6 +250,19 @@ pub fn cylinder(segments: u32) -> (Vec<Vertex3D>, Vec<u32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn all_primitives_wind_outward() {
+        use crate::viz::assert_winding_matches_normals;
+        let (v, i) = cube();
+        assert_winding_matches_normals(&v, &i);
+        let (v, i) = sphere(16, 8);
+        assert_winding_matches_normals(&v, &i);
+        let (v, i) = plane(4);
+        assert_winding_matches_normals(&v, &i);
+        let (v, i) = cylinder(12);
+        assert_winding_matches_normals(&v, &i);
+    }
 
     #[test]
     fn cube_geometry() {

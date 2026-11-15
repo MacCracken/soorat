@@ -55,11 +55,14 @@ pub mod shadow;
 pub mod sprite;
 pub mod ssao;
 pub mod terrain;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod text;
 pub mod texture;
 pub mod thermo_render;
 pub mod ui;
 pub mod vertex;
+pub(crate) mod viz;
 pub mod window;
 
 // ── Core ────────────────────────────────────────────────────────────────────

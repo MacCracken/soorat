@@ -18,7 +18,9 @@ src/
 │   ├── window.rs         — Window (winit + wgpu surface), WindowConfig, run(), multi-window
 │   ├── profiler.rs       — FrameProfiler (CPU timing), GpuTimestamps (GPU queries), PassTiming
 │   ├── capabilities.rs   — GpuCapabilities, WebGPU compliance checks
-│   └── math_util.rs      — mul_mat4, normalize3, cross, look_at, perspective_90 (pub(crate))
+│   ├── math_util.rs      — mul_mat4, normalize3, cross, look_at, perspective_90 (pub(crate))
+│   └── viz.rs            — shared viz helpers (pub(crate)): NaN-safe normalization, data-backed grid checks,
+│                           +Y heatmap quads, height-field meshes, outward lattice indices
 │
 ├── 2D
 │   ├── pipeline.rs       — SpritePipeline, SpriteBuffers, batch_to_vertices (u16/u32)
@@ -71,7 +73,7 @@ src/
 |---|---|---|
 | wgpu | GPU abstraction (Vulkan/Metal/DX12/WebGPU) | yes |
 | winit | Window management + event loop | yes |
-| hisab | Math (re-exports glam, transforms, projections) | yes |
+| mabda | GPU foundation (context, pipelines, buffers, textures) — 1.0, final Rust release | yes |
 | bytemuck | Zero-copy vertex type casting | yes |
 | image | PNG/JPEG texture loading | yes |
 | gltf | 3D model + animation loading | yes |
@@ -83,17 +85,42 @@ src/
 | ranga | Pixel buffer texture loading | optional (`ranga`) |
 | impetus | Physics collider debug wireframes | optional (`physics-debug`) |
 | pravash | Fluid dynamics particle/surface rendering | optional (`fluids`) |
+| goonj + hisab | Acoustic visualization (hisab only for goonj's `Vec3`) | optional (`acoustics`) |
+| bijli | Electromagnetism visualization | optional (`em`) |
+| ushma | Thermodynamics visualization | optional (`thermo`) |
+| selah, uuid, chrono | Screenshot annotate/redact/clipboard | optional (`screenshot`) |
+| agnosys | DRM device info (git tag, Linux) | optional (`drm`) |
+
+wgpu is pinned to 29.x by mabda 1.0. See `docs/development/dependency-watch.md`.
+
+## Conventions
+
+- **Winding**: triangles are counter-clockwise around their normals (front
+  faces); pipelines use back-face culling. Every mesh generator is checked by
+  `viz::assert_winding_matches_normals` in tests.
+- **Matrices**: column-major `[f32; 16]`; normal matrices are uploaded as the
+  3 rows of the inverse-transpose (`dot(row, n)` in WGSL).
+- **Depth**: wgpu `[0, 1]`; the directional light view is a regular
+  (non-mirrored) view looking along the light direction.
+- **Untrusted input**: see `docs/development/threat-model.md`.
 
 ## Shader Pipeline
 
 1. **Shadow pass** (`shadow.wgsl`) — depth-only from light perspective (per cascade/face)
-2. **PBR pass** (`pbr.wgsl` / `pbr_skinned.wgsl`) — multi-light Cook-Torrance + shadow sampling
+2. **PBR pass** (`pbr.wgsl` / `pbr_skinned.wgsl`) — multi-light Cook-Torrance + PCF shadow sampling (`textureSampleCompareLevel`, per-fragment perspective divide) + split-sum IBL
 3. **Sprite pass** (`sprite.wgsl`) — 2D orthographic projection + texture sampling
 4. **Debug pass** (`line.wgsl`) — wireframe lines on top (depth read, no write)
 5. **SSAO pass** (`ssao.wgsl`) — depth-based ambient occlusion
 6. **Bloom pass** (`bloom.wgsl`) — threshold → horizontal blur → vertical blur
-7. **Post-process pass** (`postprocess.wgsl`) — bloom composite + tone mapping (Reinhard/ACES)
+7. **Post-process pass** (`postprocess.wgsl`) — tone mapping (Reinhard/ACES); the bloom-composite entry point exists but is not yet wired (roadmap)
+
+## Testing
+
+- Unit tests in every module; `tests/integration.rs` for cross-module CPU flows
+- `tests/shaders.rs` — naga parse + validate of every WGSL file (no GPU needed)
+- `tests/gpu_smoke.rs` — builds every pipeline and renders offscreen frames on a
+  real adapter (skips when none is available)
 
 ## Stats
 
-236 tests, 28 benchmarks, 31 modules, 8 WGSL shaders.
+479 tests (all features), 35 benchmarks, 44 modules, 9 WGSL shaders.

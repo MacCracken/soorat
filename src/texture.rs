@@ -40,20 +40,14 @@ impl Texture {
         Self::from_rgba(device, queue, &img, width, height, label)
     }
 
-    /// Create a 1x1 solid color texture.
+    /// Create a 1x1 solid color texture. Components are clamped and rounded
+    /// (see [`crate::color::Color::to_rgba8`]) and stored as sRGB-encoded bytes.
     pub fn from_color(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         color: crate::color::Color,
     ) -> Result<Self> {
-        let rgba = [
-            (color.r * 255.0) as u8,
-            (color.g * 255.0) as u8,
-            (color.b * 255.0) as u8,
-            (color.a * 255.0) as u8,
-        ];
-
-        Self::from_rgba(device, queue, &rgba, 1, 1, "solid_color")
+        Self::from_rgba(device, queue, &color.to_rgba8(), 1, 1, "solid_color")
     }
 
     /// Create a 1x1 white pixel texture (default texture for untextured sprites).
@@ -75,6 +69,9 @@ impl Texture {
     }
 
     /// Create a texture from raw RGBA8 pixel data with an externally-provided sampler.
+    ///
+    /// The data is treated as **sRGB-encoded color** (`Rgba8UnormSrgb`). For
+    /// non-color data (LUTs, normal/roughness maps) use [`Self::from_rgba_linear`].
     pub fn from_rgba_with_sampler(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -84,9 +81,58 @@ impl Texture {
         label: &str,
         sampler: wgpu::Sampler,
     ) -> Result<Self> {
+        Self::from_rgba8_format(
+            device,
+            queue,
+            rgba,
+            (width, height),
+            label,
+            sampler,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        )
+    }
+
+    /// Create a texture from raw RGBA8 **linear** data (`Rgba8Unorm`, no sRGB
+    /// decode on sampling) — for BRDF LUTs, normal maps, roughness/metallic
+    /// maps and other non-color data.
+    pub fn from_rgba_linear(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+        label: &str,
+        sampler: wgpu::Sampler,
+    ) -> Result<Self> {
+        Self::from_rgba8_format(
+            device,
+            queue,
+            rgba,
+            (width, height),
+            label,
+            sampler,
+            wgpu::TextureFormat::Rgba8Unorm,
+        )
+    }
+
+    /// Shared RGBA8 upload: validates size against the data and the device's
+    /// `max_texture_dimension_2d` (so oversized images return an error instead
+    /// of tripping wgpu validation), then creates and fills the texture.
+    fn from_rgba8_format(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        rgba: &[u8],
+        (width, height): (u32, u32),
+        label: &str,
+        sampler: wgpu::Sampler,
+        format: wgpu::TextureFormat,
+    ) -> Result<Self> {
         if width == 0 || height == 0 {
             return Err(RenderError::Texture("zero-size texture".into()));
         }
+        validate_dimensions(width, height, &device.limits())
+            .map_err(|e| RenderError::Texture(format!("{label}: {e}")))?;
+        tracing::debug!(label, width, height, ?format, "uploading rgba8 texture");
 
         let expected = (width as usize)
             .checked_mul(height as usize)
@@ -111,7 +157,7 @@ impl Texture {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -172,16 +218,20 @@ impl Texture {
         buffer: &ranga::pixel::PixelBuffer,
         label: &str,
     ) -> Result<Self> {
-        let rgba_data = match buffer.format {
-            ranga::pixel::PixelFormat::Rgba8 => &buffer.data,
-            _ => {
-                return Err(RenderError::Texture(format!(
-                    "Unsupported pixel format {:?}, expected Rgba8",
-                    buffer.format
-                )));
-            }
-        };
-        Self::from_rgba(device, queue, rgba_data, buffer.width, buffer.height, label)
+        let format = buffer.format();
+        if format != ranga::pixel::PixelFormat::Rgba8 {
+            return Err(RenderError::Texture(format!(
+                "Unsupported pixel format {format:?}, expected Rgba8"
+            )));
+        }
+        Self::from_rgba(
+            device,
+            queue,
+            buffer.data(),
+            buffer.width(),
+            buffer.height(),
+            label,
+        )
     }
 
     /// Texture dimensions.
@@ -205,6 +255,7 @@ pub struct TextureCache {
 }
 
 impl TextureCache {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             entries: HashMap::new(),

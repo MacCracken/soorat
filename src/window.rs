@@ -85,58 +85,14 @@ impl Window {
         config: &WindowConfig,
     ) -> Result<Self> {
         let gpu = GpuContext::new().await?;
-
-        let surface = gpu
-            .instance
-            .create_surface(winit_window.clone())
-            .map_err(|e| RenderError::SurfaceConfig(e.to_string()))?;
-
-        let surface_caps = surface.get_capabilities(&gpu.adapter);
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .find(|f| f.is_srgb())
-            .or(surface_caps.formats.first())
-            .copied()
-            .ok_or_else(|| RenderError::SurfaceConfig("no supported surface formats".into()))?;
-
-        let alpha_mode = surface_caps
-            .alpha_modes
-            .first()
-            .copied()
-            .ok_or_else(|| RenderError::SurfaceConfig("no supported alpha modes".into()))?;
-
-        let size = winit_window.inner_size();
-        let width = size.width.max(1);
-        let height = size.height.max(1);
-
-        let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width,
-            height,
-            present_mode: config.present_mode(),
-            alpha_mode,
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-        };
-        surface.configure(&gpu.device, &surface_config);
-
-        tracing::info!(
-            format = ?surface_format,
-            "Window surface configured"
-        );
-
-        Ok(Self {
-            gpu,
-            surface,
-            surface_config,
-            winit_window,
-        })
+        Self::new_with_gpu(gpu, winit_window, config)
     }
 
     /// Create a window using an existing GPU context (for multi-window setups).
     /// The GpuContext is shared across windows; each window owns its own surface.
+    ///
+    /// Prefers an sRGB surface format; the surface size comes from the winit
+    /// window (clamped to at least 1×1).
     pub fn new_with_gpu(
         gpu: GpuContext,
         winit_window: Arc<winit::window::Window>,
@@ -163,20 +119,25 @@ impl Window {
             .ok_or_else(|| RenderError::SurfaceConfig("no supported alpha modes".into()))?;
 
         let size = winit_window.inner_size();
-        let width = size.width.max(1);
-        let height = size.height.max(1);
-
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            width,
-            height,
+            width: size.width.max(1),
+            height: size.height.max(1),
             present_mode: config.present_mode(),
             alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&gpu.device, &surface_config);
+
+        tracing::info!(
+            format = ?surface_format,
+            width = surface_config.width,
+            height = surface_config.height,
+            present_mode = ?surface_config.present_mode,
+            "window surface configured"
+        );
 
         Ok(Self {
             gpu,
@@ -216,11 +177,13 @@ impl Window {
     }
 
     /// Surface format.
+    #[must_use]
     pub fn format(&self) -> wgpu::TextureFormat {
         self.surface_config.format
     }
 
     /// Current surface dimensions.
+    #[must_use]
     pub fn size(&self) -> (u32, u32) {
         (self.surface_config.width, self.surface_config.height)
     }
@@ -278,7 +241,12 @@ impl winit::application::ApplicationHandler for App {
                 self.config.width,
                 self.config.height,
             ))
-            .with_resizable(self.config.resizable);
+            .with_resizable(self.config.resizable)
+            .with_fullscreen(
+                self.config
+                    .fullscreen
+                    .then_some(winit::window::Fullscreen::Borderless(None)),
+            );
 
         let winit_window = match event_loop.create_window(attrs) {
             Ok(w) => Arc::new(w),

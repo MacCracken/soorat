@@ -309,7 +309,7 @@ impl LinePipeline {
 
         let uniform_buffer = mabda::create_uniform_buffer(
             device,
-            bytemuck::cast_slice(&[0.0_f32; 16]),
+            bytemuck::cast_slice(&crate::math_util::IDENTITY_MAT4),
             "line_uniform_buffer",
         );
 

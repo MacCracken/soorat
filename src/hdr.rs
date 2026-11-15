@@ -13,8 +13,11 @@ pub struct HdrFramebuffer {
 impl HdrFramebuffer {
     pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
+    /// Create an HDR framebuffer. Zero dimensions are clamped to 1 so the call
+    /// never trips wgpu validation (e.g. while a window is minimized).
     #[must_use]
     pub fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {
+        let (width, height) = (width.max(1), height.max(1));
         tracing::debug!(width, height, "creating hdr framebuffer");
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("hdr_framebuffer"),
@@ -114,7 +117,8 @@ pub struct BloomPipeline {
 }
 
 impl BloomPipeline {
-    /// Create a bloom pipeline. Returns `None` if pipeline creation fails.
+    /// Create a bloom pipeline. Returns `None` if pipeline creation fails (the
+    /// underlying error is logged at `error` level).
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Option<Self> {
         tracing::debug!(?format, "creating bloom pipeline");
         let shader_src = include_str!("bloom.wgsl");
@@ -124,18 +128,19 @@ impl BloomPipeline {
             .uniform_buffer(wgpu::ShaderStages::FRAGMENT)
             .into_entries();
 
-        let make_pipeline =
-            |label: &str, fs_entry: &str| -> Result<mabda::RenderPipeline, mabda::GpuError> {
-                mabda::RenderPipelineBuilder::new(device, shader_src, "vs_main", fs_entry)
-                    .label(label)
-                    .bind_group(bind_entries.clone())
-                    .color_target(format, None)
-                    .build()
-            };
+        let make_pipeline = |label: &str, fs_entry: &str| -> Option<mabda::RenderPipeline> {
+            mabda::RenderPipelineBuilder::new(device, shader_src, "vs_main", fs_entry)
+                .label(label)
+                .bind_group(bind_entries.clone())
+                .color_target(format, None)
+                .build()
+                .inspect_err(|e| tracing::error!(label, "bloom pipeline creation failed: {e}"))
+                .ok()
+        };
 
-        let threshold_pipeline = make_pipeline("bloom_threshold", "fs_threshold").ok()?;
-        let blur_h_pipeline = make_pipeline("bloom_blur_h", "fs_blur_h").ok()?;
-        let blur_v_pipeline = make_pipeline("bloom_blur_v", "fs_blur_v").ok()?;
+        let threshold_pipeline = make_pipeline("bloom_threshold", "fs_threshold")?;
+        let blur_h_pipeline = make_pipeline("bloom_blur_h", "fs_blur_h")?;
+        let blur_v_pipeline = make_pipeline("bloom_blur_v", "fs_blur_v")?;
 
         let defaults = BloomUniforms::default();
         let uniform_buffer = mabda::create_uniform_buffer(
@@ -192,11 +197,11 @@ impl BloomPipeline {
     }
 
     /// Run the full bloom pipeline: threshold → blur_h → blur_v.
-    /// `hdr_input`: the HDR scene texture bind group.
-    /// `bright_target`: intermediate texture for threshold output / blur input.
-    /// `blur_target`: intermediate texture for blur H output.
-    /// `final_target`: output view for the final blurred bloom.
-    /// Run the full bloom pipeline: threshold → blur_h → blur_v.
+    ///
+    /// `targets.hdr_bind_group` samples the HDR scene; the threshold pass writes
+    /// `bright_view`, the horizontal blur reads `bright_bind_group` into
+    /// `blur_temp_view`, and the vertical blur reads `blur_temp_bind_group` into
+    /// `bloom_output_view`.
     pub fn render(&self, device: &wgpu::Device, queue: &wgpu::Queue, targets: &BloomTargets<'_>) {
         tracing::debug!("rendering bloom passes");
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {

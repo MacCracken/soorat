@@ -11,14 +11,15 @@ wgpu-based rendering engine designed for the [Kiran](https://github.com/MacCrack
 - **Skinned Meshes** — `SkinnedVertex3D` with 4 joint weights, vertex skinning shader, tangent-space normal mapping
 - **Shadows** — directional PCF 3x3, cascaded shadow maps (1–4 cascades), shadow atlas, point light cube shadows
 - **Lighting** — directional, point (range attenuation), and spot (cone falloff) lights
-- **Animation** — skeleton/joint hierarchy, glTF skin loading, keyframe interpolation
+- **Animation** — skeleton/joint hierarchy (any joint order), glTF skin loading, LINEAR/STEP/CUBICSPLINE samplers, quaternion slerp
 - **Debug** — wireframe lines, boxes, circles, spheres, capsules, grids, physics collider shapes
 - **Post-Processing** — HDR framebuffer (Rgba16Float), Reinhard + ACES tone mapping, bloom (threshold + Gaussian blur), SSAO
 - **Terrain** — heightmap mesh generation with computed normals
 - **Text** — bitmap font glyph atlas with text batching
 - **UI** — screen-space panels, labels, and HUD overlays
 - **Fluids** — SPH particle quads with velocity/density/pressure color mapping, shallow water surface meshes (via [pravash](https://github.com/MacCracken/pravash))
-- **glTF** — model + animation loading with zero-copy buffer borrowing
+- **Scientific visualization** — acoustic ray paths/pressure maps/room modes/directivity balloons (goonj), EM field heatmaps/field lines/radiation patterns/vector arrows (bijli), thermal grids/profiles/cycle diagrams/heat flux (ushma); NaN-safe, input-size-bounded, shared heatmap/height-field builders
+- **glTF** — model + animation loading with zero-copy buffer borrowing; malformed primitives (bad indices, non-triangle modes) are skipped, not trusted
 - **Multi-window** — shared GPU context across windows
 - **LOD** — distance-based mesh and terrain resolution selection
 - **Instancing** — per-instance transforms + color, auto-growing GPU buffer
@@ -67,20 +68,33 @@ fn main() {
 | `ranga` | [ranga](https://github.com/MacCracken/ranga) | PixelBuffer texture loading |
 | `physics-debug` | [impetus](https://github.com/MacCracken/impetus) | Collider shape wireframes |
 | `fluids` | [pravash](https://github.com/MacCracken/pravash) | SPH particle + shallow water rendering |
-| `full` | all above | Everything |
+| `acoustics` | [goonj](https://github.com/MacCracken/goonj), hisab | Ray paths, pressure maps, room modes, directivity, decay curves |
+| `em` | [bijli](https://github.com/MacCracken/bijli) | FDTD heatmaps, field lines, charges, radiation patterns, vector fields |
+| `thermo` | [ushma](https://github.com/MacCracken/ushma) | Thermal grids, profiles, cycle diagrams, networks, heat flux |
+| `screenshot` | [selah](https://github.com/MacCracken/selah) | Capture, annotate, redact, clipboard |
+| `full` | all above | Everything except `drm` |
+| `drm` | agnosys (git, Linux) | DRM device/connector queries |
 
 ## Building
 
+Requires Rust 1.100+ (edition 2024).
+
 ```sh
 cargo build
-cargo test
-cargo test --features full
-cargo bench
+cargo test                      # includes naga validation of every WGSL shader
+cargo test --all-features       # GPU smoke tests run when an adapter is available
+make bench                      # criterion + bench-history.csv
 ```
+
+## Dependency Notes
+
+- **mabda 1.0** is the final Rust release of the GPU foundation crate and pins
+  **wgpu to 29.x**; wgpu 30 is blocked until that changes.
+- See [docs/development/dependency-watch.md](docs/development/dependency-watch.md).
 
 ## Stats
 
-251 tests, 29 benchmarks, 34 modules, 8 WGSL shaders.
+479 tests (all features), 35 benchmarks, 44 modules, 9 WGSL shaders.
 
 ## License
 

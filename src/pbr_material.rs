@@ -77,8 +77,12 @@ impl MaterialUniforms {
 /// Returns RGBA8 pixel data for a `size x size` texture.
 /// Red = scale, Green = bias (from split-sum approximation).
 #[cfg(feature = "optics")]
+#[must_use]
 pub fn generate_brdf_lut(size: u32, samples: u32) -> Vec<u8> {
-    let mut pixels = Vec::with_capacity((size * size * 4) as usize);
+    let capacity = (size as usize)
+        .saturating_mul(size as usize)
+        .saturating_mul(4);
+    let mut pixels = Vec::with_capacity(capacity);
 
     for y in 0..size {
         let roughness = (y as f64 + 0.5) / size as f64;
@@ -86,8 +90,8 @@ pub fn generate_brdf_lut(size: u32, samples: u32) -> Vec<u8> {
             let n_dot_v = (x as f64 + 0.5) / size as f64;
             let (scale, bias) = prakash::pbr::integrate_brdf_lut(n_dot_v, roughness, samples);
 
-            pixels.push((scale.clamp(0.0, 1.0) * 255.0) as u8);
-            pixels.push((bias.clamp(0.0, 1.0) * 255.0) as u8);
+            pixels.push((scale.clamp(0.0, 1.0) * 255.0).round() as u8);
+            pixels.push((bias.clamp(0.0, 1.0) * 255.0).round() as u8);
             pixels.push(0); // unused
             pixels.push(255); // alpha
         }
@@ -97,6 +101,10 @@ pub fn generate_brdf_lut(size: u32, samples: u32) -> Vec<u8> {
 }
 
 /// Create a BRDF LUT texture on the GPU using prakash precomputation.
+///
+/// The LUT holds linear data (scale/bias), so it is uploaded as `Rgba8Unorm`
+/// — sampling an sRGB texture would decode it and darken specular IBL — with
+/// a bilinear clamp-to-edge sampler.
 #[cfg(feature = "optics")]
 pub fn create_brdf_lut_texture(
     device: &wgpu::Device,
@@ -105,7 +113,13 @@ pub fn create_brdf_lut_texture(
     samples: u32,
 ) -> Result<Texture> {
     let pixels = generate_brdf_lut(size, samples);
-    Texture::from_rgba(device, queue, &pixels, size, size, "brdf_lut")
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("brdf_lut_sampler"),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    });
+    Texture::from_rgba_linear(device, queue, &pixels, size, size, "brdf_lut", sampler)
 }
 
 #[cfg(test)]

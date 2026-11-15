@@ -84,7 +84,7 @@ struct VertexOutput {
     @location(1) world_normal: vec3<f32>,
     @location(2) tex_coords: vec2<f32>,
     @location(3) color: vec4<f32>,
-    @location(4) shadow_coords: vec3<f32>,
+    @location(4) shadow_coords: vec4<f32>,
     @location(5) world_tangent: vec3<f32>,
     @location(6) world_bitangent: vec3<f32>,
 }
@@ -98,10 +98,10 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     var skinned_normal = vec3<f32>(0.0);
     var skinned_tangent = vec3<f32>(0.0);
 
-    let joint_count = u32(joint_palette.joint_count.x);
-    let total_weight = in.weights.x + in.weights.y + in.weights.z + in.weights.w;
+    let joint_count = min(u32(joint_palette.joint_count.x), MAX_JOINTS);
+    var used_weight = 0.0;
 
-    if total_weight > 0.0 && joint_count > 0u {
+    if joint_count > 0u {
         for (var i = 0u; i < 4u; i++) {
             let w = in.weights[i];
             if w <= 0.0 { continue; }
@@ -110,7 +110,12 @@ fn vs_main(in: VertexInput) -> VertexOutput {
             skinned_pos += w * (joint_mat * vec4<f32>(in.position, 1.0));
             skinned_normal += w * (joint_mat * vec4<f32>(in.normal, 0.0)).xyz;
             skinned_tangent += w * (joint_mat * vec4<f32>(in.tangent.xyz, 0.0)).xyz;
+            used_weight += w;
         }
+    }
+    if used_weight > 0.0 {
+        // Renormalize: exported weights often sum to slightly less/more than 1.
+        skinned_pos = skinned_pos / used_weight;
     } else {
         skinned_pos = vec4<f32>(in.position, 1.0);
         skinned_normal = in.normal;
@@ -128,20 +133,20 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     let n = normalize(skinned_normal);
     out.world_normal = normalize(vec3<f32>(dot(nm0, n), dot(nm1, n), dot(nm2, n)));
 
-    // TBN basis for normal mapping
-    let t = normalize(skinned_tangent);
-    out.world_tangent = normalize(vec3<f32>(dot(nm0, t), dot(nm1, t), dot(nm2, t)));
+    // TBN basis for normal mapping. Tangents lie in the surface, so they
+    // transform with the model matrix (not the normal matrix), then are
+    // re-orthogonalized against the normal (Gram-Schmidt).
+    let t_world = (camera.model * vec4<f32>(skinned_tangent, 0.0)).xyz;
+    let t_ortho = t_world - out.world_normal * dot(out.world_normal, t_world);
+    out.world_tangent = normalize(t_ortho);
     out.world_bitangent = cross(out.world_normal, out.world_tangent) * in.tangent.w;
 
     out.tex_coords = in.tex_coords;
     out.color = in.color;
 
     let light_pos = shadow_uniforms.light_view_proj * world_pos;
-    out.shadow_coords = vec3<f32>(
-        light_pos.x * 0.5 + 0.5,
-        -light_pos.y * 0.5 + 0.5,
-        light_pos.z,
-    );
+    // Light clip-space position; divided per fragment in sample_shadow().
+    out.shadow_coords = light_pos;
 
     return out;
 }
@@ -172,7 +177,15 @@ fn geometry_smith(n_dot_v: f32, n_dot_l: f32, roughness: f32) -> f32 {
     return geometry_schlick_ggx(n_dot_v, roughness) * geometry_schlick_ggx(n_dot_l, roughness);
 }
 
-fn sample_shadow(coords: vec3<f32>) -> f32 {
+fn sample_shadow(light_clip: vec4<f32>) -> f32 {
+    // Behind a perspective light's projection: treat as lit.
+    if light_clip.w <= 0.0 {
+        return 1.0;
+    }
+    // Perspective divide per fragment (identity for orthographic lights), then
+    // NDC → texture space (y flipped, depth already in wgpu's [0, 1]).
+    let ndc = light_clip.xyz / light_clip.w;
+    let coords = vec3<f32>(ndc.x * 0.5 + 0.5, -ndc.y * 0.5 + 0.5, ndc.z);
     if coords.x < 0.0 || coords.x > 1.0 || coords.y < 0.0 || coords.y > 1.0 || coords.z > 1.0 || coords.z < 0.0 {
         return 1.0;
     }
@@ -182,7 +195,9 @@ fn sample_shadow(coords: vec3<f32>) -> f32 {
     for (var x: i32 = -1; x <= 1; x++) {
         for (var y: i32 = -1; y <= 1; y++) {
             let offset = vec2<f32>(f32(x), f32(y)) * texel_size;
-            shadow += textureSampleCompare(t_shadow_map, s_shadow_map, coords.xy + offset, coords.z);
+            // Level variant: no implicit derivatives, so it is valid after the
+            // non-uniform early returns above (WGSL uniformity / WebGPU).
+            shadow += textureSampleCompareLevel(t_shadow_map, s_shadow_map, coords.xy + offset, coords.z);
         }
     }
     return shadow / 9.0;

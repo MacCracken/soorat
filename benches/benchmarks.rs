@@ -301,6 +301,16 @@ fn bench_terrain(c: &mut Criterion) {
         b.iter(|| generate_terrain(black_box(&cfg), black_box(&heights)))
     });
 
+    group.bench_function("generate_256x256", |b| {
+        let cfg = TerrainConfig {
+            width: 256,
+            depth: 256,
+            ..Default::default()
+        };
+        let heights: Vec<f32> = (0..257 * 257).map(|i| (i as f32 * 0.01).sin()).collect();
+        b.iter(|| generate_terrain(black_box(&cfg), black_box(&heights)))
+    });
+
     group.finish();
 }
 
@@ -333,6 +343,71 @@ fn bench_animation(c: &mut Criterion) {
         b.iter(|| skeleton.compute_joint_matrices())
     });
 
+    // Same chain listed leaf-first: exercises the arbitrary-parent-order path.
+    group.bench_function("compute_joints_64_unsorted", |b| {
+        let skeleton = Skeleton {
+            joints: (0..64)
+                .map(|i| Joint {
+                    parent: if i < 63 { i + 1 } else { -1 },
+                    ..Default::default()
+                })
+                .collect(),
+        };
+        b.iter(|| skeleton.compute_joint_matrices())
+    });
+
+    // 64 rotation channels × 32 keys: slerp + binary-search keyframe lookup.
+    group.bench_function("sample_rotation_64x32", |b| {
+        use soorat::animation::{AnimationChannel, AnimationClip, AnimationProperty, Keyframe};
+        let channels = (0..64)
+            .map(|j| AnimationChannel {
+                joint_index: j,
+                property: AnimationProperty::Rotation,
+                keyframes: (0..32)
+                    .map(|k| {
+                        let half = k as f32 * 0.05;
+                        Keyframe {
+                            time: k as f32 / 31.0,
+                            value: vec![0.0, half.sin(), 0.0, half.cos()],
+                        }
+                    })
+                    .collect(),
+            })
+            .collect();
+        let clip = AnimationClip {
+            name: "bench".into(),
+            duration: 1.0,
+            channels,
+        };
+        let mut skeleton = Skeleton {
+            joints: vec![Joint::default(); 64],
+        };
+        b.iter(|| clip.sample(black_box(&mut skeleton), black_box(0.437)))
+    });
+
+    group.finish();
+}
+
+fn bench_primitives(c: &mut Criterion) {
+    let mut group = c.benchmark_group("primitives");
+
+    group.bench_function("sphere_32x16", |b| {
+        b.iter(|| soorat::primitives::sphere(black_box(32), black_box(16)))
+    });
+
+    group.finish();
+}
+
+fn bench_screenshot(c: &mut Criterion) {
+    use soorat::screenshot::{ScreenshotFormat, encode_pixels};
+
+    let mut group = c.benchmark_group("screenshot");
+    let rgba: Vec<u8> = (0..256 * 256 * 4).map(|i| (i * 31 % 251) as u8).collect();
+
+    group.bench_function("encode_png_256", |b| {
+        b.iter(|| encode_pixels(256, 256, black_box(&rgba), ScreenshotFormat::Png))
+    });
+
     group.finish();
 }
 
@@ -343,6 +418,19 @@ fn bench_shadow(c: &mut Criterion) {
 
     group.bench_function("directional_matrix", |b| {
         b.iter(|| directional_light_matrix(black_box([0.0, -1.0, -1.0]), 20.0, 0.1, 100.0))
+    });
+
+    group.bench_function("directional_matrix_centered", |b| {
+        use soorat::shadow::directional_light_matrix_at;
+        b.iter(|| {
+            directional_light_matrix_at(
+                black_box([0.0, -1.0, -1.0]),
+                black_box([10.0, 0.0, -5.0]),
+                20.0,
+                -50.0,
+                50.0,
+            )
+        })
     });
 
     group.bench_function("cascade_splits_4", |b| {
@@ -365,6 +453,8 @@ criterion_group!(
     bench_debug_draw,
     bench_terrain,
     bench_animation,
+    bench_primitives,
+    bench_screenshot,
     bench_shadow
 );
 criterion_main!(benches);

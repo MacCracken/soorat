@@ -83,7 +83,7 @@ struct VertexOutput {
     @location(1) world_normal: vec3<f32>,
     @location(2) tex_coords: vec2<f32>,
     @location(3) color: vec4<f32>,
-    @location(4) shadow_coords: vec3<f32>,
+    @location(4) shadow_coords: vec4<f32>,
 }
 
 @vertex
@@ -108,11 +108,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
     // Shadow coords from primary directional light
     let light_pos = shadow_uniforms.light_view_proj * world_pos;
-    out.shadow_coords = vec3<f32>(
-        light_pos.x * 0.5 + 0.5,
-        -light_pos.y * 0.5 + 0.5,
-        light_pos.z,
-    );
+    // Light clip-space position; divided per fragment in sample_shadow().
+    out.shadow_coords = light_pos;
 
     return out;
 }
@@ -153,7 +150,15 @@ fn geometry_smith(n_dot_v: f32, n_dot_l: f32, roughness: f32) -> f32 {
 
 // ── Shadow sampling (PCF 3x3) ──────────────────────────────────────────────
 
-fn sample_shadow(coords: vec3<f32>) -> f32 {
+fn sample_shadow(light_clip: vec4<f32>) -> f32 {
+    // Behind a perspective light's projection: treat as lit.
+    if light_clip.w <= 0.0 {
+        return 1.0;
+    }
+    // Perspective divide per fragment (identity for orthographic lights), then
+    // NDC → texture space (y flipped, depth already in wgpu's [0, 1]).
+    let ndc = light_clip.xyz / light_clip.w;
+    let coords = vec3<f32>(ndc.x * 0.5 + 0.5, -ndc.y * 0.5 + 0.5, ndc.z);
     if coords.x < 0.0 || coords.x > 1.0 || coords.y < 0.0 || coords.y > 1.0 || coords.z > 1.0 || coords.z < 0.0 {
         return 1.0;
     }
@@ -163,7 +168,9 @@ fn sample_shadow(coords: vec3<f32>) -> f32 {
     for (var x: i32 = -1; x <= 1; x++) {
         for (var y: i32 = -1; y <= 1; y++) {
             let offset = vec2<f32>(f32(x), f32(y)) * texel_size;
-            shadow += textureSampleCompare(t_shadow_map, s_shadow_map, coords.xy + offset, coords.z);
+            // Level variant: no implicit derivatives, so it is valid after the
+            // non-uniform early returns above (WGSL uniformity / WebGPU).
+            shadow += textureSampleCompareLevel(t_shadow_map, s_shadow_map, coords.xy + offset, coords.z);
         }
     }
     return shadow / 9.0;

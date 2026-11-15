@@ -46,6 +46,13 @@ impl Default for SimParams {
     }
 }
 
+/// Workgroup size of `cs_update` in `gpu_particles.wgsl`.
+const WORKGROUP_SIZE: u32 = 64;
+
+/// Largest particle count a single 1D dispatch can cover with the WebGPU
+/// default `max_compute_workgroups_per_dimension` (65535).
+pub const MAX_PARTICLES: u32 = 65_535 * WORKGROUP_SIZE;
+
 /// GPU particle system — manages compute simulation + instance buffer for rendering.
 pub struct GpuParticleSystem {
     compute_pipeline: wgpu::ComputePipeline,
@@ -57,8 +64,11 @@ pub struct GpuParticleSystem {
 }
 
 impl GpuParticleSystem {
-    /// Create a particle system with the given capacity.
+    /// Create a particle system with the given capacity, clamped to
+    /// `1..=MAX_PARTICLES` (a zero-size storage binding is invalid, and larger
+    /// counts would exceed the per-dimension dispatch limit).
     pub fn new(device: &wgpu::Device, capacity: u32) -> Self {
+        let capacity = capacity.clamp(1, MAX_PARTICLES);
         tracing::debug!(capacity, "creating gpu particle system");
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("gpu_particles_shader"),
@@ -147,9 +157,11 @@ impl GpuParticleSystem {
         }
     }
 
-    /// Upload initial particle data.
+    /// Upload initial particle data (at most `capacity` particles).
     pub fn upload(&mut self, queue: &wgpu::Queue, particles: &[GpuParticle]) {
-        self.particle_count = (particles.len() as u32).min(self.capacity);
+        self.particle_count = u32::try_from(particles.len())
+            .unwrap_or(u32::MAX)
+            .min(self.capacity);
         queue.write_buffer(
             &self.particle_buffer,
             0,
@@ -182,7 +194,7 @@ impl GpuParticleSystem {
         queue: &wgpu::Queue,
         mut params: SimParams,
     ) {
-        params.particle_count = self.particle_count;
+        params.particle_count = self.live_count();
         queue.write_buffer(&self.params_buffer, 0, bytemuck::bytes_of(&params));
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -196,11 +208,26 @@ impl GpuParticleSystem {
             });
             pass.set_pipeline(&self.compute_pipeline);
             pass.set_bind_group(0, &self.compute_bind_group, &[]);
-            let workgroups = self.particle_count.div_ceil(64);
+            let workgroups = params.particle_count.div_ceil(WORKGROUP_SIZE);
             pass.dispatch_workgroups(workgroups, 1, 1);
         }
 
         queue.submit(std::iter::once(encoder.finish()));
+    }
+
+    /// Particle count actually simulated/read back: the public
+    /// `particle_count`, clamped to the buffer capacity.
+    #[must_use]
+    #[inline]
+    pub fn live_count(&self) -> u32 {
+        self.particle_count.min(self.capacity)
+    }
+
+    /// Buffer capacity in particles.
+    #[must_use]
+    #[inline]
+    pub fn capacity(&self) -> u32 {
+        self.capacity
     }
 
     /// Generate instance data from current particle state for rendering.
@@ -217,7 +244,7 @@ impl GpuParticleSystem {
             "reading particle instance data"
         );
         // For now, use a staging buffer readback
-        let size = (self.particle_count as u64) * std::mem::size_of::<GpuParticle>() as u64;
+        let size = u64::from(self.live_count()) * std::mem::size_of::<GpuParticle>() as u64;
         if size == 0 {
             return Vec::new();
         }
@@ -245,7 +272,12 @@ impl GpuParticleSystem {
             submission_index: None,
         });
 
-        if rx.recv().ok().and_then(|r| r.ok()).is_none() {
+        if let Err(e) = rx
+            .recv()
+            .map_err(|e| e.to_string())
+            .and_then(|r| r.map_err(|e| e.to_string()))
+        {
+            tracing::warn!("particle readback failed: {e}");
             return Vec::new();
         }
 

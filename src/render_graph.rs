@@ -50,6 +50,7 @@ pub struct RenderGraph {
 }
 
 impl RenderGraph {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
@@ -58,8 +59,18 @@ impl RenderGraph {
     }
 
     /// Add a pass to the graph.
+    ///
+    /// Re-adding an existing name updates that pass's type (and re-enables it)
+    /// instead of creating a second, unreachable node; its dependencies are kept.
     pub fn add_pass(&mut self, name: impl Into<String>, pass_type: PassType) -> &mut Self {
         let name = name.into();
+        if let Some(&idx) = self.name_to_index.get(&name) {
+            tracing::debug!(pass = %name, "render graph pass re-added — updating in place");
+            let node = &mut self.nodes[idx];
+            node.pass_type = pass_type;
+            node.enabled = true;
+            return self;
+        }
         let index = self.nodes.len();
         self.name_to_index.insert(name.clone(), index);
         self.nodes.push(RenderPassNode {
@@ -168,6 +179,7 @@ impl RenderGraph {
     }
 
     /// Create a standard forward rendering graph.
+    #[must_use]
     pub fn forward() -> Self {
         let mut graph = Self::new();
         graph
@@ -184,6 +196,7 @@ impl RenderGraph {
     }
 
     /// Create a forward rendering graph with bloom + SSAO.
+    #[must_use]
     pub fn forward_with_effects() -> Self {
         let mut graph = Self::new();
         graph
@@ -215,6 +228,19 @@ impl Default for RenderGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn re_adding_a_pass_updates_in_place() {
+        let mut g = RenderGraph::new();
+        g.add_pass("a", PassType::Geometry)
+            .add_pass("b", PassType::Ui)
+            .add_dependency("b", "a");
+        g.set_enabled("a", false);
+        g.add_pass("a", PassType::Custom);
+        assert_eq!(g.pass_count(), 2);
+        assert_eq!(g.get_pass("a").map(|p| p.pass_type), Some(PassType::Custom));
+        assert_eq!(g.execution_order(), vec!["a", "b"]);
+    }
 
     #[test]
     fn empty_graph() {

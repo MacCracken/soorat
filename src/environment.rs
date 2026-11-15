@@ -1,10 +1,194 @@
 //! Environment maps — cubemap textures for IBL (Image-Based Lighting).
 
 use crate::error::{RenderError, Result};
+use crate::texture::mip_level_count;
 
-/// Compute the number of mip levels for a given texture size.
-fn max_mip_levels(size: u32) -> u32 {
-    (size as f32).log2().floor() as u32 + 1
+// ── CPU mip-chain generation ────────────────────────────────────────────────
+//
+// wgpu does not generate mipmaps, and the PBR shader samples the
+// environment maps at LOD > 0 (prefiltered: `roughness * 4`; irradiance:
+// implicit LOD under minification). Unwritten mips are zero-initialized, i.e.
+// black, so every level is filled here with a 2×2 box filter in linear space.
+
+/// Encoding of an environment-map face, for CPU mip generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FaceEncoding {
+    /// `Rgba8UnormSrgb` — 4 bytes per texel, sRGB-encoded color.
+    Srgb8,
+    /// `Rgba16Float` — 8 bytes per texel, linear half floats.
+    F16,
+}
+
+impl FaceEncoding {
+    fn of(format: wgpu::TextureFormat) -> Option<Self> {
+        match format {
+            wgpu::TextureFormat::Rgba8UnormSrgb => Some(Self::Srgb8),
+            wgpu::TextureFormat::Rgba16Float => Some(Self::F16),
+            _ => None,
+        }
+    }
+
+    fn bytes_per_texel(self) -> usize {
+        match self {
+            Self::Srgb8 => 4,
+            Self::F16 => 8,
+        }
+    }
+
+    /// Decode a face into linear RGBA f32 texels.
+    fn decode(self, bytes: &[u8]) -> Vec<[f32; 4]> {
+        match self {
+            Self::Srgb8 => {
+                let lut: [f32; 256] = std::array::from_fn(|i| srgb_to_linear(i as f32 / 255.0));
+                bytes
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|px| {
+                        [
+                            lut[px[0] as usize],
+                            lut[px[1] as usize],
+                            lut[px[2] as usize],
+                            f32::from(px[3]) / 255.0,
+                        ]
+                    })
+                    .collect()
+            }
+            Self::F16 => bytes
+                .as_chunks::<8>()
+                .0
+                .iter()
+                .map(|px| {
+                    let h = |i: usize| f16_to_f32(u16::from_le_bytes([px[i], px[i + 1]]));
+                    [h(0), h(2), h(4), h(6)]
+                })
+                .collect(),
+        }
+    }
+
+    /// Encode linear RGBA f32 texels into this face encoding.
+    fn encode(self, texels: &[[f32; 4]]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(texels.len() * self.bytes_per_texel());
+        for px in texels {
+            match self {
+                Self::Srgb8 => {
+                    let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+                    out.extend_from_slice(&[
+                        q(linear_to_srgb(px[0])),
+                        q(linear_to_srgb(px[1])),
+                        q(linear_to_srgb(px[2])),
+                        q(px[3]),
+                    ]);
+                }
+                Self::F16 => {
+                    for &c in px {
+                        out.extend_from_slice(&f32_to_f16(c).to_le_bytes());
+                    }
+                }
+            }
+        }
+        out
+    }
+}
+
+/// sRGB transfer function, decode (IEC 61966-2-1).
+#[must_use]
+#[inline]
+fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.040_45 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// sRGB transfer function, encode (IEC 61966-2-1).
+#[must_use]
+#[inline]
+fn linear_to_srgb(l: f32) -> f32 {
+    if l <= 0.003_130_8 {
+        l * 12.92
+    } else {
+        1.055 * l.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+/// IEEE 754 binary16 → binary32.
+#[must_use]
+#[inline]
+fn f16_to_f32(h: u16) -> f32 {
+    let sign = u32::from(h >> 15) << 31;
+    let exp = u32::from((h >> 10) & 0x1f);
+    let mant = u32::from(h & 0x3ff);
+    match exp {
+        0 => {
+            // Zero or subnormal: mant × 2⁻²⁴
+            let v = mant as f32 * (1.0 / 16_777_216.0);
+            if sign != 0 { -v } else { v }
+        }
+        31 => f32::from_bits(sign | 0x7f80_0000 | (mant << 13)),
+        _ => f32::from_bits(sign | ((exp + 112) << 23) | (mant << 13)),
+    }
+}
+
+/// IEEE 754 binary32 → binary16, round-to-nearest-even; overflow → ±inf.
+#[must_use]
+#[inline]
+fn f32_to_f16(v: f32) -> u16 {
+    let x = v.to_bits();
+    let sign = ((x >> 16) & 0x8000) as u16;
+    let exp = ((x >> 23) & 0xff) as i32;
+    let mant = x & 0x7f_ffff;
+    if exp == 0xff {
+        return sign | 0x7c00 | if mant != 0 { 0x200 } else { 0 };
+    }
+    let e = exp - 127 + 15;
+    if e >= 0x1f {
+        return sign | 0x7c00;
+    }
+    let round = |value: u32, shift: u32| -> u32 {
+        let half = 1u32 << (shift - 1);
+        let rem = value & ((1u32 << shift) - 1);
+        let r = value >> shift;
+        if rem > half || (rem == half && r & 1 == 1) {
+            r + 1
+        } else {
+            r
+        }
+    };
+    if e <= 0 {
+        if e < -10 {
+            return sign; // underflows to ±0
+        }
+        // Subnormal: (1.m × 2^(exp-127)) / 2⁻²⁴ = m_full >> (14 - e)
+        return sign | round(mant | 0x80_0000, (14 - e) as u32) as u16;
+    }
+    // Carry out of the mantissa correctly bumps the exponent (up to inf).
+    sign | round(((e as u32) << 23) | mant, 13) as u16
+}
+
+/// 2×2 box downsample of a square `size × size` linear image to
+/// `max(size/2, 1)` (odd edges clamp to the last texel).
+fn downsample(src: &[[f32; 4]], size: usize) -> Vec<[f32; 4]> {
+    let dst = (size / 2).max(1);
+    let last = size - 1;
+    let mut out = Vec::with_capacity(dst * dst);
+    for y in 0..dst {
+        let (y0, y1) = ((2 * y).min(last), (2 * y + 1).min(last));
+        for x in 0..dst {
+            let (x0, x1) = ((2 * x).min(last), (2 * x + 1).min(last));
+            let taps = [
+                src[y0 * size + x0],
+                src[y0 * size + x1],
+                src[y1 * size + x0],
+                src[y1 * size + x1],
+            ];
+            out.push(std::array::from_fn(|c| {
+                0.25 * (taps[0][c] + taps[1][c] + taps[2][c] + taps[3][c])
+            }));
+        }
+    }
+    out
 }
 
 /// A cubemap texture for environment lighting.
@@ -36,7 +220,12 @@ impl EnvironmentMap {
         )
     }
 
-    /// Create a cubemap from 6 face images with a specified format.
+    /// Create a cubemap from 6 face images with a specified format, filling
+    /// the full mip chain (2×2 box filter in linear space).
+    ///
+    /// Inputs are validated before any GPU allocation: `size` must be non-zero
+    /// and within the device's `max_texture_dimension_2d`, and every face must
+    /// hold exactly `size² × bytes_per_texel` bytes.
     fn from_faces_with_format(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -44,24 +233,23 @@ impl EnvironmentMap {
         size: u32,
         format: wgpu::TextureFormat,
     ) -> Result<Self> {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("environment_map"),
-            size: wgpu::Extent3d {
-                width: size,
-                height: size,
-                depth_or_array_layers: 6,
-            },
-            mip_level_count: max_mip_levels(size),
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        let bytes_per_pixel = format.block_copy_size(None).unwrap_or(4);
-        let expected_face_size = (size * size * bytes_per_pixel) as usize;
-
+        let encoding = FaceEncoding::of(format).ok_or_else(|| {
+            RenderError::Texture(format!("unsupported environment map format {format:?}"))
+        })?;
+        if size == 0 {
+            return Err(RenderError::Texture("zero-size environment map".into()));
+        }
+        let max = device.limits().max_texture_dimension_2d;
+        if size > max {
+            return Err(RenderError::Texture(format!(
+                "environment map size {size} exceeds device limit {max}"
+            )));
+        }
+        let side = size as usize;
+        let expected_face_size = side
+            .checked_mul(side)
+            .and_then(|t| t.checked_mul(encoding.bytes_per_texel()))
+            .ok_or_else(|| RenderError::Texture("environment map size overflows".into()))?;
         for (i, face_data) in faces.iter().enumerate() {
             if face_data.len() != expected_face_size {
                 return Err(RenderError::Texture(format!(
@@ -69,30 +257,64 @@ impl EnvironmentMap {
                     face_data.len()
                 )));
             }
+        }
 
+        let mip_count = mip_level_count(size, size);
+        tracing::debug!(size, mip_count, ?format, "creating environment map");
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("environment_map"),
+            size: wgpu::Extent3d {
+                width: size,
+                height: size,
+                depth_or_array_layers: 6,
+            },
+            mip_level_count: mip_count,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let bytes_per_texel = encoding.bytes_per_texel() as u32;
+        let write_level = |face: u32, mip: u32, level_size: u32, data: &[u8]| {
             queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: &texture,
-                    mip_level: 0,
+                    mip_level: mip,
                     origin: wgpu::Origin3d {
                         x: 0,
                         y: 0,
-                        z: i as u32,
+                        z: face,
                     },
                     aspect: wgpu::TextureAspect::All,
                 },
-                face_data,
+                data,
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(bytes_per_pixel * size),
-                    rows_per_image: Some(size),
+                    bytes_per_row: Some(bytes_per_texel * level_size),
+                    rows_per_image: Some(level_size),
                 },
                 wgpu::Extent3d {
-                    width: size,
-                    height: size,
+                    width: level_size,
+                    height: level_size,
                     depth_or_array_layers: 1,
                 },
             );
+        };
+
+        for (i, face_data) in faces.iter().enumerate() {
+            let face = i as u32;
+            write_level(face, 0, size, face_data);
+            if mip_count > 1 {
+                let mut level = encoding.decode(face_data);
+                let mut level_size = side;
+                for mip in 1..mip_count {
+                    level = downsample(&level, level_size);
+                    level_size = (level_size / 2).max(1);
+                    write_level(face, mip, level_size as u32, &encoding.encode(&level));
+                }
+            }
         }
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
@@ -254,6 +476,95 @@ impl IblBindGroup {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn f16_roundtrip_exact_values() {
+        for v in [
+            0.0f32,
+            -0.0,
+            1.0,
+            -2.5,
+            0.5,
+            65504.0,
+            6.103_515_6e-5, // smallest normal
+            5.960_464_5e-8, // smallest subnormal
+            0.333_251_95,   // 0x3555
+        ] {
+            let h = f32_to_f16(v);
+            assert_eq!(f16_to_f32(h), v, "{v} → {h:#06x}");
+        }
+        assert_eq!(f32_to_f16(1.0), 0x3c00);
+        assert_eq!(f32_to_f16(-2.0), 0xc000);
+    }
+
+    #[test]
+    fn f16_special_values() {
+        assert_eq!(f32_to_f16(f32::INFINITY), 0x7c00);
+        assert_eq!(f32_to_f16(1.0e6), 0x7c00); // overflow → inf
+        assert_eq!(f32_to_f16(-1.0e6), 0xfc00);
+        assert!(f16_to_f32(f32_to_f16(f32::NAN)).is_nan());
+        assert_eq!(f32_to_f16(1.0e-10), 0); // underflow → 0
+        assert_eq!(f16_to_f32(0x7c00), f32::INFINITY);
+    }
+
+    #[test]
+    fn f16_rounds_to_nearest_even() {
+        // 1 + 2⁻¹¹ is exactly halfway between 1.0 and the next f16 → even (1.0).
+        assert_eq!(f32_to_f16(1.0 + 2f32.powi(-11)), 0x3c00);
+        // 1 + 3·2⁻¹¹ is halfway between 0x3c01 and 0x3c02 → even (0x3c02).
+        assert_eq!(f32_to_f16(1.0 + 3.0 * 2f32.powi(-11)), 0x3c02);
+        // Rounding carry into the exponent: just below 2.0 rounds to 2.0.
+        assert_eq!(f32_to_f16(2.0 - 2f32.powi(-13)), 0x4000);
+    }
+
+    #[test]
+    fn srgb_transfer_roundtrip() {
+        for i in 0..=255u8 {
+            let c = f32::from(i) / 255.0;
+            let back = linear_to_srgb(srgb_to_linear(c));
+            assert!((back - c).abs() < 1e-5, "{i}: {back} vs {c}");
+        }
+    }
+
+    #[test]
+    fn downsample_box_filters_and_handles_odd_sizes() {
+        let src = vec![
+            [0.0, 0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0, 1.0],
+            [1.0, 1.0, 0.0, 1.0],
+        ];
+        assert_eq!(downsample(&src, 2), vec![[0.5, 0.5, 0.0, 1.0]]);
+        // 3×3 → 1×1 using the clamped top-left 2×2 block.
+        let src3: Vec<[f32; 4]> = (0..9).map(|i| [i as f32, 0.0, 0.0, 1.0]).collect();
+        assert_eq!(downsample(&src3, 3), vec![[2.0, 0.0, 0.0, 1.0]]);
+        assert_eq!(downsample(&[[7.0; 4]], 1), vec![[7.0; 4]]);
+    }
+
+    #[test]
+    fn mip_chain_preserves_average_color() {
+        // A 4×4 checkerboard averages to mid-gray (in linear space) at every level.
+        for enc in [FaceEncoding::Srgb8, FaceEncoding::F16] {
+            let texels: Vec<[f32; 4]> = (0..16)
+                .map(|i| {
+                    let on = ((i % 4) + (i / 4)) % 2 == 0;
+                    let v = if on { 1.0 } else { 0.0 };
+                    [v, v, v, 1.0]
+                })
+                .collect();
+            let bytes = enc.encode(&texels);
+            assert_eq!(bytes.len(), 16 * enc.bytes_per_texel());
+            let mut level = enc.decode(&bytes);
+            let mut size = 4;
+            while size > 1 {
+                level = downsample(&level, size);
+                size /= 2;
+            }
+            let px = level[0];
+            assert!((px[0] - 0.5).abs() < 1e-3, "{enc:?}: {px:?}");
+            assert!((px[3] - 1.0).abs() < 1e-6);
+        }
+    }
 
     #[test]
     fn ibl_bind_group_layout_types() {

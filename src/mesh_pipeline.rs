@@ -33,12 +33,11 @@ impl Default for CameraUniforms {
 }
 
 impl CameraUniforms {
-    /// Set the model matrix and auto-compute the normal matrix (inverse-transpose of upper 3x3).
+    /// Set the model matrix and auto-compute the normal matrix (inverse-transpose
+    /// of the upper 3x3, stored as rows), correct under rotation and
+    /// non-uniform scale.
     pub fn set_model(&mut self, model: [f32; 16]) {
         self.model = model;
-        // Extract upper 3x3 rows, compute inverse-transpose
-        // For uniform scale, transpose of upper 3x3 = inverse-transpose
-        // For non-uniform scale, need proper inverse
         let (nm0, nm1, nm2) = inverse_transpose_3x3(&model);
         self.normal_matrix_0 = [nm0[0], nm0[1], nm0[2], 0.0];
         self.normal_matrix_1 = [nm1[0], nm1[1], nm1[2], 0.0];
@@ -46,42 +45,34 @@ impl CameraUniforms {
     }
 }
 
-/// Compute inverse-transpose of upper-left 3x3 from a 4x4 column-major matrix.
-/// Returns 3 rows of the resulting 3x3 matrix.
+/// Compute the inverse-transpose of the upper-left 3x3 of a 4x4 column-major
+/// matrix, returned as its 3 **rows** (the shaders compute `dot(row_i, n)`).
+///
+/// For columns `a, b, c`, `M⁻¹` has rows `(b×c, c×a, a×b) / det`, so
+/// `M⁻ᵀ` has those vectors as its *columns*; row `i` of `M⁻ᵀ` is therefore
+/// `(bc[i], ca[i], ab[i]) / det`. For a (near-)singular matrix the cofactor
+/// matrix (`det · M⁻ᵀ`) is returned instead: it still maps normals to the
+/// correct direction, and the shader renormalizes.
+#[must_use]
 #[inline]
 fn inverse_transpose_3x3(m: &[f32; 16]) -> ([f32; 3], [f32; 3], [f32; 3]) {
-    // Extract upper-left 3x3 (column-major)
+    use crate::math_util::cross;
+    // Extract upper-left 3x3 columns (column-major)
     let a = [m[0], m[1], m[2]];
     let b = [m[4], m[5], m[6]];
     let c = [m[8], m[9], m[10]];
 
-    // For 3x3 columns [a, b, c]:
-    // inv = (1/det) * [b×c, c×a, a×b]^T
-    // inv^T = (1/det) * [b×c, c×a, a×b] (as rows)
-
-    let bc = [
-        b[1] * c[2] - b[2] * c[1],
-        b[2] * c[0] - b[0] * c[2],
-        b[0] * c[1] - b[1] * c[0],
-    ];
-    let ca = [
-        c[1] * a[2] - c[2] * a[1],
-        c[2] * a[0] - c[0] * a[2],
-        c[0] * a[1] - c[1] * a[0],
-    ];
-    let ab = [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ];
+    let bc = cross(b, c);
+    let ca = cross(c, a);
+    let ab = cross(a, b);
 
     let det = a[0] * bc[0] + a[1] * bc[1] + a[2] * bc[2];
     let inv_det = if det.abs() > 1e-10 { 1.0 / det } else { 1.0 };
 
     (
-        [bc[0] * inv_det, bc[1] * inv_det, bc[2] * inv_det],
-        [ca[0] * inv_det, ca[1] * inv_det, ca[2] * inv_det],
-        [ab[0] * inv_det, ab[1] * inv_det, ab[2] * inv_det],
+        [bc[0] * inv_det, ca[0] * inv_det, ab[0] * inv_det],
+        [bc[1] * inv_det, ca[1] * inv_det, ab[1] * inv_det],
+        [bc[2] * inv_det, ca[2] * inv_det, ab[2] * inv_det],
     )
 }
 
@@ -169,8 +160,14 @@ pub struct DepthBuffer {
 impl DepthBuffer {
     pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
+    /// Create a depth buffer. Zero dimensions (e.g. a minimized window) are
+    /// clamped to 1 so the call never trips wgpu validation.
+    ///
+    /// The texture is also `TEXTURE_BINDING`, so it can be sampled afterwards
+    /// (e.g. as the SSAO depth input).
     #[must_use]
     pub fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {
+        let (width, height) = (width.max(1), height.max(1));
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("depth_buffer"),
             size: wgpu::Extent3d {
@@ -182,7 +179,7 @@ impl DepthBuffer {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: Self::FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
 
@@ -506,6 +503,67 @@ impl MeshPipeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Apply the uploaded normal matrix exactly as pbr.wgsl does: dot with rows.
+    fn shade_normal(cam: &CameraUniforms, n: [f32; 3]) -> [f32; 3] {
+        let dot = |r: [f32; 4]| r[0] * n[0] + r[1] * n[1] + r[2] * n[2];
+        crate::math_util::normalize3([
+            dot(cam.normal_matrix_0),
+            dot(cam.normal_matrix_1),
+            dot(cam.normal_matrix_2),
+        ])
+    }
+
+    fn assert_vec3_near(a: [f32; 3], b: [f32; 3]) {
+        for k in 0..3 {
+            assert!((a[k] - b[k]).abs() < 1e-5, "{a:?} != {b:?}");
+        }
+    }
+
+    #[test]
+    fn normal_matrix_follows_rotation() {
+        // 90° about +Z: +X → +Y. The normal must rotate the same way as the mesh.
+        let model = crate::math_util::compose_trs(
+            [3.0, -2.0, 1.0],
+            [
+                0.0,
+                0.0,
+                std::f32::consts::FRAC_1_SQRT_2,
+                std::f32::consts::FRAC_1_SQRT_2,
+            ],
+            [1.0; 3],
+        );
+        let mut cam = CameraUniforms::default();
+        cam.set_model(model);
+        assert_vec3_near(shade_normal(&cam, [1.0, 0.0, 0.0]), [0.0, 1.0, 0.0]);
+        assert_vec3_near(shade_normal(&cam, [0.0, 1.0, 0.0]), [-1.0, 0.0, 0.0]);
+        assert_vec3_near(shade_normal(&cam, [0.0, 0.0, 1.0]), [0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn normal_matrix_rotation_with_non_uniform_scale() {
+        // Rotate 90° about Y, then scale X by 4. A surface tangent t must stay
+        // perpendicular to the transformed normal: dot(M t, N n) == 0.
+        let q = [
+            0.0,
+            std::f32::consts::FRAC_1_SQRT_2,
+            0.0,
+            std::f32::consts::FRAC_1_SQRT_2,
+        ];
+        let model = crate::math_util::compose_trs([0.0; 3], q, [4.0, 1.0, 0.5]);
+        let mut cam = CameraUniforms::default();
+        cam.set_model(model);
+        let n = crate::math_util::normalize3([1.0, 1.0, 0.0]);
+        let t = [1.0, -1.0, 0.0]; // perpendicular to n
+        let mt = [
+            model[0] * t[0] + model[4] * t[1] + model[8] * t[2],
+            model[1] * t[0] + model[5] * t[1] + model[9] * t[2],
+            model[2] * t[0] + model[6] * t[1] + model[10] * t[2],
+        ];
+        let nn = shade_normal(&cam, n);
+        let d = nn[0] * mt[0] + nn[1] * mt[1] + nn[2] * mt[2];
+        assert!(d.abs() < 1e-5, "transformed normal not perpendicular: {d}");
+    }
 
     #[test]
     fn camera_uniforms_size() {

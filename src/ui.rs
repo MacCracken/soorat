@@ -100,6 +100,7 @@ pub struct UiBatch {
 }
 
 impl UiBatch {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             panels: SpriteBatch::new(),

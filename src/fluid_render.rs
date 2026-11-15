@@ -5,6 +5,8 @@
 use crate::color::Color;
 #[cfg(feature = "fluids")]
 use crate::vertex::Vertex3D;
+#[cfg(feature = "fluids")]
+use crate::viz::{HeightField, MAX_QUADS, XZ_QUAD_INDICES, grid_is_backed, heightfield_mesh};
 
 /// Color mapping mode for fluid particles.
 #[non_exhaustive]
@@ -14,7 +16,7 @@ pub enum FluidColorMode {
     Solid,
     /// Color based on velocity magnitude (blue=slow → red=fast).
     Velocity,
-    /// Color based on density (dark=low → bright=high).
+    /// Color based on density (heat map: blue=low → red=high).
     Density,
     /// Color based on pressure (cool=low → hot=high).
     Pressure,
@@ -22,8 +24,29 @@ pub enum FluidColorMode {
 
 use crate::color::visualization_heat_map;
 
+/// Color for a particle under `params` (heat-mapped speed/density/pressure
+/// relative to the configured maxima, or the solid base color).
+#[cfg(feature = "fluids")]
+#[must_use]
+#[inline]
+fn particle_color(p: &pravash::common::FluidParticle, params: &ParticleColorParams) -> Color {
+    match params.color_mode {
+        FluidColorMode::Solid => params.base_color,
+        FluidColorMode::Velocity => {
+            visualization_heat_map(p.speed() as f32 / params.max_velocity.max(0.001))
+        }
+        FluidColorMode::Density => {
+            visualization_heat_map((p.density / params.max_density.max(0.001)) as f32)
+        }
+        FluidColorMode::Pressure => {
+            visualization_heat_map((p.pressure / params.max_pressure.max(0.001)) as f32)
+        }
+    }
+}
+
 /// Generate XZ-plane quads for SPH particles.
-/// Each particle becomes a small axis-aligned quad positioned at its world coordinates.
+/// Each particle becomes a small axis-aligned, +Y-facing quad positioned at
+/// its world coordinates.
 /// `particle_size`: world-space size of each particle quad.
 #[must_use]
 #[cfg(feature = "fluids")]
@@ -36,80 +59,55 @@ pub fn particles_to_quads(
     max_density: f64,
     max_pressure: f64,
 ) -> (Vec<Vertex3D>, Vec<u32>) {
-    let count = particles.len();
+    let params = ParticleColorParams {
+        color_mode,
+        base_color,
+        max_velocity,
+        max_density,
+        max_pressure,
+    };
+    let count = particles.len().min(MAX_QUADS);
+    tracing::debug!(count, "building particle quads");
     let mut vertices = Vec::with_capacity(count * 4);
     let mut indices = Vec::with_capacity(count * 6);
     let hs = particle_size * 0.5;
+    let up = [0.0, 1.0, 0.0];
 
-    for (i, p) in particles.iter().enumerate() {
-        let pos = [
+    for p in particles.iter().take(count) {
+        let [x, y, z] = [
             p.position[0] as f32,
             p.position[1] as f32,
             p.position[2] as f32,
         ];
+        let color = particle_color(p, &params).to_array();
 
-        let color = match color_mode {
-            FluidColorMode::Solid => base_color,
-            FluidColorMode::Velocity => {
-                let speed = p.speed() as f32;
-                let t = (speed / max_velocity.max(0.001)).clamp(0.0, 1.0);
-                visualization_heat_map(t)
-            }
-            FluidColorMode::Density => {
-                let t = (p.density / max_density.max(0.001)) as f32;
-                visualization_heat_map(t.clamp(0.0, 1.0))
-            }
-            FluidColorMode::Pressure => {
-                let t = (p.pressure / max_pressure.max(0.001)) as f32;
-                visualization_heat_map(t.clamp(0.0, 1.0))
-            }
-        };
-        let c = color.to_array();
-
-        // Simple XZ-plane quad (for top-down 2D fluid view)
-        let base = match (i as u64).checked_mul(4) {
-            Some(v) if v <= u32::MAX as u64 => v as u32,
-            _ => continue, // skip particle on overflow
-        };
-        vertices.push(Vertex3D {
-            position: [pos[0] - hs, pos[1], pos[2] - hs],
-            normal: [0.0, 1.0, 0.0],
-            tex_coords: [0.0, 0.0],
-            color: c,
-        });
-        vertices.push(Vertex3D {
-            position: [pos[0] + hs, pos[1], pos[2] - hs],
-            normal: [0.0, 1.0, 0.0],
-            tex_coords: [1.0, 0.0],
-            color: c,
-        });
-        vertices.push(Vertex3D {
-            position: [pos[0] + hs, pos[1], pos[2] + hs],
-            normal: [0.0, 1.0, 0.0],
-            tex_coords: [1.0, 1.0],
-            color: c,
-        });
-        vertices.push(Vertex3D {
-            position: [pos[0] - hs, pos[1], pos[2] + hs],
-            normal: [0.0, 1.0, 0.0],
-            tex_coords: [0.0, 1.0],
-            color: c,
-        });
-
-        indices.push(base);
-        indices.push(base + 1);
-        indices.push(base + 2);
-        indices.push(base + 2);
-        indices.push(base + 3);
-        indices.push(base);
+        // count <= MAX_QUADS, so base + 3 always fits in u32.
+        let base = vertices.len() as u32;
+        for (position, tex_coords) in [
+            ([x - hs, y, z - hs], [0.0, 0.0]),
+            ([x + hs, y, z - hs], [1.0, 0.0]),
+            ([x + hs, y, z + hs], [1.0, 1.0]),
+            ([x - hs, y, z + hs], [0.0, 1.0]),
+        ] {
+            vertices.push(Vertex3D {
+                position,
+                normal: up,
+                tex_coords,
+                color,
+            });
+        }
+        indices.extend(XZ_QUAD_INDICES.iter().map(|&i| base + i));
     }
 
     (vertices, indices)
 }
 
 /// Generate a mesh from a pravash ShallowWater height field.
-/// The mesh is an XZ-plane grid with Y = water height.
-/// Normals are computed from neighboring heights.
+/// The mesh is an XZ-plane grid centred on the origin with Y = water height ×
+/// `y_scale`; normals come from central differences (one-sided at borders).
+///
+/// Returns an empty mesh if `nx`/`ny` < 2, `dx` is not positive and finite, or
+/// `height` holds fewer than `nx * ny` samples. Non-finite heights render as 0.
 #[must_use]
 #[cfg(feature = "fluids")]
 pub fn shallow_water_to_mesh(
@@ -117,87 +115,45 @@ pub fn shallow_water_to_mesh(
     y_scale: f32,
     color: Color,
 ) -> (Vec<Vertex3D>, Vec<u32>) {
-    let nx = water.nx;
-    let ny = water.ny;
+    let (cols, rows) = (water.nx, water.ny);
     let dx = water.dx as f32;
+    if cols < 2
+        || rows < 2
+        || !(dx.is_finite() && dx > 0.0)
+        || !grid_is_backed(&[cols, rows], water.height.len(), "shallow_water_to_mesh")
+    {
+        return (Vec::new(), Vec::new());
+    }
+    tracing::debug!(cols, rows, "building shallow water mesh");
+
+    // Centre the (cols-1)·dx × (rows-1)·dx extent on the origin.
+    let field = HeightField {
+        cols,
+        rows,
+        origin_x: -((cols - 1) as f32) * dx * 0.5,
+        origin_z: -((rows - 1) as f32) * dx * 0.5,
+        dx,
+        dz: dx,
+    };
     let c = color.to_array();
-
-    let cols = nx;
-    let rows = ny;
-    let mut vertices = Vec::with_capacity(cols * rows);
-    let mut indices = Vec::with_capacity((cols - 1) * (rows - 1) * 6);
-
-    // Generate vertices
-    for z in 0..rows {
-        for x in 0..cols {
-            let idx = z * cols + x;
-            let h = water.height[idx] as f32 * y_scale;
-            let px = x as f32 * dx - (cols as f32 * dx * 0.5);
-            let pz = z as f32 * dx - (rows as f32 * dx * 0.5);
-
-            // Compute normal from neighbors
-            let hl = if x > 0 {
-                water.height[z * cols + x - 1] as f32 * y_scale
-            } else {
-                h
-            };
-            let hr = if x < cols - 1 {
-                water.height[z * cols + x + 1] as f32 * y_scale
-            } else {
-                h
-            };
-            let hd = if z > 0 {
-                water.height[(z - 1) * cols + x] as f32 * y_scale
-            } else {
-                h
-            };
-            let hu = if z < rows - 1 {
-                water.height[(z + 1) * cols + x] as f32 * y_scale
-            } else {
-                h
-            };
-
-            let ndx = (hl - hr) / (2.0 * dx);
-            let ndz = (hd - hu) / (2.0 * dx);
-            let len = (ndx * ndx + 1.0 + ndz * ndz).sqrt();
-
-            vertices.push(Vertex3D {
-                position: [px, h, pz],
-                normal: [ndx / len, 1.0 / len, ndz / len],
-                tex_coords: [
-                    x as f32 / (cols - 1).max(1) as f32,
-                    z as f32 / (rows - 1).max(1) as f32,
-                ],
-                color: c,
-            });
-        }
-    }
-
-    // Generate indices
-    for z in 0..(rows - 1) {
-        for x in 0..(cols - 1) {
-            let tl = (z * cols + x) as u32;
-            let tr = tl + 1;
-            let bl = tl + cols as u32;
-            let br = bl + 1;
-            indices.push(tl);
-            indices.push(bl);
-            indices.push(tr);
-            indices.push(tr);
-            indices.push(bl);
-            indices.push(br);
-        }
-    }
-
-    (vertices, indices)
+    heightfield_mesh(
+        &field,
+        |ix, iz| water.height[iz * cols + ix] as f32 * y_scale,
+        |_, _, _| c,
+    )
 }
 
 /// Parameters for particle rendering (color mapping + normalization ranges).
 pub struct ParticleColorParams {
+    /// How particles are colored.
     pub color_mode: FluidColorMode,
+    /// Color used by [`FluidColorMode::Solid`].
     pub base_color: Color,
+    /// Speed mapped to the top of the heat map (floored at 0.001).
     pub max_velocity: f32,
+    /// Density mapped to the top of the heat map (floored at 0.001).
     pub max_density: f64,
+    /// Pressure mapped to the top of the heat map (floored at 0.001).
     pub max_pressure: f64,
 }
 
@@ -225,7 +181,8 @@ pub fn particles_to_billboards(
     camera_up: [f32; 3],
     params: &ParticleColorParams,
 ) -> (Vec<Vertex3D>, Vec<u32>) {
-    let count = particles.len();
+    let count = particles.len().min(MAX_QUADS);
+    tracing::debug!(count, "building particle billboards");
     let mut vertices = Vec::with_capacity(count * 4);
     let mut indices = Vec::with_capacity(count * 6);
     let hs = particle_size * 0.5;
@@ -244,31 +201,16 @@ pub fn particles_to_billboards(
         camera_right[0] * camera_up[1] - camera_right[1] * camera_up[0],
     ];
 
-    for (i, p) in particles.iter().enumerate() {
+    for p in particles.iter().take(count) {
         let pos = [
             p.position[0] as f32,
             p.position[1] as f32,
             p.position[2] as f32,
         ];
 
-        let color = match params.color_mode {
-            FluidColorMode::Solid => params.base_color,
-            FluidColorMode::Velocity => {
-                let speed = p.speed() as f32;
-                visualization_heat_map((speed / params.max_velocity.max(0.001)).clamp(0.0, 1.0))
-            }
-            FluidColorMode::Density => visualization_heat_map(
-                ((p.density / params.max_density.max(0.001)) as f32).clamp(0.0, 1.0),
-            ),
-            FluidColorMode::Pressure => visualization_heat_map(
-                ((p.pressure / params.max_pressure.max(0.001)) as f32).clamp(0.0, 1.0),
-            ),
-        };
-        let c = color.to_array();
-        let base = match (i as u64).checked_mul(4) {
-            Some(v) if v <= u32::MAX as u64 => v as u32,
-            _ => continue, // skip particle on overflow
-        };
+        let c = particle_color(p, params).to_array();
+        // count <= MAX_QUADS, so base + 3 always fits in u32.
+        let base = vertices.len() as u32;
 
         // Billboard corners: center ± right ± up
         vertices.push(Vertex3D {
@@ -334,6 +276,45 @@ pub fn fluid_heat_map(t: f32) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "fluids")]
+    #[test]
+    fn particle_quads_face_up() {
+        let p = pravash::common::FluidParticle::new([1.0, 2.0, 3.0].into(), 1.0);
+        let (v, i) =
+            particles_to_quads(&[p], 0.5, FluidColorMode::Solid, Color::BLUE, 1.0, 1.0, 1.0);
+        crate::viz::assert_winding_matches_normals(&v, &i);
+    }
+
+    #[cfg(feature = "fluids")]
+    #[test]
+    fn shallow_water_centred_and_upward() {
+        let mut water = pravash::shallow::ShallowWater::new(4, 3, 0.5, 1.0).unwrap();
+        for (k, h) in water.height.iter_mut().enumerate() {
+            *h = 1.0 + 0.1 * (k as f64).sin();
+        }
+        let (v, i) = shallow_water_to_mesh(&water, 1.0, Color::BLUE);
+        assert_eq!(v.len(), 12);
+        crate::viz::assert_winding_matches_normals(&v, &i);
+        // Extent (cols-1)·dx = 1.5 centred on 0 → x ∈ [-0.75, 0.75].
+        assert!((v[0].position[0] + 0.75).abs() < 1e-6);
+        assert!((v[3].position[0] - 0.75).abs() < 1e-6);
+    }
+
+    #[cfg(feature = "fluids")]
+    #[test]
+    fn shallow_water_rejects_inconsistent_fields() {
+        let water = pravash::shallow::ShallowWater::new(3, 3, 1.0, 1.0).unwrap();
+        let mut bad = water.clone();
+        bad.dx = 0.0;
+        assert!(shallow_water_to_mesh(&bad, 1.0, Color::BLUE).0.is_empty());
+        let mut bad = water.clone();
+        bad.height.truncate(4);
+        assert!(shallow_water_to_mesh(&bad, 1.0, Color::BLUE).0.is_empty());
+        let mut bad = water;
+        bad.nx = 0;
+        assert!(shallow_water_to_mesh(&bad, 1.0, Color::BLUE).0.is_empty());
+    }
 
     #[test]
     fn heat_map_endpoints() {

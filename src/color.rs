@@ -104,6 +104,22 @@ impl Color {
         [self.r, self.g, self.b, self.a]
     }
 
+    /// Convert to 8-bit RGBA (components clamped to \[0,1\] and rounded;
+    /// NaN → 0). No color-space conversion is applied.
+    #[must_use]
+    #[inline]
+    pub fn to_rgba8(self) -> [u8; 4] {
+        #[inline]
+        fn q(c: f32) -> u8 {
+            if c.is_nan() {
+                0
+            } else {
+                (c.clamp(0.0, 1.0) * 255.0).round() as u8
+            }
+        }
+        [q(self.r), q(self.g), q(self.b), q(self.a)]
+    }
+
     /// Convert to wgpu::Color.
     #[must_use]
     #[inline]
@@ -177,11 +193,11 @@ impl Color {
 /// Visualization heat map: scalar \[0,1\] → blue→cyan→green→yellow→red gradient.
 ///
 /// Standard 5-stop gradient used across all physics visualization modules.
-/// Values outside \[0,1\] are clamped.
+/// Values outside \[0,1\] are clamped; NaN maps to 0 (blue).
 #[must_use]
 #[inline]
 pub fn visualization_heat_map(t: f32) -> Color {
-    let t = t.clamp(0.0, 1.0);
+    let t = if t.is_nan() { 0.0 } else { t.clamp(0.0, 1.0) };
     if t < 0.25 {
         let s = t / 0.25;
         Color::new(0.0, s, 1.0, 1.0)
@@ -200,11 +216,11 @@ pub fn visualization_heat_map(t: f32) -> Color {
 /// Signed value color: blue for negative, red for positive, black at zero.
 ///
 /// Maps a value in \[-1,1\] to a diverging color scale. Values outside range
-/// are clamped.
+/// are clamped; NaN maps to 0 (black).
 #[must_use]
 #[inline]
 pub fn signed_value_color(v: f32) -> Color {
-    let v = v.clamp(-1.0, 1.0);
+    let v = if v.is_nan() { 0.0 } else { v.clamp(-1.0, 1.0) };
     if v >= 0.0 {
         Color::new(v, 0.0, 0.0, 1.0)
     } else {
@@ -239,6 +255,41 @@ impl From<Color> for [f32; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn heat_map_and_signed_handle_nan() {
+        let c = visualization_heat_map(f32::NAN);
+        assert_eq!(c, visualization_heat_map(0.0));
+        assert!(c.to_array().iter().all(|v| v.is_finite()));
+        let c = signed_value_color(f32::NAN);
+        assert_eq!(c, signed_value_color(0.0));
+        for t in [f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(
+                visualization_heat_map(t)
+                    .to_array()
+                    .iter()
+                    .all(|v| v.is_finite())
+            );
+            assert!(
+                signed_value_color(t)
+                    .to_array()
+                    .iter()
+                    .all(|v| v.is_finite())
+            );
+        }
+    }
+
+    #[test]
+    fn to_rgba8_rounds_and_clamps() {
+        assert_eq!(Color::WHITE.to_rgba8(), [255, 255, 255, 255]);
+        assert_eq!(
+            Color::new(0.5, 0.0, 1.0, 0.25).to_rgba8(),
+            [128, 0, 255, 64]
+        );
+        assert_eq!(Color::rgb(2.0, -1.0, f32::NAN).to_rgba8(), [255, 0, 0, 255]);
+        let c = Color::from_rgba8(12, 34, 56, 78);
+        assert_eq!(c.to_rgba8(), [12, 34, 56, 78]);
+    }
 
     #[test]
     fn color_constants() {
