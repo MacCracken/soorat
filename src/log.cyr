@@ -14,8 +14,11 @@ fn _sr_warn(msg): i64 {
     return 0;
 }
 
-# Emits `msg` as a sakshi DEBUG event (shown when the consumer sets sakshi's level to DEBUG or TRACE).
+# Emits `msg` as a sakshi DEBUG event (shown when the consumer sets sakshi's level to DEBUG or TRACE). The level is
+# checked before the message is measured: DEBUG is off by default, and the hot paths that log at DEBUG (the render
+# graph's order, each frame) then cost a load and a compare, as a disabled `tracing::debug!` does.
 fn _sr_debug(msg): i64 {
+    if (sakshi_get_level() < SK_DEBUG) { return 0; }
     sakshi_debug(msg, strlen(msg));
     return 0;
 }

@@ -89,6 +89,12 @@ ganita's `pow` agreed with a correctly rounded one on every split. All 23 `shado
 
 Measurements: `port-parity.md` §5.3.
 
+**M4 part c.** `src/render_graph.cyr` (ADR 0002 #28): soorat's own, not over mabda's `rg_*`, which records GPU work
+rather than ordering named passes. Rust's search is made iterative, with its scratch in the passes. 435 golden rows
+pass, and `validate.py` re-derives each independently. All 10 `render_graph.rs` tests are ported, with four
+Cyrius-only ones (a 3,000-pass chain, scratch reuse, copied names, freed memory). Ordering `forward_with_effects`
+takes 327 ns. Measurements: `port-parity.md` §5.5.
+
 **Optional features.**
 - `optics` (prakash), `physics-debug` (impetus), `serde` (JSON on bayan) and `gltf` (the glTF loader, on bayan) are
   opt-in profiles: `dist/soorat-optics.cyr`, `dist/soorat-physics-debug.cyr`, `dist/soorat-serde.cyr` and
@@ -165,8 +171,10 @@ kiran (rendering), salai (editor viewport), joshua (visualization): all still Ru
 
 ## Next
 
-**M4 part c**: the render graph, profiler and capabilities over mabda (`rg_*`, `profiler_*`, `gpu_caps_*`).
+**M4 part d**: the profiler and capabilities. Both re-export Rust mabda 1.0's types, and mabda is not a dependency
+until M6. Open: bring mabda in at M4 for them, or move them to M6 with it (port-parity §5.5 lists how mabda 4.2.0's
+profiler differs from 1.0's).
 
-**Performance items carried forward:** `mul_mat4` at about 120 ns (M4's shadow matrices call it); the correctly
-rounded sRGB `pow` at 200–285 ns a call (M4's face encoding calls it three times a texel). port-parity §2.2 has the
-numbers and the options.
+**Performance items carried forward:** `mul_mat4` at about 120 ns (M4's shadow matrices call it). The correctly
+rounded sRGB `pow` (200–285 ns a call) no longer runs per texel: M4 part b encodes faces by threshold search.
+port-parity §2.2 has the numbers and the options.

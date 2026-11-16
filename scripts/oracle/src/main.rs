@@ -32,6 +32,7 @@ mod m_layout;
 mod m_lights;
 mod m_lod;
 mod m_math;
+mod m_rg;
 mod m_shadow;
 mod m_sprite;
 mod m_tables;
@@ -115,6 +116,16 @@ impl Toks {
     /// `n:`: `None`.
     pub fn none(mut self) -> Self {
         self.0.push("n:".to_string());
+        self
+    }
+    /// `e:<Enum>.<Variant>`: an enum variant.
+    pub fn e(mut self, variant: &str) -> Self {
+        self.0.push(format!("e:{variant}"));
+        self
+    }
+    /// `v:<len>`: the head of a sequence whose `len` element tokens the caller appends.
+    pub fn seq(mut self, len: usize) -> Self {
+        self.0.push(format!("v:{len}"));
         self
     }
     /// `E:<Variant>`: `Err(RenderError::<Variant>)`, its payload not compared.
@@ -235,6 +246,7 @@ fn main() {
         m_env::module(),
         m_env::material_module(),
         m_env::optics_module(),
+        m_rg::module(),
         m_json::module(),
     ];
 

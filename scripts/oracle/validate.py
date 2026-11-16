@@ -2495,6 +2495,135 @@ def lut_q8(v):
     return int(r) + (1 if v - r >= 0.5 else 0)
 
 
+RG_TYPES = ["Shadow", "Geometry", "Ssao", "Bloom", "PostProcess", "Debug", "Ui", "Compute", "Custom"]
+
+
+def s_token(b):
+    """A golden `s:` token of the bytes b: every byte outside 0x21–0x7e, and `%`, as %XX."""
+    return "s:" + "".join(chr(c) if 0x21 <= c <= 0x7E and c != 0x25 else "%%%02X" % c for c in b)
+
+
+def s_bytes(tok):
+    """The bytes of a golden `s:` token."""
+    t, out, k = tok[2:], bytearray(), 0
+    while k < len(t):
+        if t[k] == "%":
+            out.append(int(t[k + 1:k + 3], 16))
+            k += 3
+        else:
+            out.append(ord(t[k]))
+            k += 1
+    return bytes(out)
+
+
+class RenderGraph:
+    """Rust 1.2.0's RenderGraph, independently: passes in insertion order, a name index, and the recursive search."""
+
+    def __init__(self):
+        self.nodes, self.index = [], {}
+
+    def add_pass(self, name, t):
+        if name in self.index:
+            node = self.nodes[self.index[name]]
+            node["type"], node["on"] = t, True
+            return
+        self.index[name] = len(self.nodes)
+        self.nodes.append({"name": name, "deps": [], "type": t, "on": True})
+
+    def add_dependency(self, name, dep):
+        if name in self.index:
+            self.nodes[self.index[name]]["deps"].append(dep)
+
+    def set_enabled(self, name, on):
+        if name in self.index:
+            self.nodes[self.index[name]]["on"] = on
+
+    def execution_order(self):
+        visited, path, order = set(), set(), []
+
+        def visit(i):
+            if i in visited or not self.nodes[i]["on"] or i in path:
+                return
+            path.add(i)
+            for d in self.nodes[i]["deps"]:
+                if d in self.index:
+                    visit(self.index[d])
+            path.discard(i)
+            visited.add(i)
+            order.append(self.nodes[i]["name"])
+
+        for i in range(len(self.nodes)):
+            if i not in visited and self.nodes[i]["on"]:
+                visit(i)
+        return order
+
+    @staticmethod
+    def built(fn):
+        g = RenderGraph()
+        if fn in ("RenderGraph::forward", "RenderGraph::forward_with_effects"):
+            effects = fn.endswith("effects")
+            g.add_pass(b"shadow", 0)
+            g.add_pass(b"geometry", 1)
+            g.add_dependency(b"geometry", b"shadow")
+            if effects:
+                g.add_pass(b"ssao", 2)
+                g.add_dependency(b"ssao", b"geometry")
+                g.add_pass(b"bloom", 3)
+                g.add_dependency(b"bloom", b"geometry")
+            g.add_pass(b"debug", 5)
+            g.add_dependency(b"debug", b"geometry")
+            g.add_pass(b"ui", 6)
+            g.add_dependency(b"ui", b"debug")
+            g.add_pass(b"post_process", 4)
+            for d in ([b"ssao", b"bloom"] if effects else []) + [b"ui"]:
+                g.add_dependency(b"post_process", d)
+        return g
+
+
+def check_render_graph():
+    """Re-derives every `render_graph` row with the independent model above; returns the rows that differ."""
+    bad = 0
+    path = os.path.join(GOLDEN, "render_graph.tsv")
+    if not os.path.exists(path):
+        return 0
+    _, body = rows(path)
+    for fn, _cls, ins, outs, note in body:
+        g = RenderGraph.built(fn)
+        toks = [] if ins == "-" else ins.split(" ")
+        got, k = [], 0
+        while k < len(toks):
+            op = int(toks[k][2:])
+            if op == 0:
+                g.add_pass(s_bytes(toks[k + 1]), int(toks[k + 2][2:]))
+                k += 3
+            elif op == 1:
+                g.add_dependency(s_bytes(toks[k + 1]), s_bytes(toks[k + 2]))
+                k += 3
+            elif op == 2:
+                g.set_enabled(s_bytes(toks[k + 1]), toks[k + 2] == "i:1")
+                k += 3
+            elif op == 3:
+                order = g.execution_order()
+                got += [f"v:{len(order)}"] + [s_token(n) for n in order]
+                k += 1
+            elif op == 4:
+                got += [f"i:{len(g.nodes)}", f"i:{sum(1 for n in g.nodes if n['on'])}"]
+                k += 1
+            else:
+                name = s_bytes(toks[k + 1])
+                if name not in g.index:
+                    got.append("n:")
+                else:
+                    nd = g.nodes[g.index[name]]
+                    got += [s_token(nd["name"]), f"e:PassType.{RG_TYPES[nd['type']]}", f"i:{int(nd['on'])}",
+                            f"v:{len(nd['deps'])}"] + [s_token(d) for d in nd["deps"]]
+                k += 2
+        if " ".join(got) != (outs if outs != "-" else ""):
+            bad += 1
+            print(f"render_graph: {fn} {note}: re-derived outputs differ from the corpus")
+    return bad
+
+
 def check_pbr():
     """Re-derives every `pbr_material` and `pbr_optics` row; returns (rows that differ, the pbr_optics.r.tsv rows:
     the LUT under Cyrius prakash 2.15.2, where its bytes differ from Rust 1.2.0's)."""
@@ -2589,6 +2718,7 @@ def main():
     failures += check_color_optics()
     failures += check_json()
     failures += check_text()
+    failures += check_render_graph()
     sides_e = []
     lbad, lcr = check_lights(plat)
     tbad, tcr = check_tables(plat)

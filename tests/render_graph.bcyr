@@ -1,0 +1,38 @@
+# render_graph.bcyr — the render graph (M4 part c). Rust 1.2.0 has no bench for it, so these are extras: building
+# forward_with_effects' seven passes and freeing them, and ordering them, which a renderer does each frame.
+
+include "tests/lib.cyr"
+
+var _sink = 0;
+
+# Runs the render graph benches.
+fn main(): i64 {
+    alloc_init();
+    var b1 = bench_new("render_graph/build_forward_with_effects");
+    bench_batch_start(b1);
+    var i = 0;
+    while (i < 10000) {
+        var g = SrRenderGraph_forward_with_effects();
+        _sink = g;
+        SrRenderGraph_drop(g);
+        i = i + 1;
+    }
+    bench_batch_stop(b1, 10000);
+    bench_report(b1);
+    var g2 = SrRenderGraph_forward_with_effects();
+    var order = alloc(8 * 8);
+    var b2 = bench_new("render_graph/order_forward_with_effects");
+    bench_batch_start(b2);
+    i = 0;
+    while (i < 100000) {
+        _sink = SrRenderGraph_execution_order(g2, order);
+        i = i + 1;
+    }
+    bench_batch_stop(b2, 100000);
+    bench_report(b2);
+    SrRenderGraph_drop(g2);
+    return 0;
+}
+
+var r = main();
+sys_exit_group(r);

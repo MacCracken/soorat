@@ -1,0 +1,222 @@
+# render_graph.tcyr — the ported tests of Rust 1.2.0's src/render_graph.rs (M4 part c), all 10, and Cyrius-only
+# tests of the iterative search, its scratch and the graph's memory. The golden rows (tests/golden/render_graph.tsv,
+# 435) are replayed by tests/parity.tcyr.
+
+include "tests/lib.cyr"
+include "tests/support.cyr"
+
+# Adds the pass named by the C string name.
+fn t_add(g, name, t): i64 { return SrRenderGraph_add_pass(g, name, strlen(name), t); }
+
+# Makes the C string pass depend on the C string dep.
+fn t_dep(g, pass, d): i64 { return SrRenderGraph_add_dependency(g, pass, strlen(pass), d, strlen(d)); }
+
+# Enables or disables the pass named by the C string name.
+fn t_enable(g, name, on): i64 { return SrRenderGraph_set_enabled(g, name, strlen(name), on); }
+
+# The pass named by the C string name, or 0.
+fn t_pass(g, name): i64 { return SrRenderGraph_get_pass(g, name, strlen(name)); }
+
+# 1 if pass pointer nd is named by the C string name.
+fn t_named(nd, name): i64 {
+    if (nd == 0 || load64(nd + 8) != strlen(name)) { return 0; }
+    return memeq(load64(nd), name, strlen(name));
+}
+
+# The position of the pass named by the C string name in the n passes at order, or -1.
+fn t_pos(order, n, name): i64 {
+    var i = 0;
+    while (i < n) {
+        if (t_named(load64(order + i * 8), name) == 1) { return i; }
+        i = i + 1;
+    }
+    return 0 - 1;
+}
+
+# Writes k (>= 0) in decimal at p; returns its digit count.
+fn t_dec(k, p): i64 {
+    var n = 1;
+    var t = k;
+    while (t >= 10) {
+        t = t / 10;
+        n = n + 1;
+    }
+    var i = n - 1;
+    while (i >= 0) {
+        store8(p + i, 48 + k % 10);
+        k = k / 10;
+        i = i - 1;
+    }
+    return n;
+}
+
+# Runs the ported render_graph tests and the Cyrius-only ones.
+fn main() {
+    alloc_init();
+    var order = alloc(8 * 4096);
+
+    test_group("re_adding_a_pass_updates_in_place");
+    var g = SrRenderGraph_new();
+    t_add(g, "a", SR_PASS_TYPE_GEOMETRY);
+    t_add(g, "b", SR_PASS_TYPE_UI);
+    t_dep(g, "b", "a");
+    t_enable(g, "a", 0);
+    t_add(g, "a", SR_PASS_TYPE_CUSTOM);
+    assert_eq(SrRenderGraph_pass_count(g), 2, "still 2 passes");
+    assert_eq(load64(t_pass(g, "a") + 40), SR_PASS_TYPE_CUSTOM, "a is now Custom");
+    var n = SrRenderGraph_execution_order(g, order);
+    assert(n == 2 && t_named(load64(order), "a") == 1 && t_named(load64(order + 8), "b") == 1, "order a, b");
+    SrRenderGraph_drop(g);
+
+    test_group("empty_graph");
+    g = SrRenderGraph_new();
+    assert_eq(SrRenderGraph_pass_count(g), 0, "no passes");
+    assert_eq(SrRenderGraph_execution_order(g, order), 0, "an empty order");
+    SrRenderGraph_drop(g);
+
+    test_group("single_pass");
+    g = SrRenderGraph_new();
+    t_add(g, "geometry", SR_PASS_TYPE_GEOMETRY);
+    n = SrRenderGraph_execution_order(g, order);
+    assert(n == 1 && t_named(load64(order), "geometry") == 1, "order geometry");
+    SrRenderGraph_drop(g);
+
+    test_group("dependency_ordering");
+    g = SrRenderGraph_new();
+    t_add(g, "post", SR_PASS_TYPE_POST_PROCESS);
+    t_add(g, "geometry", SR_PASS_TYPE_GEOMETRY);
+    t_add(g, "shadow", SR_PASS_TYPE_SHADOW);
+    t_dep(g, "geometry", "shadow");
+    t_dep(g, "post", "geometry");
+    n = SrRenderGraph_execution_order(g, order);
+    assert(t_pos(order, n, "shadow") >= 0 && t_pos(order, n, "shadow") < t_pos(order, n, "geometry"), "shadow first");
+    assert(t_pos(order, n, "geometry") < t_pos(order, n, "post"), "geometry before post");
+    SrRenderGraph_drop(g);
+
+    test_group("disable_pass");
+    g = SrRenderGraph_new();
+    t_add(g, "shadow", SR_PASS_TYPE_SHADOW);
+    t_add(g, "geometry", SR_PASS_TYPE_GEOMETRY);
+    t_enable(g, "shadow", 0);
+    assert_eq(SrRenderGraph_enabled_count(g), 1, "1 enabled");
+    n = SrRenderGraph_execution_order(g, order);
+    assert(t_pos(order, n, "shadow") < 0 && t_pos(order, n, "geometry") >= 0, "shadow left out");
+    SrRenderGraph_drop(g);
+
+    test_group("forward_graph");
+    g = SrRenderGraph_forward();
+    n = SrRenderGraph_execution_order(g, order);
+    assert(n == 5 && t_named(load64(order), "shadow") == 1 && t_named(load64(order + 8), "geometry") == 1, "5 passes");
+    SrRenderGraph_drop(g);
+
+    test_group("forward_with_effects");
+    g = SrRenderGraph_forward_with_effects();
+    n = SrRenderGraph_execution_order(g, order);
+    assert(n == 7 && t_named(load64(order), "shadow") == 1 && t_named(load64(order + 8), "geometry") == 1, "7 passes");
+    assert(t_named(load64(order + (n - 1) * 8), "post_process") == 1, "post_process last");
+    SrRenderGraph_drop(g);
+
+    test_group("get_pass");
+    g = SrRenderGraph_forward();
+    var p = t_pass(g, "geometry");
+    assert(p != 0 && load64(p + 40) == SR_PASS_TYPE_GEOMETRY && load64(p + 48) == 1, "geometry, enabled");
+    SrRenderGraph_drop(g);
+
+    test_group("pass_type_values");
+    assert(SR_PASS_TYPE_SHADOW != SR_PASS_TYPE_GEOMETRY && SR_PASS_TYPE_BLOOM != SR_PASS_TYPE_SSAO, "distinct");
+
+    test_group("cycle_detection");
+    g = SrRenderGraph_new();
+    t_add(g, "a", SR_PASS_TYPE_GEOMETRY);
+    t_add(g, "b", SR_PASS_TYPE_POST_PROCESS);
+    t_dep(g, "a", "b");
+    t_dep(g, "b", "a");
+    n = SrRenderGraph_execution_order(g, order);
+    assert(n <= 2, "no duplicates");
+    SrRenderGraph_drop(g);
+
+    # Cyrius-only: a 3,000-pass chain, each pass depending on the next, orders last to first. Rust's search recurses
+    # 3,000 deep; this one walks its parent links.
+    test_group("a_long_chain_orders_without_recursion");
+    g = SrRenderGraph_new();
+    var name[16];
+    var i = 0;
+    while (i < 3000) {
+        store64(&name, 0);
+        store64(&name + 8, 0);
+        store8(&name, 112);
+        var len = 1 + t_dec(i, &name + 1);
+        SrRenderGraph_add_pass(g, &name, len, SR_PASS_TYPE_CUSTOM);
+        i = i + 1;
+    }
+    var ok = 1;
+    i = 0;
+    while (i < 2999) {
+        var a = load64(load64(g) + i * 8);
+        var b = load64(load64(g) + (i + 1) * 8);
+        if (SrRenderGraph_add_dependency(g, load64(a), load64(a + 8), load64(b), load64(b + 8)) == 0) { ok = 0; }
+        i = i + 1;
+    }
+    n = SrRenderGraph_execution_order(g, order);
+    var rev = 1;
+    i = 0;
+    while (i < n) {
+        if (load64(order + i * 8) != load64(load64(g) + (2999 - i) * 8)) { rev = 0; }
+        i = i + 1;
+    }
+    assert(ok == 1 && n == 3000 && rev == 1, "p2999 … p0");
+    SrRenderGraph_drop(g);
+
+    # Cyrius-only: the search's scratch lives in the passes, so a second query, and one after a change, start clean.
+    test_group("the_order_scratch_is_reset_each_call");
+    g = SrRenderGraph_forward_with_effects();
+    var first = SrRenderGraph_execution_order(g, order);
+    var again = SrRenderGraph_execution_order(g, order + 1024);
+    var same = 1;
+    i = 0;
+    while (i < first) {
+        if (load64(order + i * 8) != load64(order + 1024 + i * 8)) { same = 0; }
+        i = i + 1;
+    }
+    assert(first == 7 && again == 7 && same == 1, "the same 7 passes twice");
+    t_enable(g, "geometry", 0);
+    n = SrRenderGraph_execution_order(g, order);
+    assert(n == 6 && t_pos(order, n, "geometry") < 0, "6 after disabling geometry");
+    SrRenderGraph_drop(g);
+
+    # Cyrius-only: a name is the graph's copy, and any bytes: the caller's buffer may change or hold a NUL.
+    test_group("names_are_copied_bytes");
+    g = SrRenderGraph_new();
+    var buf[16];
+    store64(&buf, 0x0061006E6F6E);
+    SrRenderGraph_add_pass(g, &buf, 5, SR_PASS_TYPE_UI);
+    store64(&buf, 0);
+    assert_eq(SrRenderGraph_get_pass(g, &buf, 5), 0, "the changed buffer names no pass");
+    store64(&buf, 0x0061006E6F6E);
+    var q = SrRenderGraph_get_pass(g, &buf, 5);
+    assert(q != 0 && load64(q) != &buf && load64(q + 8) == 5, "found by its 5 bytes, NUL included, in a copy");
+    assert_eq(SrRenderGraph_get_pass(g, &buf, 3), 0, "a prefix is another name");
+    SrRenderGraph_drop(g);
+
+    # Cyrius-only: a graph's storage is the freelist's, and _drop returns all of it.
+    test_group("drop_returns_the_graph_s_memory");
+    g = SrRenderGraph_forward_with_effects();
+    SrRenderGraph_drop(g);
+    var used = alloc_used();
+    i = 0;
+    while (i < 1000) {
+        g = SrRenderGraph_forward_with_effects();
+        t_add(g, "extra", SR_PASS_TYPE_COMPUTE);
+        t_dep(g, "extra", "post_process");
+        SrRenderGraph_drop(g);
+        i = i + 1;
+    }
+    assert_eq(alloc_used(), used, "1,000 graphs built and dropped: no heap growth");
+    SrRenderGraph_drop(0);
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

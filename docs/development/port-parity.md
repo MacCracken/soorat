@@ -885,7 +885,7 @@ Over the 65,537 points k/65536 of [0, 1], against glibc 2.44:
   372 KB of that is bayan's tables, which a binary carries as soon as it includes bayan; the rest is parser and loader
   code. Rust's loader is unconditional; here it is opt-in, as serde is (ADR 0002 #25).
 
-## 5. M4: lighting math and infrastructure (parts a and b, 2026-11-15)
+## 5. M4: lighting math and infrastructure (parts a–c, 2026-11-15)
 
 ### 5.1 Part a: shadow math
 
@@ -977,3 +977,46 @@ How far Rust's f32 sits from the f64-once value:
   threshold ± 4 ulps, every 2¹⁶th non-negative float, the knee ± 64 ulps, NaN, ±0 and ±∞. The 128² mip chain went
   from 4.97 to 1.40 ms. Scaled by texel count, six 512² faces now take about 0.13 s, down from M1's estimated 1.2 s.
 
+### 5.5 Part c: the render graph, and what part d finds in mabda
+
+| Module | Rows | Class | Result |
+|---|---|---|---|
+| `render_graph` | 435 | A | all identical: the four starting graphs, five changes to each forward graph, Rust's ten tests as scripts, cycles (two, three, a self-dependency), missing and disabled dependencies, a chain through a disabled pass (`[a, c]`, as Rust orders it), escaped and empty names, a 300-pass chain, a 100-pass fan-in, and 400 random scripts. `validate.py` re-derives every row with an independent recursive model |
+
+- **Not over mabda's `rg_*`.** mabda 4.2.0's render graph records GPU work: compute, render and copy nodes, with the
+  resources each reads and writes. Rust soorat's graph orders named passes with enable flags and name dependencies, so
+  it is soorat's own code (ADR 0002 #28). The search is Rust's, made iterative: a pass's scratch (mark, next
+  dependency, parent) stands in for the call stack, so the order matches with no recursion. A 3,000-pass chain is
+  tested.
+- **Lookup is a scan**, by length and then bytes, where Rust hashes. Ordering costs one lookup per dependency.
+
+**Part d, the profiler and capabilities.** Rust soorat re-exports Rust mabda 1.0's `FrameProfiler`, `PassTiming`,
+`ProfileScope`, `GpuTimestamps` and `GpuCapabilities`. Against mabda 4.2.0's Cyrius API:
+- **Capabilities: everything is there.** `gpu_caps_max_texture_2d`, `_max_uniform_buffer` and `_max_bind_groups`
+  serve `meets_soorat_requirements`. `webgpu_uniform_fits` and `WEBGPU_MAX_*` serve `check_soorat_uniforms`, whose
+  eight uniform sizes are in `src/layout.cyr` (M1).
+- **The profiler differs from 1.0's:**
+  - no pass timings: 1.0 has `pass_times`, `record_pass`, `total_pass_time_ms`, and `begin_frame` clears them;
+    4.2.0 documents a `PassTiming` layout but has none of these;
+  - `end_frame` without `begin_frame`: 1.0 times it as 0 ms (it forgets the start after each frame); 4.2.0 times it
+    from the last start, or from 0 ns (clock zero) before any;
+  - `best_frame_ms` with no history: 1.0 gives `f64::MAX`, 4.2.0 gives 0;
+  - no `frame_history`, `export_json` or `export_history_csv`; `ProfileScope` is `profile_begin`/`profile_end`.
+
+  Four of soorat's eight profiler tests use the first two (`profiler_record_pass`, `profiler_begin_clears_passes`,
+  `pass_timing_fields`, `profiler_end_without_begin`).
+- **mabda is not a dependency yet.** The plan brings it in at M6, where `error`'s `From<GpuError>` waits for it.
+  Probe P5 built a minimal mabda consumer at 0.72 MB through the stdlib fold and 1.52 MB through `[deps.mabda]`
+  (§1.4), and the latter pulls samvada and chitra into every compile until L12 lands.
+
+### 5.6 Part c speed
+
+| Bench (extra: no Rust twin) | Cyrius | Notes |
+|---|---|---|
+| `render_graph/build_forward_with_effects` | 1.98 µs | 7 passes and 8 dependencies: 15 name copies from the freelist, then `_drop` |
+| `render_graph/order_forward_with_effects` | 327 ns | 8 dependency lookups and the search, no allocation |
+
+- **`_sr_debug` measured its message before sakshi checked the level.** `execution_order` logs at DEBUG, as Rust's
+  does, and each call ran `strlen` over a 60-byte message that DEBUG (off by default) then dropped. It now checks the
+  level first, as a disabled `tracing::debug!` does: the order went from 371 to 319 ns (two runs each), and every
+  DEBUG site gains the same.

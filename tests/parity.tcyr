@@ -1260,6 +1260,137 @@ fn _par_pbr(fp, fl): i64 {
     return 0;
 }
 
+# ── render_graph (src/render_graph.cyr) ──────────────────────────────────────────────
+
+# The golden name of an SR_PASS_TYPE_* code's `PassType` variant.
+#must_use
+fn _par_rg_type(t): i64 {
+    if (t == SR_PASS_TYPE_SHADOW) { return "PassType.Shadow"; }
+    if (t == SR_PASS_TYPE_GEOMETRY) { return "PassType.Geometry"; }
+    if (t == SR_PASS_TYPE_SSAO) { return "PassType.Ssao"; }
+    if (t == SR_PASS_TYPE_BLOOM) { return "PassType.Bloom"; }
+    if (t == SR_PASS_TYPE_POST_PROCESS) { return "PassType.PostProcess"; }
+    if (t == SR_PASS_TYPE_DEBUG) { return "PassType.Debug"; }
+    if (t == SR_PASS_TYPE_UI) { return "PassType.Ui"; }
+    if (t == SR_PASS_TYPE_COMPUTE) { return "PassType.Compute"; }
+    if (t == SR_PASS_TYPE_CUSTOM) { return "PassType.Custom"; }
+    return "PassType.Unknown";
+}
+
+# Input token k, an `s:` token, decoded (its `%XX` escapes) into a fresh buffer, NUL bytes included: the buffer, its
+# length in *lenw; 0 when the token is no `s:` token or an escape is malformed.
+fn _par_in_text(k, lenw): i64 {
+    var at = k * 8;
+    if (k >= _par_in_n || load64(_par_in_k + at) != 115) { return 0; }
+    var p = load64(_par_in_v + at);
+    var len = load64(_par_in_l + at);
+    var out = alloc(len + 1);
+    if (out == 0) { return 0; }
+    var n = 0;
+    var j = 0;
+    while (j < len) {
+        var c = load8(p + j);
+        if (c == 37) {
+            if (j + 2 >= len) { return 0; }
+            var hi = _par_hex_upper(load8(p + j + 1));
+            var lo = _par_hex_upper(load8(p + j + 2));
+            if (hi < 0 || lo < 0) { return 0; }
+            c = hi * 16 + lo;
+            j = j + 3;
+        } else {
+            j = j + 1;
+        }
+        store8(out + n, c);
+        n = n + 1;
+    }
+    store64(lenw, n);
+    return out;
+}
+
+# Appends a pass: its name, `e:PassType.<V>`, enabled, and `v:<n>` with its dependency names.
+fn _par_got_rg_pass(nd) {
+    _par_got_text(load64(nd), load64(nd + 8));
+    _par_got_e(_par_rg_type(load64(nd + 40)));
+    _par_got_i(load64(nd + 48));
+    var n = load64(nd + 24);
+    _par_got_seq(n);
+    var k = 0;
+    while (k < n) {
+        var d = load64(nd + 16) + k * 16;
+        _par_got_text(load64(d), load64(d + 8));
+        k = k + 1;
+    }
+    return 0;
+}
+
+# Runs one `render_graph` row (scripts/oracle/src/m_rg.rs): the starting graph its fn names, then its calls, each
+# query's result appended. 1, 0 for an fn it doesn't know, or -1 for a malformed call or a failed allocation.
+fn _par_rg(fp, fl): i64 {
+    var g = 0;
+    if (_par_eq(fp, fl, "RenderGraph::new") == 1 || _par_eq(fp, fl, "RenderGraph::script") == 1) {
+        g = SrRenderGraph_new();
+    } elif (_par_eq(fp, fl, "RenderGraph::default") == 1) {
+        g = SrRenderGraph_default();
+    } elif (_par_eq(fp, fl, "RenderGraph::forward") == 1) {
+        g = SrRenderGraph_forward();
+    } elif (_par_eq(fp, fl, "RenderGraph::forward_with_effects") == 1) {
+        g = SrRenderGraph_forward_with_effects();
+    } else {
+        return 0;
+    }
+    if (g == 0) { return 0 - 1; }
+    var la[8];
+    var lb[8];
+    var ok = 1;
+    var k = 0;
+    while (k < _par_in_n && ok == 1) {
+        var op = _par_in(k);
+        if (op == 0) {
+            var a = _par_in_text(k + 1, &la);
+            if (a == 0 || SrRenderGraph_add_pass(g, a, load64(&la), _par_in(k + 2)) == 0) { ok = 0; }
+            k = k + 3;
+        } elif (op == 1) {
+            var p = _par_in_text(k + 1, &la);
+            var d = _par_in_text(k + 2, &lb);
+            if (p == 0 || d == 0) { ok = 0; }
+            elif (SrRenderGraph_add_dependency(g, p, load64(&la), d, load64(&lb)) == 0) { ok = 0; }
+            k = k + 3;
+        } elif (op == 2) {
+            var e = _par_in_text(k + 1, &la);
+            if (e == 0) { ok = 0; } else { SrRenderGraph_set_enabled(g, e, load64(&la), _par_in(k + 2)); }
+            k = k + 3;
+        } elif (op == 3) {
+            var buf = alloc(SrRenderGraph_pass_count(g) * 8 + 8);
+            var n = SrRenderGraph_execution_order(g, buf);
+            _par_got_seq(n);
+            var i = 0;
+            while (i < n) {
+                var nd = load64(buf + i * 8);
+                _par_got_text(load64(nd), load64(nd + 8));
+                i = i + 1;
+            }
+            k = k + 1;
+        } elif (op == 4) {
+            _par_got_i(SrRenderGraph_pass_count(g));
+            _par_got_i(SrRenderGraph_enabled_count(g));
+            k = k + 1;
+        } elif (op == 5) {
+            var q = _par_in_text(k + 1, &la);
+            if (q == 0) { ok = 0; }
+            else {
+                var pass = SrRenderGraph_get_pass(g, q, load64(&la));
+                if (pass == 0) { _par_got_none(); } else { _par_got_rg_pass(pass); }
+            }
+            k = k + 2;
+        } else {
+            ok = 0;
+        }
+    }
+    SrRenderGraph_drop(g);
+    if (ok == 0) { return 0 - 1; }
+    return 1;
+}
+
 # ── gltf (src/gltf.cyr) ───────────────────────────────────────────────────────────────
 
 var _par_gl_arena = 0;
@@ -1432,6 +1563,7 @@ fn _par_dispatch(mp, ml, fp, fl): i64 {
     if (_par_eq(mp, ml, "shadow") == 1) { return _par_shadow(fp, fl); }
     if (_par_eq(mp, ml, "env") == 1) { return _par_env(fp, fl); }
     if (_par_eq(mp, ml, "pbr_material") == 1) { return _par_pbr(fp, fl); }
+    if (_par_eq(mp, ml, "render_graph") == 1) { return _par_rg(fp, fl); }
     return 0;
 }
 

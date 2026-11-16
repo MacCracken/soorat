@@ -160,7 +160,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Extras `env/face_mip_chain_128_srgb` and `pbr/brdf_lut_32x32_256` (`tests/env.bcyr`). `create_brdf_lut_texture`
     moved to M6.
 
+- **M4 part c: the render graph** (`src/render_graph.cyr`; ADR 0002 #28).
+  - `SrRenderGraph_new`, `_default`, `_drop`, `_add_pass`, `_add_dependency`, `_set_enabled`, `_execution_order`,
+    `_get_pass`, `_pass_count`, `_enabled_count`, `_forward` and `_forward_with_effects`; `SrRenderPassNode` and the
+    `SR_PASS_TYPE_*` constants.
+  - soorat's own CPU code, not mabda's `rg_*`, which records GPU work rather than ordering named passes. The graph is
+    freelist-owned, names are copied (pointer, length) bytes, and the order is Rust's depth-first search made
+    iterative: no recursion and no allocation at any depth.
+  - 435 golden rows (`tests/golden/render_graph.tsv`), scripts of the public calls, all identical. `validate.py`
+    re-derives each with an independent model.
+  - All 10 `render_graph.rs` tests ported (`tests/render_graph.tcyr`), with Cyrius-only tests of a 3,000-pass chain,
+    the search's scratch, copied names and freed memory. Extras `render_graph/build_forward_with_effects` and
+    `render_graph/order_forward_with_effects` (`tests/render_graph.bcyr`).
+
 ### Performance (M4)
+- `_sr_debug` checks sakshi's level before measuring its message, where it ran `strlen` on every call. DEBUG is off by
+  default. `render_graph/order_forward_with_effects` 371 → 319 ns (−14 %, two runs each).
 - sRGB face encoding: the byte comes from 255 encode thresholds, found once with the correctly rounded path, instead of
   a correctly rounded `pow` per channel. The bytes are identical. `env/face_mip_chain_128_srgb` 5.0 → 1.4 ms (−72 %).
 

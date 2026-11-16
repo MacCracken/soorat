@@ -108,8 +108,11 @@ fn _sr_warn(msg): i64 {
     return 0;
 }
 
-# Emits `msg` as a sakshi DEBUG event (shown when the consumer sets sakshi's level to DEBUG or TRACE).
+# Emits `msg` as a sakshi DEBUG event (shown when the consumer sets sakshi's level to DEBUG or TRACE). The level is
+# checked before the message is measured: DEBUG is off by default, and the hot paths that log at DEBUG (the render
+# graph's order, each frame) then cost a load and a compare, as a disabled `tracing::debug!` does.
 fn _sr_debug(msg): i64 {
+    if (sakshi_get_level() < SK_DEBUG) { return 0; }
     sakshi_debug(msg, strlen(msg));
     return 0;
 }
@@ -6870,6 +6873,342 @@ fn SrMaterialUniforms_dielectric(base_color, roughness, out) {
 # A metal (metallic 1). Mirrors `MaterialUniforms::metal`.
 fn SrMaterialUniforms_metal(base_color, roughness, out) {
     return _sr_material(base_color, 0x3F800000, roughness, out);
+}
+
+# --- render_graph.cyr ---
+
+# render_graph.cyr — Rust 1.2.0's src/render_graph.rs (M4 part c): named render passes with dependencies, ordered for
+# execution.
+#
+# soorat's own CPU code, not mabda's `rg_*`. mabda's render graph records GPU work (compute, render and copy nodes with
+# the resources each reads and writes); this one orders named passes, as Rust's does (ADR 0002 #28).
+#
+# **Ownership.** SrRenderGraph_new returns a graph from the freelist; free it with SrRenderGraph_drop. A pass's name and
+# its dependencies' names are the graph's own copies, as Rust's `String`s are, so the caller's text may go. A name is
+# bytes with a length (any byte, NUL included), and each copy is NUL-terminated as well. Every pass is an
+# SrRenderPassNode at a fixed address for the graph's life: `get_pass` and `execution_order` hand out those pointers.
+# Its `dependencies` point at `dep_count` (name, length) pairs, 16 bytes apart.
+#
+# **Lookup** scans the passes by length and bytes, where Rust hashes. A graph holds tens of passes, and the scan
+# allocates nothing.
+#
+# **Order.** `execution_order` is Rust's depth-first search made iterative, so the order is Rust's for every graph,
+# with no recursion and no allocation. Each pass carries the search's scratch: `_mark` (0 unvisited, 1 on the path,
+# 2 done), `_next` (the dependency it reaches next) and `_parent` (the pass that reached it). The search skips a
+# dependency on a missing or disabled pass, and one that closes a cycle (with a WARN event, as Rust warns), so cyclic
+# passes still run, in the order the search finishes them.
+
+enum SrPassType {
+    SR_PASS_TYPE_SHADOW = 0;
+    SR_PASS_TYPE_GEOMETRY = 1;
+    SR_PASS_TYPE_SSAO = 2;
+    SR_PASS_TYPE_BLOOM = 3;
+    SR_PASS_TYPE_POST_PROCESS = 4;
+    SR_PASS_TYPE_DEBUG = 5;
+    SR_PASS_TYPE_UI = 6;
+    SR_PASS_TYPE_COMPUTE = 7;
+    SR_PASS_TYPE_CUSTOM = 8;
+}
+
+struct SrRenderPassNode { name; name_len; dependencies; dep_count; dep_cap; pass_type; enabled; _mark; _next; _parent; }
+struct SrRenderGraph { nodes; count; cap; }
+
+# SrRenderPassNode field offsets.
+const _SR_RP_NAME = 0;
+const _SR_RP_LEN = 8;
+const _SR_RP_DEPS = 16;
+const _SR_RP_DCOUNT = 24;
+const _SR_RP_DCAP = 32;
+const _SR_RP_TYPE = 40;
+const _SR_RP_ON = 48;
+const _SR_RP_MARK = 56;
+const _SR_RP_NEXT = 64;
+const _SR_RP_PARENT = 72;
+
+# A NUL-terminated copy of the len bytes at p from the freelist, or 0 when the allocation fails.
+#must_use
+fn _sr_rg_copy(p, len): i64 {
+    var c = fl_alloc(len + 1);
+    if (c == 0) { return 0; }
+    memcpy(c, p, len);
+    store8(c + len, 0);
+    return c;
+}
+
+# The pass of g named by the len bytes at p, or 0.
+#must_use
+fn _sr_rg_find(g, p, len): i64 {
+    var nodes = load64(g);
+    var n = load64(g + 8);
+    var i = 0;
+    while (i < n) {
+        var nd = load64(nodes + i * 8);
+        if (load64(nd + _SR_RP_LEN) == len && memeq(load64(nd + _SR_RP_NAME), p, len) == 1) { return nd; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+# Frees a pass, its name and its dependency names.
+fn _sr_rg_node_free(nd) {
+    var deps = load64(nd + _SR_RP_DEPS);
+    var n = load64(nd + _SR_RP_DCOUNT);
+    var k = 0;
+    while (k < n) {
+        fl_free(load64(deps + k * 16));
+        k = k + 1;
+    }
+    if (deps != 0) { fl_free(deps); }
+    fl_free(load64(nd + _SR_RP_NAME));
+    fl_free(nd);
+    return 0;
+}
+
+# An empty graph: an SrRenderGraph to free with SrRenderGraph_drop, or 0 when the allocation fails. Mirrors
+# `RenderGraph::new`.
+#must_use
+fn SrRenderGraph_new(): i64 {
+    return fl_calloc(sizeof(SrRenderGraph));
+}
+
+# An empty graph, as SrRenderGraph_new. Mirrors `impl Default for RenderGraph`.
+#must_use
+fn SrRenderGraph_default(): i64 {
+    return SrRenderGraph_new();
+}
+
+# Frees g, its passes and their names (0 is ignored). The pass pointers it handed out go with it.
+fn SrRenderGraph_drop(g) {
+    if (g == 0) { return 0; }
+    var nodes = load64(g);
+    var n = load64(g + 8);
+    var i = 0;
+    while (i < n) {
+        _sr_rg_node_free(load64(nodes + i * 8));
+        i = i + 1;
+    }
+    if (nodes != 0) { fl_free(nodes); }
+    fl_free(g);
+    return 0;
+}
+
+# Adds a pass named by the len bytes at name, of pass_type (an SR_PASS_TYPE_*), enabled and with no dependencies.
+# Re-adding a name sets that pass's type and enables it, keeping its dependencies (with a DEBUG event), rather than
+# adding a second pass. 1, or 0 when an allocation fails (the graph is unchanged). Mirrors `RenderGraph::add_pass`.
+fn SrRenderGraph_add_pass(g, name, len, pass_type): i64 {
+    var nd = _sr_rg_find(g, name, len);
+    if (nd != 0) {
+        _sr_debug("soorat::render_graph: render graph pass re-added — updating in place");
+        store64(nd + _SR_RP_TYPE, pass_type);
+        store64(nd + _SR_RP_ON, 1);
+        return 1;
+    }
+    var n = load64(g + 8);
+    var cap = load64(g + 16);
+    if (n == cap) {
+        var ncap = cap * 2;
+        if (ncap < 4) { ncap = 4; }
+        var p = fl_alloc(ncap * 8);
+        if (p == 0) { return 0; }
+        var old = load64(g);
+        if (old != 0) {
+            memcpy(p, old, n * 8);
+            fl_free(old);
+        }
+        store64(g, p);
+        store64(g + 16, ncap);
+    }
+    nd = fl_calloc(sizeof(SrRenderPassNode));
+    if (nd == 0) { return 0; }
+    var c = _sr_rg_copy(name, len);
+    if (c == 0) {
+        fl_free(nd);
+        return 0;
+    }
+    store64(nd + _SR_RP_NAME, c);
+    store64(nd + _SR_RP_LEN, len);
+    store64(nd + _SR_RP_TYPE, pass_type);
+    store64(nd + _SR_RP_ON, 1);
+    store64(load64(g) + n * 8, nd);
+    store64(g + 8, n + 1);
+    return 1;
+}
+
+# Makes the pass named by pass (pass_len bytes) depend on the one named by dep (dep_len bytes), which then runs first.
+# The dependency is a name: it may name a pass added later, or none. A pass that isn't in g is ignored, as in Rust.
+# 1, or 0 when an allocation fails (the graph is unchanged). Mirrors `RenderGraph::add_dependency`.
+fn SrRenderGraph_add_dependency(g, pass, pass_len, dep, dep_len): i64 {
+    var nd = _sr_rg_find(g, pass, pass_len);
+    if (nd == 0) { return 1; }
+    var n = load64(nd + _SR_RP_DCOUNT);
+    var cap = load64(nd + _SR_RP_DCAP);
+    if (n == cap) {
+        var ncap = cap * 2;
+        if (ncap < 4) { ncap = 4; }
+        var p = fl_alloc(ncap * 16);
+        if (p == 0) { return 0; }
+        var old = load64(nd + _SR_RP_DEPS);
+        if (old != 0) {
+            memcpy(p, old, n * 16);
+            fl_free(old);
+        }
+        store64(nd + _SR_RP_DEPS, p);
+        store64(nd + _SR_RP_DCAP, ncap);
+    }
+    var c = _sr_rg_copy(dep, dep_len);
+    if (c == 0) { return 0; }
+    var at = load64(nd + _SR_RP_DEPS) + n * 16;
+    store64(at, c);
+    store64(at + 8, dep_len);
+    store64(nd + _SR_RP_DCOUNT, n + 1);
+    return 1;
+}
+
+# Enables (enabled non-zero) or disables the pass named by the len bytes at name; a name not in g is ignored. Mirrors
+# `RenderGraph::set_enabled`.
+fn SrRenderGraph_set_enabled(g, name, len, enabled) {
+    var nd = _sr_rg_find(g, name, len);
+    if (nd == 0) { return 0; }
+    var on = 0;
+    if (enabled != 0) { on = 1; }
+    store64(nd + _SR_RP_ON, on);
+    return 0;
+}
+
+# Writes the enabled passes in execution order to out (room for SrRenderGraph_pass_count(g) pass pointers) and
+# returns how many: every pass after the passes it depends on, the passes taken in the order they were added. A
+# disabled pass is left out and not searched through. A dependency that closes a cycle is skipped with a WARN event.
+# Mirrors `RenderGraph::execution_order`, which returns the passes' names.
+fn SrRenderGraph_execution_order(g, out): i64 {
+    _sr_debug("soorat::render_graph: computing render graph execution order");
+    var nodes = load64(g);
+    var n = load64(g + 8);
+    var i = 0;
+    while (i < n) {
+        store64(load64(nodes + i * 8) + _SR_RP_MARK, 0);
+        i = i + 1;
+    }
+    var k = 0;
+    i = 0;
+    while (i < n) {
+        var cur = load64(nodes + i * 8);
+        if (load64(cur + _SR_RP_MARK) == 0 && load64(cur + _SR_RP_ON) != 0) {
+            store64(cur + _SR_RP_MARK, 1);
+            store64(cur + _SR_RP_NEXT, 0);
+            store64(cur + _SR_RP_PARENT, 0);
+            while (cur != 0) {
+                var nx = load64(cur + _SR_RP_NEXT);
+                if (nx < load64(cur + _SR_RP_DCOUNT)) {
+                    store64(cur + _SR_RP_NEXT, nx + 1);
+                    var de = load64(cur + _SR_RP_DEPS) + nx * 16;
+                    var d = _sr_rg_find(g, load64(de), load64(de + 8));
+                    if (d != 0 && load64(d + _SR_RP_ON) != 0 && load64(d + _SR_RP_MARK) != 2) {
+                        if (load64(d + _SR_RP_MARK) == 1) {
+                            _sr_warn("soorat::render_graph: render graph cycle detected — skipping cyclic dependency");
+                        } else {
+                            store64(d + _SR_RP_MARK, 1);
+                            store64(d + _SR_RP_NEXT, 0);
+                            store64(d + _SR_RP_PARENT, cur);
+                            cur = d;
+                        }
+                    }
+                } else {
+                    store64(cur + _SR_RP_MARK, 2);
+                    store64(out + k * 8, cur);
+                    k = k + 1;
+                    cur = load64(cur + _SR_RP_PARENT);
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return k;
+}
+
+# The pass named by the len bytes at name (an SrRenderPassNode), or 0 for None. Mirrors `RenderGraph::get_pass`.
+#must_use
+fn SrRenderGraph_get_pass(g, name, len): i64 {
+    return _sr_rg_find(g, name, len);
+}
+
+# The number of passes. Mirrors `RenderGraph::pass_count`.
+#must_use
+fn SrRenderGraph_pass_count(g): i64 {
+    return load64(g + 8);
+}
+
+# The number of enabled passes. Mirrors `RenderGraph::enabled_count`.
+#must_use
+fn SrRenderGraph_enabled_count(g): i64 {
+    var nodes = load64(g);
+    var n = load64(g + 8);
+    var c = 0;
+    var i = 0;
+    while (i < n) {
+        if (load64(load64(nodes + i * 8) + _SR_RP_ON) != 0) { c = c + 1; }
+        i = i + 1;
+    }
+    return c;
+}
+
+# Adds the pass named by the C string name: 1, or 0 when an allocation fails.
+fn _sr_rg_add(g, name, pass_type): i64 {
+    return SrRenderGraph_add_pass(g, name, strlen(name), pass_type);
+}
+
+# Makes the pass named by the C string pass depend on the C string dep: 1, or 0 when an allocation fails.
+fn _sr_rg_dep(g, pass, dep): i64 {
+    return SrRenderGraph_add_dependency(g, pass, strlen(pass), dep, strlen(dep));
+}
+
+# The standard forward graph: shadow, geometry, debug, ui and post_process, each depending on the one before. A graph
+# to free with SrRenderGraph_drop, or 0 when an allocation fails. Mirrors `RenderGraph::forward`.
+#must_use
+fn SrRenderGraph_forward(): i64 {
+    var g = SrRenderGraph_new();
+    if (g == 0) { return 0; }
+    var ok = _sr_rg_add(g, "shadow", SR_PASS_TYPE_SHADOW);
+    ok = ok & _sr_rg_add(g, "geometry", SR_PASS_TYPE_GEOMETRY);
+    ok = ok & _sr_rg_dep(g, "geometry", "shadow");
+    ok = ok & _sr_rg_add(g, "debug", SR_PASS_TYPE_DEBUG);
+    ok = ok & _sr_rg_dep(g, "debug", "geometry");
+    ok = ok & _sr_rg_add(g, "ui", SR_PASS_TYPE_UI);
+    ok = ok & _sr_rg_dep(g, "ui", "debug");
+    ok = ok & _sr_rg_add(g, "post_process", SR_PASS_TYPE_POST_PROCESS);
+    ok = ok & _sr_rg_dep(g, "post_process", "ui");
+    if (ok == 0) {
+        SrRenderGraph_drop(g);
+        return 0;
+    }
+    return g;
+}
+
+# The forward graph with SSAO and bloom after geometry, which post_process also waits for. A graph to free with
+# SrRenderGraph_drop, or 0 when an allocation fails. Mirrors `RenderGraph::forward_with_effects`.
+#must_use
+fn SrRenderGraph_forward_with_effects(): i64 {
+    var g = SrRenderGraph_new();
+    if (g == 0) { return 0; }
+    var ok = _sr_rg_add(g, "shadow", SR_PASS_TYPE_SHADOW);
+    ok = ok & _sr_rg_add(g, "geometry", SR_PASS_TYPE_GEOMETRY);
+    ok = ok & _sr_rg_dep(g, "geometry", "shadow");
+    ok = ok & _sr_rg_add(g, "ssao", SR_PASS_TYPE_SSAO);
+    ok = ok & _sr_rg_dep(g, "ssao", "geometry");
+    ok = ok & _sr_rg_add(g, "bloom", SR_PASS_TYPE_BLOOM);
+    ok = ok & _sr_rg_dep(g, "bloom", "geometry");
+    ok = ok & _sr_rg_add(g, "debug", SR_PASS_TYPE_DEBUG);
+    ok = ok & _sr_rg_dep(g, "debug", "geometry");
+    ok = ok & _sr_rg_add(g, "ui", SR_PASS_TYPE_UI);
+    ok = ok & _sr_rg_dep(g, "ui", "debug");
+    ok = ok & _sr_rg_add(g, "post_process", SR_PASS_TYPE_POST_PROCESS);
+    ok = ok & _sr_rg_dep(g, "post_process", "ssao");
+    ok = ok & _sr_rg_dep(g, "post_process", "bloom");
+    ok = ok & _sr_rg_dep(g, "post_process", "ui");
+    if (ok == 0) {
+        SrRenderGraph_drop(g);
+        return 0;
+    }
+    return g;
 }
 
 # --- color_optics.cyr ---
