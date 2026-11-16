@@ -1,0 +1,250 @@
+# shadow_math.tcyr — the ported tests of Rust 1.2.0's src/shadow.rs (M4 part a), all 23. The golden rows
+# (tests/golden/shadow.tsv, its .e.tsv) are replayed by tests/parity.tcyr.
+
+include "tests/lib.cyr"
+include "tests/support.cyr"
+
+var M = 0;
+var TOL: f64 = 0.00001;
+
+# 3 f32 in a fresh buffer.
+fn v3(x, y, z): i64 {
+    var p = alloc(16);
+    t_set4(p, x, y, z, 0);
+    return p;
+}
+
+# The f64 of the f32 at p + 4·k.
+fn at(p, k): f64 {
+    var x: f64 = f32_to(load32(p + k * 4));
+    return x;
+}
+
+# Component row of m · (p, 1) in f64 (m column-major): m[row]·p0 + m[4 + row]·p1 + m[8 + row]·p2 + m[12 + row].
+fn tr(m, p, row): f64 {
+    return (((at(m, row) * at(p, 0)) + (at(m, 4 + row) * at(p, 1))) + (at(m, 8 + row) * at(p, 2))) + at(m, 12 + row);
+}
+
+# |x| in f64.
+fn fabs(x: f64): f64 {
+    var zero: f64 = 0.0;
+    if (x < zero) { return zero - x; }
+    return x;
+}
+
+# 1 when the 16 f32 at a and b are bit-identical.
+fn same16(a, b): i64 {
+    var i = 0;
+    while (i < 16) {
+        if (load32(a + i * 4) != load32(b + i * 4)) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+# 1 when the n f32 at p are all finite and non-decreasing.
+fn monotone(p, n): i64 {
+    if (t_all_finite(p, n) == 0) { return 0; }
+    var i = 1;
+    while (i < n) {
+        if (_sr_f32_lt(load32(p + i * 4), load32(p + (i - 1) * 4)) == 1) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+# Runs the ported shadow tests.
+fn main() {
+    alloc_init();
+    M = alloc(512);
+    var m2 = alloc(512);
+    var one = 0x3F800000;
+    var zero: f64 = 0.0;
+    var half: f64 = 0.5;
+    var fone: f64 = 1.0;
+    var down = v3(0, 0xBF800000, 0);
+    var out = alloc(64);
+
+    test_group("light_matrix_at_centres_frustum_and_depth");
+    var center = v3(0x41200000, 0x40400000, 0xC0800000);
+    sr_directional_light_matrix_at(down, center, 0x40A00000, 0xC1A00000, 0x41A00000, M);
+    assert(fabs(tr(M, center, 0)) < TOL && fabs(tr(M, center, 1)) < TOL, "centre at the XY origin");
+    assert(t_near(tr(M, center, 2), half, TOL) == 1, "centre mid-depth");
+    assert(fabs(tr(M, v3(0x41200000, 0x41B80000, 0xC0800000), 2)) < TOL, "toward the light: depth 0");
+    assert(t_near(tr(M, v3(0x41200000, 0xC1880000, 0xC0800000), 2), fone, TOL) == 1, "along d: depth 1");
+    var edge = v3(0x41700000, 0x40400000, 0xC0800000);
+    var ex: f64 = fabs(tr(M, edge, 0));
+    var ey: f64 = fabs(tr(M, edge, 1));
+    assert(t_near(ex, fone, TOL) == 1 || t_near(ey, fone, TOL) == 1, "the frustum edge maps to ±1");
+
+    test_group("light_matrix_origin_variant_matches_at_origin");
+    var d = v3(0x3E99999A, 0xBF800000, 0x3E4CCCCD);
+    sr_directional_light_matrix(d, 0x41000000, 0xC1200000, 0x41200000, M);
+    sr_directional_light_matrix_at(d, v3(0, 0, 0), 0x41000000, 0xC1200000, 0x41200000, m2);
+    assert(same16(M, m2) == 1, "identical");
+
+    test_group("light_view_is_not_mirrored");
+    var dirs = alloc(48);
+    t_set4(dirs, 0, 0xBF800000, 0, 0x3ECCCCCD);
+    t_set4(dirs + 16, 0xBF800000, 0x3DCCCCCD, 0, 0xBF000000);
+    t_set4(dirs + 32, 0xBF800000, 0, 0, 0);
+    var tri0 = v3(0, 0, 0);
+    var tri1 = v3(0, 0, one);
+    var tri2 = v3(one, 0, 0);
+    var ccw = 1;
+    var k = 0;
+    while (k < 3) {
+        sr_directional_light_matrix_at(dirs + k * 12, v3(0, 0, 0), 0x41200000, 0xC1200000, 0x41200000, M);
+        var ax: f64 = (tr(M, tri1, 0) - tr(M, tri0, 0)) * (tr(M, tri2, 1) - tr(M, tri0, 1));
+        var ay: f64 = (tr(M, tri2, 0) - tr(M, tri0, 0)) * (tr(M, tri1, 1) - tr(M, tri0, 1));
+        var area: f64 = ax - ay;
+        if (area <= zero) { ccw = 0; }
+        k = k + 1;
+    }
+    assert(ccw == 1, "a light-facing triangle stays counter-clockwise");
+
+    test_group("light_matrix_rejects_bad_inputs");
+    sr_directional_light_matrix(down, 0x7FC00000, 0, one, M);
+    assert(same16(M, SR_IDENTITY_MAT4) == 1, "NaN extent");
+    sr_directional_light_matrix(down, one, one, 0x7FC00000, M);
+    assert(same16(M, SR_IDENTITY_MAT4) == 1, "NaN far");
+
+    test_group("atlas_tile_math_never_divides_by_zero");
+    var cfg = alloc(16);
+    store64(cfg, 512);
+    store64(cfg + 8, 1024);
+    sr_tile_viewport(cfg, 0, out);
+    assert(load32(out) == 0 && load32(out + 4) == 0 && load32(out + 8) == 1024 && load32(out + 12) == 1024, "tile 0");
+    sr_tile_viewport(cfg, 3, out);
+    assert(load32(out) == 0 && load32(out + 4) == 3 * 1024, "tile 3");
+    assert(t_all_finite(sr_tile_uv(cfg, 1, out), 4) == 1, "finite UVs");
+    store64(cfg, 0);
+    store64(cfg + 8, 0);
+    sr_tile_viewport(cfg, 7, out);
+    assert(t_all_finite(sr_tile_uv(cfg, 7, out), 4) == 1, "zero atlas: finite UVs");
+    store64(cfg, 4096);
+    store64(cfg + 8, 1);
+    sr_tile_viewport(cfg, 4294967295, out);
+    assert((load32(out + 4) & 0xFFFFFFFF) <= 4294967295, "a huge index saturates");
+
+    test_group("practical_splits_sanitize_inputs");
+    var cases = alloc(6 * 24);
+    t_set4(cases, 0x3DCCCCCD, 0xC0A00000, 0x3F000000, 0);
+    t_set4(cases + 12, 0x7FC00000, 0x42C80000, 0x3F000000, 0);
+    t_set4(cases + 24, 0x3DCCCCCD, 0x7FC00000, 0x3F000000, 0);
+    t_set4(cases + 36, 0x3DCCCCCD, 0x42C80000, 0x7FC00000, 0);
+    t_set4(cases + 48, 0x3DCCCCCD, 0x42C80000, 0x40E00000, 0);
+    t_set4(cases + 60, 0xBF800000, 0x7F800000, 0xC0400000, 0);
+    var good = 1;
+    k = 0;
+    while (k < 6) {
+        var c = cases + k * 12;
+        if (sr_compute_practical_splits(load32(c), load32(c + 4), 4, load32(c + 8), out) != 5) { good = 0; }
+        if (monotone(out, 5) == 0) { good = 0; }
+        k = k + 1;
+    }
+    assert(good == 1, "5 finite non-decreasing splits for each");
+    assert_eq(sr_compute_practical_splits(one, 0x41200000, 0, 0x3F000000, out), 2, "count 0: 2 splits");
+
+    test_group("shadow_uniforms_size");
+    assert_eq(sizeof(SrShadowUniforms), 128, "128 bytes");
+
+    test_group("shadow_uniforms_default");
+    SrShadowUniforms_default(M);
+    assert(load32(M) == one && load32(M + 60) == one, "identity");
+
+    test_group("shadow_uniforms_bytemuck");
+    assert_eq(sizeof(SrShadowUniforms), 128, "its bytes are 128");
+
+    test_group("directional_light_matrix_produces_valid");
+    sr_directional_light_matrix(down, 0x41200000, 0x3DCCCCCD, 0x42480000, M);
+    assert(same16(M, SR_IDENTITY_MAT4) == 0, "not the identity");
+
+    test_group("directional_light_matrix_different_directions");
+    sr_directional_light_matrix(v3(one, 0, 0), 0x41200000, 0x3DCCCCCD, 0x42480000, m2);
+    assert(same16(M, m2) == 0, "different directions, different matrices");
+
+    test_group("directional_light_matrix_diagonal_direction");
+    sr_directional_light_matrix(v3(0, 0xBF7FBE77, 0xBC23D70A), 0x41A00000, one, 0x42C80000, M);
+    assert(t_all_finite(M, 16) == 1, "no NaN near the up switch");
+
+    test_group("default_shadow_map_size");
+    assert_eq(SR_DEFAULT_SHADOW_MAP_SIZE, 2048, "2048");
+
+    test_group("cascade_uniforms_size");
+    assert_eq(sizeof(SrCascadeUniforms), 272, "272 bytes");
+
+    test_group("cascade_uniforms_default");
+    SrCascadeUniforms_default(M);
+    assert(load32(M) == 0x41200000 && load32(M + 12) == 0x43FA0000, "splits 10 … 500");
+
+    test_group("cascade_splits_practical");
+    assert_eq(sr_compute_practical_splits(0x3DCCCCCD, 0x42C80000, 4, 0x3F000000, out), 5, "5 split points");
+    assert(load32(out) == 0x3DCCCCCD && load32(out + 16) == 0x42C80000, "0.1 … 100");
+    var inc = 1;
+    k = 1;
+    while (k < 5) {
+        if (_sr_f32_lt(load32(out + (k - 1) * 4), load32(out + k * 4)) == 0) { inc = 0; }
+        k = k + 1;
+    }
+    assert(inc == 1, "strictly increasing");
+
+    test_group("shadow_atlas_tile_viewport");
+    store64(cfg, 4096);
+    store64(cfg + 8, 1024);
+    assert_eq(sr_atlas_columns(4096, 1024), 4, "4 columns");
+    sr_tile_viewport(cfg, 1, out);
+    assert(load32(out) == 1024 && load32(out + 4) == 0, "tile 1 = (1024, 0)");
+    sr_tile_viewport(cfg, 4, out);
+    assert(load32(out) == 0 && load32(out + 4) == 1024, "tile 4 = (0, 1024)");
+
+    test_group("shadow_atlas_tile_uv");
+    sr_tile_uv(cfg, 0, out);
+    assert(load32(out) == 0 && load32(out + 4) == 0, "(0, 0, …)");
+    assert(load32(out + 8) == 0x3E800000 && load32(out + 12) == 0x3E800000, "(…, 0.25, 0.25)");
+    sr_tile_uv(cfg, 1, out);
+    assert_eq(load32(out), 0x3E800000, "u 0.25");
+
+    test_group("shadow_atlas_max_lights");
+    assert_eq(sr_atlas_columns(4096, 1024) * sr_atlas_columns(4096, 1024), 16, "16 lights");
+
+    test_group("point_shadow_6_faces");
+    SrPointShadowMap_new(v3(0, 0x40A00000, 0), 0x3DCCCCCD, 0x41C80000, M);
+    var distinct = 1;
+    var i = 0;
+    while (i < 6) {
+        var j = i + 1;
+        while (j < 6) {
+            if (same16(M + i * 64, M + j * 64) == 1) { distinct = 0; }
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    assert(distinct == 1, "six different matrices");
+
+    test_group("point_shadow_no_nan");
+    SrPointShadowMap_new(v3(0x41200000, 0x40400000, 0xC0A00000), 0x3DCCCCCD, 0x42480000, M);
+    assert(t_all_finite(M, 96) == 1, "finite");
+
+    test_group("perspective_90_valid");
+    sr_perspective_90(0x3DCCCCCD, 0x42C80000, M);
+    assert(load32(M) == one && load32(M + 20) == one && _sr_f32_is_nan(load32(M + 40)) == 0, "f = 1, finite depth");
+
+    test_group("cascade_splits_zero_near");
+    assert_eq(sr_compute_practical_splits(0, 0x42C80000, 4, 0x3F000000, out), 5, "5 splits");
+    assert(t_all_finite(out, 5) == 1, "no NaN or infinity");
+    assert(load32(out) == 0x3A83126F && load32(out + 16) == 0x42C80000, "near clamped to 0.001; far 100");
+    inc = 1;
+    k = 1;
+    while (k < 5) {
+        if (_sr_f32_lt(load32(out + (k - 1) * 4), load32(out + k * 4)) == 0) { inc = 0; }
+        k = k + 1;
+    }
+    assert(inc == 1, "strictly increasing");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

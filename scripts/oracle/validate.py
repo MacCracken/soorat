@@ -2123,6 +2123,135 @@ def check_gltf():
     return bad, cr, tally
 
 
+# ── shadow (M4 part a): the matrices and splits in f64 once (E), the atlas exact (A) ─────────────────────────
+
+F32_0_001 = from_bits(0x3A83126F)    # 0.001f32
+
+
+def cr_pow(x, y):
+    """x^y correctly rounded to f64 for the splits' x ≥ 1 (decimal ln and exp at 60 digits)."""
+    if math.isnan(x) or math.isnan(y):
+        return math.nan
+    if y == 0.0 or x == 1.0:
+        return 1.0
+    if math.isinf(x):
+        return math.inf if y > 0 else 0.0
+    with decimal.localcontext() as ctx:
+        ctx.prec = 60
+        return float((decimal.Decimal(x).ln() * decimal.Decimal(y)).exp())
+
+
+def directional_ref(d, c, e, n, f, q):
+    if math.isnan(e) or e <= 0:
+        return list(IDENT16)
+    span = abs(q(f - n))
+    if math.isnan(span) or span < F32_1E_10:
+        return list(IDENT16)
+    dd = normalize3(d, q)
+    up_ref = [1.0, 0.0, 0.0] if abs(dd[1]) > F32_0_99 else [0.0, 1.0, 0.0]
+    right = normalize3(cross(dd, up_ref, q), q)
+    up = cross(right, dd, q)
+    sx = q(1.0 / e)
+    sz = q(1.0 / q(f - n))
+    return [q(sx * right[0]), q(sx * up[0]), q(sz * dd[0]), 0.0,
+            q(sx * right[1]), q(sx * up[1]), q(sz * dd[1]), 0.0,
+            q(sx * right[2]), q(sx * up[2]), q(sz * dd[2]), 0.0,
+            q(-sx * dot3(right, c, q)), q(-sx * dot3(up, c, q)), q(sz * q(-dot3(dd, c, q) - n)), 1.0]
+
+
+def splits_ref(n, f, cnt, lam, q, pw):
+    """compute_practical_splits; pw(x, y, i) is the pow of split i."""
+    near = n if (n > 0 and math.isfinite(n)) else F32_0_001
+    far = fmax(f, near) if math.isfinite(f) else near
+    lam = 0.5 if math.isnan(lam) else clamp32(lam, 0.0, 1.0)
+    count = max(cnt, 1)
+    out = [near]
+    for i in range(1, count):
+        ratio = q(i / count)
+        log = q(near * pw(q(far / near), ratio, i))
+        uni = q(near + q(q(far - near) * ratio))
+        out.append(q(q(lam * log) + q(q(1.0 - lam) * uni)))
+    out.append(far)
+    return out
+
+
+def check_shadow():
+    """Re-derives every `shadow` row; returns (rows that differ, its class-E rows, {fn: (rows, differing)})."""
+    path = os.path.join(GOLDEN, "shadow.tsv")
+    if not os.path.exists(path):
+        return 0, [], {}
+    _, body = rows(path)
+    bad, erows, gains = 0, [], {}
+    sat = lambda x: min(x, 0xFFFFFFFF)
+    f32u = lambda k: r32(float(k))
+    for fn, cls, ins, outs, note in body:
+        rd, want = Rd(ins), g_values(outs)
+        once, ok = None, True
+        if fn == "ShadowUniforms::default":
+            ok = same(want, IDENT16 * 2)
+        elif fn == "CascadeUniforms::default":
+            ok = same(want, [10.0, 30.0, 100.0, 500.0] + IDENT16 * 4)
+        elif fn in ("directional_light_matrix", "directional_light_matrix_at"):
+            d = rd.gs()
+            c = rd.gs() if fn == "directional_light_matrix_at" else [0.0, 0.0, 0.0]
+            e, n, f = rd.g(), rd.g(), rd.g()
+            ok = same(directional_ref(d, c, e, n, f, r32), want)
+            once = [r32(v) for v in directional_ref(d, c, e, n, f, ident)]
+        elif fn == "compute_practical_splits":
+            n, f, cnt, lam = rd.g(), rd.g(), rd.i(), rd.g()
+
+            def powf_alts(i, d):
+                return lambda x, y, k: ulp_step(r32(math.pow(x, y)) if not math.isinf(x) else math.inf, d if k == i else 0)
+            base = splits_ref(n, f, cnt, lam, r32, powf_alts(0, 0))
+            ok = len(base) == len(want)
+            for i in range(len(base)):
+                if ok and not same([base[i]], [want[i]]):
+                    ok = any(same([splits_ref(n, f, cnt, lam, r32, powf_alts(i, d))[i]], [want[i]]) for d in (-1, 1))
+            once = [r32(v) for v in splits_ref(n, f, cnt, lam, ident, lambda x, y, k: cr_pow(x, y))]
+        elif fn == "PointShadowMap::new":
+            p, n, f = rd.gs(), rd.g(), rd.g()
+            faces = [([1.0, 0.0, 0.0], [0.0, -1.0, 0.0]), ([-1.0, 0.0, 0.0], [0.0, -1.0, 0.0]),
+                     ([0.0, 1.0, 0.0], [0.0, 0.0, 1.0]), ([0.0, -1.0, 0.0], [0.0, 0.0, -1.0]),
+                     ([0.0, 0.0, 1.0], [0.0, -1.0, 0.0]), ([0.0, 0.0, -1.0], [0.0, -1.0, 0.0])]
+
+            def cube(q):
+                return [v for dr, up in faces for v in mul_mat4(perspective_90(n, f, q), look_at(p, dr, up, q), q)]
+            ok = same([r32(v) for v in cube(r32)], want)
+            once = [r32(v) for v in cube(ident)]
+        elif fn == "atlas_columns":
+            sz, t = rd.i(), rd.i()
+            ok = i_values(outs) == [max(sz // max(t, 1), 1)]
+        elif fn in ("tile_viewport_in", "tile_viewport", "tile_uv_in", "tile_uv"):
+            if fn in ("tile_viewport", "tile_uv"):
+                sz, t, i = rd.i(), rd.i(), rd.i()
+                cols = max(sz // max(t, 1), 1)
+            elif fn == "tile_viewport_in":
+                cols, t, i = rd.i(), rd.i(), rd.i()
+                sz = 0
+            else:
+                cols, t, sz, i = rd.i(), rd.i(), rd.i(), rd.i()
+            cols = max(cols, 1)
+            col, row = i % cols, i // cols
+            if fn.startswith("tile_viewport"):
+                ok = i_values(outs) == [sat(col * t), sat(row * t), t, t]
+            else:
+                scale = r32(f32u(t) / f32u(max(sz, 1)))
+                ok = same([r32(f32u(col) * scale), r32(f32u(row) * scale), scale, scale], want)
+        else:
+            ok = False
+            print(f"shadow: {fn}: no re-derivation in validate.py")
+        if not ok:
+            bad += 1
+            print(f"shadow: {fn} {note}: re-derived outputs differ from the corpus")
+        elif cls == "E" and once is not None:
+            n_, d_ = gains.get(fn, (0, 0))
+            if not same(once, want):
+                erows.append(f"{fn}\t{ins}\t{g_tokens(outs, once)}\t{note}: f64 once vs Rust f32")
+                d_ += 1
+            gains[fn] = (n_ + 1, d_)
+    return bad, erows, gains
+
+
 def cube_ref():
     faces = [((0, 0, 1), [(-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]),
              ((0, 0, -1), [(1, -1, -1), (-1, -1, -1), (-1, 1, -1), (1, 1, -1)]),
@@ -2179,6 +2308,10 @@ def main():
         failures += gbad
         sides_e.append((gname + ".e.tsv", "class-E rows (ADR 0002 #4, D4 rule b): Rust's formula in f64, rounded once to "
                         "f32, where that differs from Rust's f32 outputs", gerows))
+    shbad, sherows, shgain = check_shadow()
+    failures += shbad
+    sides_e.append(("shadow.e.tsv", "class-E rows (ADR 0002 #4, D4 rule b): Rust's formula in f64 (pow correctly "
+                    "rounded), rounded once to f32, where that differs from Rust's f32 outputs", sherows))
     glbad, glcr, gltally = check_gltf()
     failures += glbad
     abad, aerows, again = check_anim(plat)
@@ -2236,6 +2369,8 @@ def main():
     for fn, (n, d) in sorted(gains.items()):
         print(f"math {fn:<16} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
     print("gltf: " + ", ".join(f"{v} {k}" for k, v in sorted(gltally.items())) + " (refusals and panics are the oracle's)")
+    for fn, (n, d) in sorted(shgain.items()):
+        print(f"shadow {fn:<30} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
     for fn, (n, d) in sorted(again.items()):
         print(f"animation {fn:<33} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
 

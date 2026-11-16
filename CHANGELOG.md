@@ -133,6 +133,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     is filed (ledger L23).
   - The profile costs a binary ~479 KB (bayan's tables 372 KB): opt-in, as serde is.
 
+- **M4 part a: shadow math** (`src/shadow_math.cyr`; ADR 0002 #26).
+  - `sr_directional_light_matrix(_at)`, `sr_compute_practical_splits`, `SrPointShadowMap_new`, the atlas tile math
+    (`sr_atlas_columns`, `sr_tile_viewport(_in)`, `sr_tile_uv(_in)`), the uniforms' defaults, `SR_MAX_CASCADES` and
+    `SR_DEFAULT_SHADOW_MAP_SIZE`.
+  - The matrices and splits are computed in f64 and rounded once. 6,972 golden rows pass, 1,539 as class E. Where an
+    intermediate overflows f32, Rust's results are infinite or NaN and these stay finite.
+  - All 23 `shadow.rs` tests ported (`tests/shadow_math.tcyr`); the four `shadow/*` twins (`tests/shadow.bcyr`).
+  - The depth maps, the pass and the cascaded and atlas textures stay in M7.
+
 ### Performance (M3)
 - sphere: each column's `cos θ` and `sin θ` computed once, not once per ring (the same values).
   `primitives/sphere_32x16` 68.1 → 24.8 µs (−64 %). Every golden row is unchanged.

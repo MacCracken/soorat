@@ -6149,6 +6149,471 @@ fn SrAnimationClip_sample(clip, sk, time) {
     return clip;
 }
 
+# --- shadow_math.cyr ---
+
+# shadow_math.cyr — Rust 1.2.0's src/shadow.rs, its CPU half (M4 part a): the directional light matrices, practical
+# cascade splits, the point-light cube faces, the atlas tile math, and the uniforms' defaults. The depth maps, the
+# atlas texture, the cascaded maps and the pass are GPU objects (M7).
+#
+# **Precision** (D4, plan §7). The matrices and the splits are class E: Rust's formula in f64 from the f32 inputs
+# (constants widened exactly), rounded once. A directional matrix normalizes, crosses and dots in f64; a point light's
+# face is perspective_90 · look_at, both in f64, multiplied in f64 and rounded once; a split's `powf` is ganita's f64
+# pow. The guards decide as Rust's do (an f32 difference is below 1e-10f32 exactly when the f64 one is). The atlas math
+# is u32 and f32 as Rust's (class A).
+
+# Default shadow map resolution. Mirrors `DEFAULT_SHADOW_MAP_SIZE`.
+var SR_DEFAULT_SHADOW_MAP_SIZE = 2048;
+# The most cascades. Mirrors `MAX_CASCADES`.
+var SR_MAX_CASCADES = 4;
+
+# An atlas for the CPU tile math: size and tile_size (u32). Mirrors `ShadowAtlasConfig`.
+struct SrShadowAtlasConfig { size; tile_size; }
+# A point light's six cube-face view-projection matrices (+X, −X, +Y, −Y, +Z, −Z). Mirrors `PointShadowMap`.
+struct SrPointShadowMap {
+    face_matrices_0: SrM4; face_matrices_1: SrM4; face_matrices_2: SrM4; face_matrices_3: SrM4; face_matrices_4: SrM4;
+    face_matrices_5: SrM4;
+}
+
+# ── uniforms ─────────────────────────────────────────────────────────────────────────
+
+# Both matrices the identity, into out (an SrShadowUniforms). Mirrors `impl Default for ShadowUniforms`.
+fn SrShadowUniforms_default(out) {
+    _sr_mat4_set_identity(out);
+    _sr_mat4_set_identity(out + 64);
+    return out;
+}
+
+# Splits (10, 30, 100, 500) and four identity matrices, into out (an SrCascadeUniforms). Mirrors
+# `impl Default for CascadeUniforms`.
+fn SrCascadeUniforms_default(out) {
+    store32(out, 0x41200000);
+    store32(out + 4, 0x41F00000);
+    store32(out + 8, 0x42C80000);
+    store32(out + 12, 0x43FA0000);
+    var i = 0;
+    while (i < 4) {
+        _sr_mat4_set_identity(out + 16 + i * 64);
+        i = i + 1;
+    }
+    return out;
+}
+
+# ── directional lights ───────────────────────────────────────────────────────────────
+
+# The orthographic light-space matrix of a directional light centred on the world origin. Mirrors
+# `directional_light_matrix`.
+fn sr_directional_light_matrix(direction, extent, near, far, out) {
+    var c[16];
+    store64(&c, 0);
+    store64(&c + 8, 0);
+    return sr_directional_light_matrix_at(direction, &c, extent, near, far, out);
+}
+
+# The orthographic light-space matrix (16 f32, column-major) of a directional light looking along direction (3 f32,
+# not necessarily unit), its frustum centred on center (3 f32) with half-size extent and depth range [near, far]
+# along the direction (f32 bits), into out. The identity, with a WARN event, for an extent that is NaN or ≤ 0, or
+# |far − near| NaN or below 1e-10. The basis: d = normalize3(direction); right = normalize3(d × up_ref), up_ref the
+# X axis when |d.y| > 0.99 and Y otherwise; up = right × d; the matrix is proj · view built directly (rows right/extent,
+# up/extent, d/(far − near), translated by −center). In f64, rounded once (class E). Mirrors
+# `directional_light_matrix_at`.
+fn sr_directional_light_matrix_at(direction, center, extent, near, far, out) {
+    var eb = extent & 0xFFFFFFFF;
+    if (_sr_f32_is_nan(eb) == 1 || _sr_f32_le(eb, 0) == 1) {
+        _sr_warn("soorat::shadow: directional_light_matrix: extent <= 0 — returning identity matrix");
+        return _sr_mat4_set_identity(out);
+    }
+    var n: f64 = f32_to(near & 0xFFFFFFFF);
+    var f: f64 = f32_to(far & 0xFFFFFFFF);
+    var fmn: f64 = f - n;
+    var span: f64 = _sr_abs64(fmn);
+    if (span != span || span < _SR_1E_10) {
+        _sr_warn("soorat::shadow: directional_light_matrix: far ≈ near — returning identity matrix");
+        return _sr_mat4_set_identity(out);
+    }
+    var zero: f64 = 0.0;
+    var one: f64 = 1.0;
+    var m1: f64 = zero - one;
+    var x: f64 = f32_to(load32(direction));
+    var y: f64 = f32_to(load32(direction + 4));
+    var z: f64 = f32_to(load32(direction + 8));
+    var dl: f64 = f64_sqrt(((x * x) + (y * y)) + (z * z));
+    var d0: f64 = zero;
+    var d1: f64 = zero;
+    var d2: f64 = one;
+    if (_sr_tiny(dl) == 0) {
+        d0 = x / dl;
+        d1 = y / dl;
+        d2 = z / dl;
+    }
+    var u0: f64 = zero;
+    var u1: f64 = one;
+    var u2: f64 = zero;
+    var ad1: f64 = _sr_abs64(d1);
+    if (ad1 > _SR_0_99) {
+        u0 = one;
+        u1 = zero;
+    }
+    var cx: f64 = (d1 * u2) - (d2 * u1);
+    var cy: f64 = (d2 * u0) - (d0 * u2);
+    var cz: f64 = (d0 * u1) - (d1 * u0);
+    var rl: f64 = f64_sqrt(((cx * cx) + (cy * cy)) + (cz * cz));
+    var r0: f64 = zero;
+    var r1: f64 = zero;
+    var r2: f64 = one;
+    if (_sr_tiny(rl) == 0) {
+        r0 = cx / rl;
+        r1 = cy / rl;
+        r2 = cz / rl;
+    }
+    var p0: f64 = (r1 * d2) - (r2 * d1);
+    var p1: f64 = (r2 * d0) - (r0 * d2);
+    var p2: f64 = (r0 * d1) - (r1 * d0);
+    var c0: f64 = f32_to(load32(center));
+    var c1: f64 = f32_to(load32(center + 4));
+    var c2: f64 = f32_to(load32(center + 8));
+    var ef: f64 = f32_to(eb);
+    var sx: f64 = one / ef;
+    var sz: f64 = one / fmn;
+    var nsx: f64 = m1 * sx;
+    var rc: f64 = ((r0 * c0) + (r1 * c1)) + (r2 * c2);
+    var pc: f64 = ((p0 * c0) + (p1 * c1)) + (p2 * c2);
+    var dc: f64 = ((d0 * c0) + (d1 * c1)) + (d2 * c2);
+    var ndc: f64 = m1 * dc;
+    store32(out, f32_from(sx * r0));
+    store32(out + 4, f32_from(sx * p0));
+    store32(out + 8, f32_from(sz * d0));
+    store32(out + 12, 0);
+    store32(out + 16, f32_from(sx * r1));
+    store32(out + 20, f32_from(sx * p1));
+    store32(out + 24, f32_from(sz * d1));
+    store32(out + 28, 0);
+    store32(out + 32, f32_from(sx * r2));
+    store32(out + 36, f32_from(sx * p2));
+    store32(out + 40, f32_from(sz * d2));
+    store32(out + 44, 0);
+    store32(out + 48, f32_from(nsx * rc));
+    store32(out + 52, f32_from(nsx * pc));
+    store32(out + 56, f32_from(sz * (ndc - n)));
+    store32(out + 60, 0x3F800000);
+    return out;
+}
+
+# ── cascade splits ───────────────────────────────────────────────────────────────────
+
+# The count + 1 practical cascade split distances (Nvidia GPU Gems 3) from near to far, into out (room for
+# max(count, 1) + 1 f32): split i = λ·near·(far/near)^(i/count) + (1 − λ)·(near + (far − near)·i/count), in f64
+# rounded once (class E). The inputs are sanitized as Rust's: a near that is not finite and positive becomes 0.001,
+# far is at least near (near when not finite), λ is clamped to [0, 1] (0.5 when NaN), count is at least 1. Returns
+# how many distances it wrote. Mirrors `compute_practical_splits`.
+fn sr_compute_practical_splits(near, far, count, lambda, out): i64 {
+    var nb = near & 0xFFFFFFFF;
+    if (_sr_f32_lt(0, nb) == 0 || (nb & 0x7F800000) == 0x7F800000) { nb = 0x3A83126F; }
+    var fb = far & 0xFFFFFFFF;
+    if ((fb & 0x7F800000) == 0x7F800000) {
+        fb = nb;
+    } elif (_sr_f32_lt(fb, nb) == 1) {
+        fb = nb;
+    }
+    var lb = lambda & 0xFFFFFFFF;
+    if (_sr_f32_is_nan(lb) == 1) {
+        lb = 0x3F000000;
+    } else {
+        lb = _sr_clamp32(lb, 0, 0x3F800000);
+    }
+    var cnt = count;
+    if (cnt < 1) { cnt = 1; }
+    var n: f64 = f32_to(nb);
+    var f: f64 = f32_to(fb);
+    var l: f64 = f32_to(lb);
+    var one: f64 = 1.0;
+    var fc: f64 = f64_from(cnt);
+    var q: f64 = f / n;
+    store32(out, nb);
+    var i = 1;
+    while (i < cnt) {
+        var fi: f64 = f64_from(i);
+        var ratio: f64 = fi / fc;
+        var pw: f64 = f64_pow(q, ratio);
+        var lg: f64 = n * pw;
+        var un: f64 = n + ((f - n) * ratio);
+        var v: f64 = (l * lg) + ((one - l) * un);
+        store32(out + i * 4, f32_from(v));
+        i = i + 1;
+    }
+    store32(out + cnt * 4, fb);
+    return cnt + 1;
+}
+
+# ── point lights ─────────────────────────────────────────────────────────────────────
+
+# a · b (16 f64 each, column-major) rounded once to 16 f32 at out: sr_mul_mat4's sums in f64, unrounded until the end.
+fn _sr_mul64x64_round(a, b, out) {
+    var a00: f64 = load64(a + 0);
+    var a01: f64 = load64(a + 8);
+    var a02: f64 = load64(a + 16);
+    var a03: f64 = load64(a + 24);
+    var a10: f64 = load64(a + 32);
+    var a11: f64 = load64(a + 40);
+    var a12: f64 = load64(a + 48);
+    var a13: f64 = load64(a + 56);
+    var a20: f64 = load64(a + 64);
+    var a21: f64 = load64(a + 72);
+    var a22: f64 = load64(a + 80);
+    var a23: f64 = load64(a + 88);
+    var a30: f64 = load64(a + 96);
+    var a31: f64 = load64(a + 104);
+    var a32: f64 = load64(a + 112);
+    var a33: f64 = load64(a + 120);
+    var b00: f64 = load64(b + 0);
+    var b01: f64 = load64(b + 8);
+    var b02: f64 = load64(b + 16);
+    var b03: f64 = load64(b + 24);
+    var b10: f64 = load64(b + 32);
+    var b11: f64 = load64(b + 40);
+    var b12: f64 = load64(b + 48);
+    var b13: f64 = load64(b + 56);
+    var b20: f64 = load64(b + 64);
+    var b21: f64 = load64(b + 72);
+    var b22: f64 = load64(b + 80);
+    var b23: f64 = load64(b + 88);
+    var b30: f64 = load64(b + 96);
+    var b31: f64 = load64(b + 104);
+    var b32: f64 = load64(b + 112);
+    var b33: f64 = load64(b + 120);
+    var z: f64 = 0.0;
+    var r00: f64 = (((z + (a00 * b00)) + (a10 * b01)) + (a20 * b02)) + (a30 * b03);
+    var r01: f64 = (((z + (a01 * b00)) + (a11 * b01)) + (a21 * b02)) + (a31 * b03);
+    var r02: f64 = (((z + (a02 * b00)) + (a12 * b01)) + (a22 * b02)) + (a32 * b03);
+    var r03: f64 = (((z + (a03 * b00)) + (a13 * b01)) + (a23 * b02)) + (a33 * b03);
+    var r10: f64 = (((z + (a00 * b10)) + (a10 * b11)) + (a20 * b12)) + (a30 * b13);
+    var r11: f64 = (((z + (a01 * b10)) + (a11 * b11)) + (a21 * b12)) + (a31 * b13);
+    var r12: f64 = (((z + (a02 * b10)) + (a12 * b11)) + (a22 * b12)) + (a32 * b13);
+    var r13: f64 = (((z + (a03 * b10)) + (a13 * b11)) + (a23 * b12)) + (a33 * b13);
+    var r20: f64 = (((z + (a00 * b20)) + (a10 * b21)) + (a20 * b22)) + (a30 * b23);
+    var r21: f64 = (((z + (a01 * b20)) + (a11 * b21)) + (a21 * b22)) + (a31 * b23);
+    var r22: f64 = (((z + (a02 * b20)) + (a12 * b21)) + (a22 * b22)) + (a32 * b23);
+    var r23: f64 = (((z + (a03 * b20)) + (a13 * b21)) + (a23 * b22)) + (a33 * b23);
+    var r30: f64 = (((z + (a00 * b30)) + (a10 * b31)) + (a20 * b32)) + (a30 * b33);
+    var r31: f64 = (((z + (a01 * b30)) + (a11 * b31)) + (a21 * b32)) + (a31 * b33);
+    var r32: f64 = (((z + (a02 * b30)) + (a12 * b31)) + (a22 * b32)) + (a32 * b33);
+    var r33: f64 = (((z + (a03 * b30)) + (a13 * b31)) + (a23 * b32)) + (a33 * b33);
+    store32(out + 0, f32_from(r00));
+    store32(out + 4, f32_from(r01));
+    store32(out + 8, f32_from(r02));
+    store32(out + 12, f32_from(r03));
+    store32(out + 16, f32_from(r10));
+    store32(out + 20, f32_from(r11));
+    store32(out + 24, f32_from(r12));
+    store32(out + 28, f32_from(r13));
+    store32(out + 32, f32_from(r20));
+    store32(out + 36, f32_from(r21));
+    store32(out + 40, f32_from(r22));
+    store32(out + 44, f32_from(r23));
+    store32(out + 48, f32_from(r30));
+    store32(out + 52, f32_from(r31));
+    store32(out + 56, f32_from(r32));
+    store32(out + 60, f32_from(r33));
+    return out;
+}
+
+# perspective_90(near, far) as 16 f64 at m: sr_perspective_90's entries unrounded (the identity, with its WARN event,
+# when |near − far| < 1e-10).
+fn _sr_persp90_64(near, far, m) {
+    var zero: f64 = 0.0;
+    var one: f64 = 1.0;
+    var i = 0;
+    while (i < 16) {
+        store64(m + i * 8, zero);
+        i = i + 1;
+    }
+    store64(m, one);
+    store64(m + 40, one);
+    var n: f64 = f32_to(near & 0xFFFFFFFF);
+    var f: f64 = f32_to(far & 0xFFFFFFFF);
+    var diff: f64 = n - f;
+    var adiff: f64 = _sr_abs64(diff);
+    if (adiff < _SR_1E_10) {
+        _sr_warn("soorat::math_util: perspective_90: near ≈ far — returning identity matrix");
+        store64(m + 80, one);
+        store64(m + 120, one);
+        return m;
+    }
+    var nf: f64 = one / diff;
+    var m10: f64 = f * nf;
+    var m14: f64 = (n * f) * nf;
+    var m11: f64 = zero - one;
+    store64(m + 80, m10);
+    store64(m + 88, m11);
+    store64(m + 112, m14);
+    return m;
+}
+
+# look_at(pos, dir, up) as 16 f64 at m: sr_look_at's entries unrounded.
+fn _sr_look_at64(pos, dir, up, m) {
+    var zero: f64 = 0.0;
+    var one: f64 = 1.0;
+    var m1: f64 = zero - one;
+    var dx: f64 = f32_to(load32(dir));
+    var dy: f64 = f32_to(load32(dir + 4));
+    var dz: f64 = f32_to(load32(dir + 8));
+    var fl: f64 = f64_sqrt(((dx * dx) + (dy * dy)) + (dz * dz));
+    var f0: f64 = zero;
+    var f1: f64 = zero;
+    var f2: f64 = one;
+    if (_sr_tiny(fl) == 0) {
+        f0 = dx / fl;
+        f1 = dy / fl;
+        f2 = dz / fl;
+    }
+    var w0: f64 = f32_to(load32(up));
+    var w1: f64 = f32_to(load32(up + 4));
+    var w2: f64 = f32_to(load32(up + 8));
+    var cx: f64 = (f1 * w2) - (f2 * w1);
+    var cy: f64 = (f2 * w0) - (f0 * w2);
+    var cz: f64 = (f0 * w1) - (f1 * w0);
+    var sl: f64 = f64_sqrt(((cx * cx) + (cy * cy)) + (cz * cz));
+    var s0: f64 = zero;
+    var s1: f64 = zero;
+    var s2: f64 = one;
+    if (_sr_tiny(sl) == 0) {
+        s0 = cx / sl;
+        s1 = cy / sl;
+        s2 = cz / sl;
+    }
+    var u0: f64 = (s1 * f2) - (s2 * f1);
+    var u1: f64 = (s2 * f0) - (s0 * f2);
+    var u2: f64 = (s0 * f1) - (s1 * f0);
+    var p0: f64 = f32_to(load32(pos));
+    var p1: f64 = f32_to(load32(pos + 4));
+    var p2: f64 = f32_to(load32(pos + 8));
+    var tx: f64 = ((s0 * p0) + (s1 * p1)) + (s2 * p2);
+    var ty: f64 = ((u0 * p0) + (u1 * p1)) + (u2 * p2);
+    var tz: f64 = ((f0 * p0) + (f1 * p1)) + (f2 * p2);
+    store64(m, s0);
+    store64(m + 8, u0);
+    store64(m + 16, m1 * f0);
+    store64(m + 24, zero);
+    store64(m + 32, s1);
+    store64(m + 40, u1);
+    store64(m + 48, m1 * f1);
+    store64(m + 56, zero);
+    store64(m + 64, s2);
+    store64(m + 72, u2);
+    store64(m + 80, m1 * f2);
+    store64(m + 88, zero);
+    store64(m + 96, m1 * tx);
+    store64(m + 104, m1 * ty);
+    store64(m + 112, tz);
+    store64(m + 120, one);
+    return m;
+}
+
+# The six cube-face directions and up vectors (f32), +X, −X, +Y, −Y, +Z, −Z: Rust's table.
+var _sr_cube_faces_data[144];
+var _SR_CUBE_FACES = &_sr_cube_faces_data;
+var _sr_cube_faces_ready = _sr_cube_faces_init();
+fn _sr_cube_faces_init(): i64 {
+    var p = _SR_CUBE_FACES;
+    var one = 0x3F800000;
+    var m1 = 0xBF800000;
+    _sr_face_set(p, one, 0, 0, 0, m1, 0);
+    _sr_face_set(p + 24, m1, 0, 0, 0, m1, 0);
+    _sr_face_set(p + 48, 0, one, 0, 0, 0, one);
+    _sr_face_set(p + 72, 0, m1, 0, 0, 0, m1);
+    _sr_face_set(p + 96, 0, 0, one, 0, m1, 0);
+    _sr_face_set(p + 120, 0, 0, m1, 0, m1, 0);
+    return 1;
+}
+
+# Writes a face's direction (dx, dy, dz) and up (ux, uy, uz), f32 bits, at p.
+fn _sr_face_set(p, dx, dy, dz, ux, uy, uz) {
+    store32(p, dx);
+    store32(p + 4, dy);
+    store32(p + 8, dz);
+    store32(p + 12, ux);
+    store32(p + 16, uy);
+    store32(p + 20, uz);
+    return p;
+}
+
+# The six cube-face view-projection matrices of a point light at position (3 f32) with depth range [near, far]
+# (f32 bits), into out (an SrPointShadowMap): perspective_90(near, far) · look_at(position, face, up) for +X, −X, +Y,
+# −Y, +Z, −Z, both factors and the product in f64, rounded once (class E). Mirrors `PointShadowMap::new`.
+fn SrPointShadowMap_new(position, near, far, out) {
+    var proj[128];
+    var view[128];
+    _sr_persp90_64(near, far, &proj);
+    var i = 0;
+    while (i < 6) {
+        var fp = _SR_CUBE_FACES + i * 24;
+        _sr_look_at64(position, fp, fp + 12, &view);
+        _sr_mul64x64_round(&proj, &view, out + i * 64);
+        i = i + 1;
+    }
+    return out;
+}
+
+# ── the atlas ────────────────────────────────────────────────────────────────────────
+
+# Tiles per atlas row: size / max(tile_size, 1), at least 1 (u32). Mirrors `atlas_columns`.
+#must_use
+fn sr_atlas_columns(size, tile_size): i64 {
+    var t = tile_size & 0xFFFFFFFF;
+    if (t < 1) { t = 1; }
+    var c = (size & 0xFFFFFFFF) / t;
+    if (c < 1) { c = 1; }
+    return c;
+}
+
+# a · b saturated to u32::MAX, for u32 a and b.
+#must_use
+fn _sr_sat_mul_u32(a, b): i64 {
+    if (b != 0 && a > 4294967295 / b) { return 4294967295; }
+    return a * b;
+}
+
+# The pixel viewport (x, y, w, h) of tile index in an atlas with columns tiles per row (at least 1) of tile_size
+# pixels, as 4 u32 at out: x and y saturate at u32::MAX. Mirrors `tile_viewport_in`.
+fn sr_tile_viewport_in(columns, tile_size, index, out) {
+    var c = columns & 0xFFFFFFFF;
+    if (c < 1) { c = 1; }
+    var t = tile_size & 0xFFFFFFFF;
+    var i = index & 0xFFFFFFFF;
+    store32(out, _sr_sat_mul_u32(i % c, t));
+    store32(out + 4, _sr_sat_mul_u32(i / c, t));
+    store32(out + 8, t);
+    store32(out + 12, t);
+    return out;
+}
+
+# The UV rectangle (u, v, w, h) of tile index, as 4 f32 at out: scale = tile_size / max(size, 1) and (col·scale,
+# row·scale, scale, scale), in f32 as Rust's (`as f32` one rounding each). Mirrors `tile_uv_in`.
+fn sr_tile_uv_in(columns, tile_size, size, index, out) {
+    var c = columns & 0xFFFFFFFF;
+    if (c < 1) { c = 1; }
+    var s = size & 0xFFFFFFFF;
+    if (s < 1) { s = 1; }
+    var i = index & 0xFFFFFFFF;
+    var scale = _sr_f32_div(_sr_i64_to_f32(tile_size & 0xFFFFFFFF), _sr_i64_to_f32(s));
+    store32(out, _sr_f32_mul(_sr_i64_to_f32(i % c), scale));
+    store32(out + 4, _sr_f32_mul(_sr_i64_to_f32(i / c), scale));
+    store32(out + 8, scale);
+    store32(out + 12, scale);
+    return out;
+}
+
+# Tile index's viewport in the atlas config (an SrShadowAtlasConfig), as 4 u32 at out. Mirrors `tile_viewport`.
+fn sr_tile_viewport(config, index, out) {
+    var t = load64(config + 8);
+    return sr_tile_viewport_in(sr_atlas_columns(load64(config), t), t, index, out);
+}
+
+# Tile index's UV rectangle in the atlas config, as 4 f32 at out. Mirrors `tile_uv`.
+fn sr_tile_uv(config, index, out) {
+    var t = load64(config + 8);
+    return sr_tile_uv_in(sr_atlas_columns(load64(config), t), t, load64(config), index, out);
+}
+
 # --- debug_collider.cyr ---
 
 # debug_collider.cyr — `LineBatch::collider`, Rust 1.2.0's `physics-debug` half of src/debug_draw.rs (M2 part b).

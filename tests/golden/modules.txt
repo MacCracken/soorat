@@ -16,4 +16,5 @@ viz
 terrain
 animation
 gltf
+shadow
 json

@@ -85,6 +85,7 @@ modules = [
     "src/primitives.cyr",
     "src/terrain.cyr",
     "src/animation.cyr",
+    "src/shadow_math.cyr",
 ]
 
 # The `optics` feature's bundle, dist/soorat-optics.cyr: the library plus Color's prakash conversions.
@@ -110,6 +111,7 @@ modules = [
     "src/primitives.cyr",
     "src/terrain.cyr",
     "src/animation.cyr",
+    "src/shadow_math.cyr",
     "src/color_optics.cyr",
 ]
 
@@ -138,6 +140,7 @@ modules = [
     "src/primitives.cyr",
     "src/terrain.cyr",
     "src/animation.cyr",
+    "src/shadow_math.cyr",
     "src/json.cyr",
 ]
 
@@ -165,6 +168,7 @@ modules = [
     "src/primitives.cyr",
     "src/terrain.cyr",
     "src/animation.cyr",
+    "src/shadow_math.cyr",
     "src/gltf.cyr",
 ]
 
@@ -191,5 +195,6 @@ modules = [
     "src/primitives.cyr",
     "src/terrain.cyr",
     "src/animation.cyr",
+    "src/shadow_math.cyr",
     "src/debug_collider.cyr",
 ]

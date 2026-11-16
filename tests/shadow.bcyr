@@ -1,0 +1,73 @@
+# shadow.bcyr — twins of Rust 1.2.0's `shadow/*` benches (M4 part a): the directional light matrix (origin-centred and
+# centred), four cascade splits, and a point light's six cube faces, each into a reused buffer.
+
+include "tests/lib.cyr"
+
+var _sink = 0;
+
+# Runs the shadow benches.
+fn main(): i64 {
+    alloc_init();
+    var out = alloc(512);
+    var d = alloc(16);
+    store32(d, 0);
+    store32(d + 4, 0xBF800000);
+    store32(d + 8, 0xBF800000);
+    var c = alloc(16);
+    store32(c, 0x41200000);
+    store32(c + 4, 0);
+    store32(c + 8, 0xC0A00000);
+    var p = alloc(16);
+    store32(p, 0);
+    store32(p + 4, 0x40A00000);
+    store32(p + 8, 0);
+    var i = 0;
+    var n = 1000000;
+
+    var b1 = bench_new("shadow/directional_matrix");
+    bench_batch_start(b1);
+    i = 0;
+    while (i < n) {
+        sr_directional_light_matrix(d, 0x41A00000, 0x3DCCCCCD, 0x42C80000, out);
+        _sink = load32(out);
+        i = i + 1;
+    }
+    bench_batch_stop(b1, n);
+    bench_report(b1);
+
+    var b2 = bench_new("shadow/directional_matrix_centered");
+    bench_batch_start(b2);
+    i = 0;
+    while (i < n) {
+        sr_directional_light_matrix_at(d, c, 0x41A00000, 0xC2480000, 0x42480000, out);
+        _sink = load32(out);
+        i = i + 1;
+    }
+    bench_batch_stop(b2, n);
+    bench_report(b2);
+
+    var b3 = bench_new("shadow/cascade_splits_4");
+    bench_batch_start(b3);
+    i = 0;
+    while (i < n) {
+        _sink = sr_compute_practical_splits(0x3DCCCCCD, 0x43FA0000, 4, 0x3F000000, out);
+        i = i + 1;
+    }
+    bench_batch_stop(b3, n);
+    bench_report(b3);
+
+    var b4 = bench_new("shadow/point_shadow_6_faces");
+    bench_batch_start(b4);
+    i = 0;
+    while (i < 100000) {
+        SrPointShadowMap_new(p, 0x3DCCCCCD, 0x41C80000, out);
+        _sink = load32(out);
+        i = i + 1;
+    }
+    bench_batch_stop(b4, 100000);
+    bench_report(b4);
+    return 0;
+}
+
+var r = main();
+sys_exit_group(r);

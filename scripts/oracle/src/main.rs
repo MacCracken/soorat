@@ -31,6 +31,7 @@ mod m_layout;
 mod m_lights;
 mod m_lod;
 mod m_math;
+mod m_shadow;
 mod m_sprite;
 mod m_tables;
 mod m_text;
@@ -229,6 +230,7 @@ fn main() {
         m_geom::terrain(),
         m_anim::module(),
         m_gltf::module(),
+        m_shadow::module(),
         m_json::module(),
     ];
 

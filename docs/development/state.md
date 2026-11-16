@@ -31,7 +31,8 @@ Decisions: [ADR 0001](../adr/0001-cyrius-port-with-rust-oracle.md),
 | M3 part a: primitives, viz, terrain | ✅ 2026-11-15 (below) |
 | M3 part b: animation (no loader), crmath | ✅ 2026-11-15 (below) |
 | M3 part c: the glTF loader (`gltf` profile) | ✅ 2026-11-15: **M3 complete** |
-| M4–M10 | ☐ |
+| M4 part a: shadow math | ✅ 2026-11-15 (below) |
+| M4 parts b, c; M5–M10 | ☐ |
 
 **M1.** 13,793 golden rows over nine modules pass:
 - 1,149 class-E rows are bit-identical to Rust's formula in f64 rounded once;
@@ -70,6 +71,11 @@ field by field. 292 golden rows over 146 fixtures:
 
 `validate.py` re-derives every accepted document. All 63 M3 Rust tests and 81 items are ported. Loading `rich.glb` takes
 389 µs for both loaders, and the profile adds ~479 KB to a binary. Measurements: `port-parity.md` §4.8.
+
+**M4 part a.** `src/shadow_math.cyr` (ADR 0002 #26): 6,972 golden rows pass, 1,539 of them class E. Rust's f32 matrices
+and splits are up to 29 ulp from the f64-once values, and turn infinite or NaN where an intermediate overflows f32.
+ganita's `pow` agreed with a correctly rounded one on every split. All 23 `shadow.rs` tests are ported. The twins run
+5.1–5.9× Rust; the splits run 16.8×, held back by `pow` at 200 ns. Measurements: `port-parity.md` §5.
 
 **Optional features.**
 - `optics` (prakash), `physics-debug` (impetus), `serde` (JSON on bayan) and `gltf` (the glTF loader, on bayan) are
@@ -147,9 +153,8 @@ kiran (rendering), salai (editor viewport), joshua (visualization): all still Ru
 
 ## Next
 
-**M4 (lighting math and infrastructure)**: the shadow math (matrices, splits, atlas), environment's CPU half (f16,
-sRGB, downsample, mips), the PBR BRDF LUT, and the render graph, profiler and capabilities over mabda. Its twins are the
-`shadow/*` benches.
+**M4 part b**: environment's CPU half (box-filter downsample, mip chains, face encoding over the M1 tables) and the
+PBR BRDF LUT (prakash). Then **part c**: the render graph, profiler and capabilities over mabda.
 
 **Performance items carried forward:** `mul_mat4` at about 120 ns (M4's shadow matrices call it); the correctly
 rounded sRGB `pow` at 200–285 ns a call (M4's face encoding calls it three times a texel). port-parity §2.2 has the

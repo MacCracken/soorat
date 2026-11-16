@@ -160,6 +160,7 @@ FIELD_RENAMES = {
     ("JointUniforms", "joints"): [f"joints_{k}" for k in range(128)],
     ("LightArrayUniforms", "lights"): [f"lights_{k}" for k in range(8)],
     ("CascadeUniforms", "matrices"): [f"matrices_{k}" for k in range(4)],
+    ("PointShadowMap", "face_matrices"): [f"face_matrices_{k}" for k in range(6)],
 }
 # A trait impl's header as printed (`impl From<[f32; 4]> for Color`) -> the Cyrius function that provides it.
 TRAIT_RENAMES = {

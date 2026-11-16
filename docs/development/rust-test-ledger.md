@@ -6,7 +6,7 @@
 > milestone (plan §3.1; done = ✅ in the plan's §14). The golden corpus checks every ported function on its
 > grid besides; this ledger is about the oracle's own assertions.
 
-**502 Rust tests** (460 unit, 12 integration, 9 GPU smoke, 18 oracle-hook, 2 shader-validation, 1 doc): 199 ported, 28 not applicable, 3 deferred, 272 pending, 0 unaccounted. Milestones done: M0, M1, M2, M3.
+**502 Rust tests** (460 unit, 12 integration, 9 GPU smoke, 18 oracle-hook, 2 shader-validation, 1 doc): 222 ported, 28 not applicable, 3 deferred, 249 pending, 0 unaccounted. Milestones done: M0, M1, M2, M3.
 
 | Rust file | Kind | Milestone | Cyrius tests | Rust tests | Ported | N/A | Deferred | Pending |
 |---|---|---|---|---:|---:|---:|---:|---:|
@@ -27,7 +27,7 @@
 | `src/viz.rs` | unit | M3 | `tests/viz.tcyr` | 14 | 14 | 0 | 0 | 0 |
 | `src/animation.rs` | unit | M3 | `tests/animation.tcyr` | 21 | 21 | 0 | 0 | 0 |
 | `src/gltf_loader.rs` | unit | M3 | `tests/gltf.tcyr` | 5 | 5 | 0 | 0 | 0 |
-| `src/shadow.rs` | unit | M4 | `tests/shadow_math.tcyr`<br>`tests/shadow.tcyr` | 23 | 0 | 0 | 0 | 23 |
+| `src/shadow.rs` | unit | M4 | `tests/shadow_math.tcyr`<br>`tests/shadow.tcyr` | 23 | 23 | 0 | 0 | 0 |
 | `src/environment.rs` | unit | M1+M4+M7 | `tests/tables.tcyr`<br>`tests/env_cpu.tcyr`<br>`tests/environment.tcyr` | 8 | 4 | 0 | 0 | 4 |
 | `src/pbr_material.rs` | unit | M4 | `tests/pbr_material.tcyr` | 8 | 0 | 0 | 0 | 8 |
 | `src/render_graph.rs` | unit | M4 | `tests/render_graph.tcyr` | 10 | 0 | 0 | 0 | 10 |
@@ -55,11 +55,11 @@
 | `tests/gpu_smoke.rs` | gpu smoke | M6+M7+M8 | `tests/gpu_smoke.tcyr` | 9 | 0 | 0 | 0 | 9 |
 | `tests/oracle.rs` | oracle hooks | — | — | 18 | 0 | 18 | 0 | 0 |
 | `tests/shaders.rs` | shader validation | — | — | 2 | 0 | 2 | 0 | 0 |
-| **Total** | | | | **502** | **199** | **28** | **3** | **272** |
+| **Total** | | | | **502** | **222** | **28** | **3** | **249** |
 
 ## Pending by milestone
 
-M4: 55, M5: 111, M6: 52, M7: 4, M8: 35, M9: 15
+M4: 32, M5: 111, M6: 52, M7: 4, M8: 35, M9: 15
 
 ## Rust's ignored tests
 

@@ -884,3 +884,41 @@ Over the 65,537 points k/65536 of [0, 1], against glibc 2.44:
 - **Size.** The `gltf` profile costs a binary ~479 KB: 121,984 → 600,760 bytes for a program calling both loaders.
   372 KB of that is bayan's tables, which a binary carries as soon as it includes bayan; the rest is parser and loader
   code. Rust's loader is unconditional; here it is opt-in, as serde is (ADR 0002 #25).
+
+## 5. M4: lighting math and infrastructure (part a, 2026-11-15)
+
+### 5.1 Part a: shadow math
+
+| Function | Rows | Class | Result |
+|---|---|---|---|
+| `directional_light_matrix` | 1,008 | E | 415 rows differ from Rust and match the f64-once value bit for bit |
+| `directional_light_matrix_at` | 440 | E | 297 rows differ, and match the f64-once value |
+| `compute_practical_splits` | 3,502 | E | 796 differ, and match the f64-once value, with ganita's `pow` |
+| `PointShadowMap::new` | 37 | E | 31 differ, and match the f64-once value |
+| atlas math, defaults | 1,985 | A | identical |
+
+How far Rust's f32 sits from the f64-once value:
+- **Ordinary inputs:** up to 29 ulp on the centred directional matrices, 18 on the splits, 3 on the cube faces.
+- **Where an intermediate overflows f32, Rust's results stop being finite.**
+  - A direction with 1e30 components overflows Rust's normalize.
+  - `far / near` overflows on the splits with far = 3e38: 637 split values are infinite or NaN in Rust and finite in
+    f64.
+- **`pow`.** Plan §7 said to use ganita's f64 `pow`, with a correctly rounded stand-in only where parity needs one.
+  `validate.py`'s reference uses a correctly rounded `pow` (`decimal`'s `ln` and `exp` at 60 digits). ganita's matched
+  it on every one of the 3,502 split rows once narrowed, so kimiya's `pow` was not vendored. Vendoring it would add 24
+  functions and ~33 KB of tables to every binary.
+
+### 5.2 Part a speed (`taskset -c 10 cyrius bench`; two runs agreed)
+
+| Bench | Rust | Cyrius | Ratio | Plan §11 |
+|---|---|---|---|---|
+| `shadow/directional_matrix` | 20.9 ns | 115 ns | 5.51× | 5–15× |
+| `shadow/directional_matrix_centered` | 21.5 ns | 110 ns | 5.11× | 5–15× |
+| `shadow/cascade_splits_4` | 40.5 ns | 679 ns | 16.8× | 5–15× |
+| `shadow/point_shadow_6_faces` | 213 ns | 1.26 µs | 5.93× | 5–15× |
+
+- **The splits are above the band because of `pow`.** ganita's f64 `pow` costs 200 ns a call, measured alone, and four
+  splits make three calls: 600 of the 679 ns. Rust's `powf` is about 10 ns, and Rust's 40.5 ns includes a `Vec`
+  allocation. The only bit-identical speed-up is a faster correctly rounded `pow` (kimiya's runs its `sin` in 81 ns),
+  at the binary cost above. Splits run once per frame per cascaded light, so this is a performance item, not a fix.
+
