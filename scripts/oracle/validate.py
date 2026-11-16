@@ -18,6 +18,7 @@ Also checks `constants.tsv` against the literals in rust-old/src, and the format
 Stdlib only.
 """
 import json as _json
+import decimal
 import math
 import os
 import re
@@ -1398,6 +1399,384 @@ def check_geom(name, plat):
     return bad, erows
 
 
+# ── animation (M3 part b): brackets and lerp in Rust's f32 (A); slerp and joint chains in f64 once (E) ──────────
+
+F32_9995 = from_bits(0x3F7FDF3B)     # 0.9995f32
+F32_1E_12 = from_bits(0x2B8CBCCC)    # 1e-12f32
+IDENT4 = [0.0, 0.0, 0.0, 1.0]
+IDENT16 = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+
+
+class Rd:
+    """Reads a token list in order (scripts/oracle/src/m_anim.rs's encodings)."""
+
+    def __init__(self, text):
+        self.t = [] if text == "-" else text.split(" ")
+        self.k = 0
+
+    def tok(self, kind):
+        t = self.t[self.k]
+        self.k += 1
+        assert t.startswith(kind + ":"), (kind, t)
+        return t[2:]
+
+    def i(self):
+        return int(self.tok("i"))
+
+    def g(self):
+        return from_bits(int(self.tok("g"), 16))
+
+    def gs(self):
+        return [self.g() for _ in range(int(self.tok("v")))]
+
+    def track(self):
+        return [(self.g(), self.gs()) for _ in range(self.i())]
+
+    def joint(self):
+        return {"parent": self.i(), "ib": self.gs(), "t": self.gs(), "r": self.gs(), "s": self.gs()}
+
+    def skeleton(self):
+        return [self.joint() for _ in range(self.i())]
+
+
+def partition_point(keys, time):
+    """Rust 1.100's `partition_point(|k| k.time <= time)`: its branch-free binary search, so an unsorted track gives
+    Rust's index too."""
+    size, base = len(keys), 0
+    while size > 1:
+        half = size // 2
+        if keys[base + half][0] <= time:
+            base += half
+        size -= half
+    return base + (1 if keys[base][0] <= time else 0)
+
+
+def bracket_ref(keys, time):
+    """("At", value) / ("Between", a, b, t), or None: Rust's `bracket` in f32."""
+    if not keys:
+        return None
+    if len(keys) == 1 or math.isnan(time) or time <= keys[0][0]:
+        return ("At", keys[0][1])
+    if time >= keys[-1][0]:
+        return ("At", keys[-1][1])
+    hi = min(max(partition_point(keys, time), 1), len(keys) - 1)
+    a, b = keys[hi - 1], keys[hi]
+    dt = r32(b[0] - a[0])
+    t = clamp32(r32(r32(time - a[0]) / dt), 0.0, 1.0) if abs(dt) > F32_EPS else 0.0
+    return ("Between", a[1], b[1], t)
+
+
+def lerp_keys(br):
+    if br is None:
+        return []
+    if br[0] == "At":
+        return list(br[1])
+    _, a, b, t = br
+    return [r32(x + r32(r32(y - x) * t)) for x, y in zip(a, b)]
+
+
+def slerp32(a, b, t, d=(0, 0, 0, 0)):
+    """Rust's f32 slerp, each sinf/acosf correctly rounded and then moved d[k] ulps (glibc may differ by 1)."""
+    c = r32(r32(r32(r32(a[0] * b[0]) + r32(a[1] * b[1])) + r32(a[2] * b[2])) + r32(a[3] * b[3]))
+    if c < 0.0:
+        b = [-x for x in b]
+        c = -c
+    if c > F32_9995:
+        wa, wb = r32(1.0 - t), t
+    else:
+        cc = clamp32(c, -1.0, 1.0)
+        th = ulp_step(math.nan if math.isnan(cc) else r32(math.acos(cc)), d[0])
+        sn = ulp_step(trig_cr(math.sin, th), d[1])
+        wa = r32(ulp_step(trig_cr(math.sin, r32(r32(1.0 - t) * th)), d[2]) / sn) if sn != 0.0 else math.nan
+        wb = r32(ulp_step(trig_cr(math.sin, r32(t * th)), d[3]) / sn) if sn != 0.0 else math.nan
+    q = [r32(r32(wa * x) + r32(wb * y)) for x, y in zip(a, b)]
+    ss = r32(r32(r32(r32(q[0] * q[0]) + r32(q[1] * q[1])) + r32(q[2] * q[2])) + r32(q[3] * q[3]))
+    ln = math.nan if math.isnan(ss) else r32(math.sqrt(ss))
+    if math.isfinite(ln) and ln > F32_1E_12:
+        return [r32(x / ln) for x in q]
+    return list(IDENT4)
+
+
+def slerp32_alts(a, b, t):
+    """Every output Rust's slerp can give when glibc's sinf/acosf are each within 1 ulp of correctly rounded."""
+    return [slerp32(a, b, t, (p, q, r, s)) for p in (0, -1, 1) for q in (0, -1, 1) for r in (0, -1, 1) for s in (0, -1, 1)]
+
+
+_DEC_PREC = 80
+_DEC_PI = None
+
+
+def _dec_pi():
+    """π to 80+ digits (Machin's formula), computed once."""
+    global _DEC_PI
+    if _DEC_PI is None:
+        with decimal.localcontext() as ctx:
+            ctx.prec = _DEC_PREC + 10
+
+            def arctan_inv(n):
+                x = decimal.Decimal(1) / n
+                x2, s, t, k = x * x, decimal.Decimal(0), x, 0
+                while t != 0:
+                    s += t / (2 * k + 1) if k % 2 == 0 else -t / (2 * k + 1)
+                    t *= x2
+                    k += 1
+                    if abs(t) < decimal.Decimal(10) ** -(_DEC_PREC + 8):
+                        break
+                return s
+            _DEC_PI = 4 * (4 * arctan_inv(5) - arctan_inv(239))
+    return _DEC_PI
+
+
+def _dec_sin_cos(x):
+    """(sin x, cos x) of the Decimal x to about 80 digits: reduced by 2π, then Taylor."""
+    pi = _dec_pi()
+    x = x - 2 * pi * (x / (2 * pi)).to_integral_value()
+    s, c = decimal.Decimal(0), decimal.Decimal(0)
+    term, k = x, 1
+    while term != 0 and abs(term) > decimal.Decimal(10) ** -(_DEC_PREC + 5):
+        s += term
+        term = -term * x * x / ((2 * k) * (2 * k + 1))
+        k += 1
+    term, k = decimal.Decimal(1), 1
+    while term != 0 and abs(term) > decimal.Decimal(10) ** -(_DEC_PREC + 5):
+        c += term
+        term = -term * x * x / ((2 * k - 1) * (2 * k))
+        k += 1
+    return s, c
+
+
+def cr_sin(x):
+    """sin x correctly rounded to f64 (exact decimal arithmetic, then Python's correctly rounded conversion)."""
+    if not math.isfinite(x):
+        return math.nan
+    if x == 0.0:
+        return x
+    with decimal.localcontext() as ctx:
+        ctx.prec = _DEC_PREC
+        return float(_dec_sin_cos(decimal.Decimal(x))[0])
+
+
+def cr_acos(x):
+    """acos x correctly rounded to f64: Newton on cos θ = x from glibc's acos, in 80-digit decimals."""
+    if math.isnan(x) or abs(x) > 1.0:
+        return math.nan
+    if x == 1.0:
+        return 0.0
+    with decimal.localcontext() as ctx:
+        ctx.prec = _DEC_PREC
+        if x == -1.0:
+            return float(_dec_pi())
+        dx = decimal.Decimal(x)
+        th = decimal.Decimal(math.acos(x))
+        for _ in range(8):
+            s, c = _dec_sin_cos(th)
+            th = th + (c - dx) / s
+        return float(th)
+
+
+def sin64(x):
+    return cr_sin(x)
+
+
+def slerp64(a, b, t):
+    """Rust's slerp in f64 from the f32 inputs (constants widened), with correctly rounded acos and sin (cr_acos,
+    cr_sin: src/crmath.cyr's), rounded once (D4 rule b; src/animation.cyr)."""
+    c = ((a[0] * b[0] + a[1] * b[1]) + a[2] * b[2]) + a[3] * b[3]
+    if c < 0.0:
+        b = [-x for x in b]
+        c = -c
+    if c > F32_9995:
+        wa, wb = 1.0 - t, t
+    else:
+        cc = clamp32(c, -1.0, 1.0)
+        th = cr_acos(cc)
+        sn = sin64(th)
+        wa = sin64((1.0 - t) * th) / sn if sn != 0.0 else math.nan
+        wb = sin64(t * th) / sn if sn != 0.0 else math.nan
+    q = [wa * x + wb * y for x, y in zip(a, b)]
+    ln = math.sqrt(((q[0] * q[0] + q[1] * q[1]) + q[2] * q[2]) + q[3] * q[3]) if not math.isnan(q[0] + q[1] + q[2] + q[3]) else math.nan
+    if math.isfinite(ln) and ln > F32_1E_12:
+        return [r32(x / ln) for x in q]
+    return list(IDENT4)
+
+
+def rotation_keys(keys, time, once):
+    """Rust's `interpolate_rotation`: (the f32 value or the f64-once value, every value Rust's glibc could give)."""
+    br = bracket_ref(keys, time)
+    if br is not None and br[0] == "Between" and len(br[1]) >= 4 and len(br[2]) >= 4:
+        a, b, t = br[1][0:4], br[2][0:4], br[3]
+        if once:
+            return slerp64(a, b, t), None
+        return slerp32(a, b, t), (lambda a=a, b=b, t=t: slerp32_alts(a, b, t))
+    v = lerp_keys(br)
+    return v, None
+
+
+def world_ref(joints, q, resolve):
+    """World transforms of the first MAX_JOINTS joints: Rust's (q = r32) or f64 throughout (q = ident)."""
+    js = joints[:128]
+    n = len(js)
+    local = [compose_trs(j["t"], j["r"], j["s"], q) for j in js]
+    world = [None] * n
+    if not resolve and all(j["parent"] < 0 or j["parent"] < i for i, j in enumerate(js)):
+        for i, j in enumerate(js):
+            world[i] = mul_mat4(world[j["parent"]], local[i], q) if j["parent"] >= 0 else local[i]
+        return world
+
+    def parent_of(i):
+        p = js[i]["parent"]
+        return p if 0 <= p < n and p != i else None
+    state = [0] * n
+    for start in range(n):
+        if state[start] == 2:
+            continue
+        chain, j = [], start
+        while True:
+            state[j] = 1
+            chain.append(j)
+            p = parent_of(j)
+            if p is not None and state[p] == 0:
+                j = p
+            else:
+                break
+        for k in reversed(chain):
+            p = parent_of(k)
+            world[k] = mul_mat4(world[p], local[k], q) if p is not None and state[p] == 2 else local[k]
+            state[k] = 2
+    return world
+
+
+def rem_euclid32(x, y):
+    r = math.fmod(x, y)
+    return r32(r + abs(y)) if r < 0.0 else r
+
+
+def sample_ref(dur, channels, joints, time, once):
+    """Rust's `AnimationClip::sample`: each joint's (translation, rotation, scale), and per joint the alternatives
+    Rust's glibc could give for its rotation (None when exact)."""
+    t = rem_euclid32(time, dur) if dur > 0.0 and math.isfinite(time) else 0.0
+    pose = [[list(j["t"]), list(j["r"]), list(j["s"])] for j in joints]
+    alts = [None] * len(joints)
+    for ji, prop, keys in channels:
+        if ji >= len(joints):
+            continue
+        if prop == 1:
+            v, alt = rotation_keys(keys, t, once)
+            if len(v) >= 4:
+                pose[ji][1], alts[ji] = v[0:4], alt
+        else:
+            v = lerp_keys(bracket_ref(keys, t))
+            if len(v) >= 3:
+                pose[ji][0 if prop == 0 else 2] = v[0:3]
+    return pose, alts
+
+
+def build_ref(mode, times, width, flat_values):
+    values = [flat_values[i:i + width] for i in range(0, len(flat_values), width)] if width else []
+    if mode == 0:
+        return list(zip(times, values))
+    if mode == 2:
+        return list(zip(times, values[1::3]))
+    n = min(len(times), len(values))
+    out = []
+    for k in range(n):
+        if k > 0:
+            out.append((times[k], values[k - 1]))
+        out.append((times[k], values[k]))
+    return out
+
+
+def check_anim(plat):
+    """Re-derives every `animation` row; returns (rows that differ, its class-E rows, {fn: (rows, differing)})."""
+    path = os.path.join(GOLDEN, "animation.tsv")
+    if not os.path.exists(path):
+        return 0, [], {}
+    _, body = rows(path)
+    bad, erows, gains = 0, [], {}
+    for fn, cls, ins, outs, note in body:
+        rd, want = Rd(ins), Rd(outs)
+        once, ok = None, True
+        if fn == "Joint::default":
+            j = want.joint()
+            ok = j == {"parent": -1, "ib": IDENT16, "t": [0.0] * 3, "r": IDENT4, "s": [1.0] * 3}
+        elif fn == "JointUniforms::default":
+            ok = want.gs() == [0.0] * 4 and want.gs() == IDENT16 * 128
+        elif fn == "JointUniforms::set_joints":
+            n = rd.i()
+            ms = rd.gs()
+            c = min(n, 128)
+            ok = same(want.gs(), [float(c), 0.0, 0.0, 0.0]) and same(want.gs(), ms[:16 * c] + IDENT16 * (128 - c))
+        elif fn == "slerp":
+            a, b, t = rd.gs(), rd.gs(), rd.g()
+            got = want.gs()
+            ok = same(slerp32(a, b, t), got) or any(same(x, got) for x in slerp32_alts(a, b, t))
+            once = slerp64(a, b, t)
+        elif fn in ("bracket", "interpolate_keyframes", "interpolate_rotation"):
+            keys, time = rd.track(), rd.g()
+            br = bracket_ref(keys, time)
+            if fn == "bracket":
+                if br is None:
+                    ok = outs == "n:"
+                elif br[0] == "At":
+                    ok = want.tok("s") == "At" and same(want.gs(), br[1])
+                else:
+                    ok = want.tok("s") == "Between" and same(want.gs(), br[1]) and same(want.gs(), br[2]) and same([want.g()], [br[3]])
+            elif fn == "interpolate_keyframes":
+                ok = same(want.gs(), lerp_keys(br))
+            else:
+                got = want.gs()
+                v, alt = rotation_keys(keys, time, False)
+                ok = same(v, got) or (alt is not None and any(same(x, got) for x in alt()))
+                once = rotation_keys(keys, time, True)[0]
+        elif fn == "build_keyframes":
+            mode, times, width, vals = rd.i(), rd.gs(), rd.i(), rd.gs()
+            got = want.track()
+            ref = build_ref(mode, times, width, vals)
+            ok = len(got) == len(ref) and all(same([g[0]], [r[0]]) and same(g[1], r[1]) for g, r in zip(got, ref))
+        elif fn == "local_transform":
+            j = rd.joint()
+            ok = same(want.gs(), [r32(v) for v in compose_trs(j["t"], j["r"], j["s"], r32)])
+            once = [r32(v) for v in compose_trs(j["t"], j["r"], j["s"], ident)]
+        elif fn in ("world_transforms", "world_transforms_resolved", "Skeleton::compute_joint_matrices"):
+            joints = rd.skeleton()
+            resolve = fn == "world_transforms_resolved"
+
+            def mats(q, joints=joints, resolve=resolve, fn=fn):
+                w = world_ref(joints, q, resolve)
+                if fn == "Skeleton::compute_joint_matrices":
+                    w = [mul_mat4(m, j["ib"], q) for m, j in zip(w, joints)]
+                return [r32(v) for m in w for v in m]
+            ok = same(want.gs(), mats(r32))
+            once = mats(ident)
+        elif fn == "AnimationClip::sample":
+            dur = rd.g()
+            channels = [(rd.i(), rd.i(), rd.track()) for _ in range(rd.i())]
+            joints, time = rd.skeleton(), rd.g()
+            got = want.gs()
+            pose, alts = sample_ref(dur, channels, joints, time, False)
+            for k, (tt, rr, ss) in enumerate(pose):
+                g = got[10 * k:10 * k + 10]
+                if not (same(g[0:3], tt) and same(g[7:10], ss)):
+                    ok = False
+                elif not same(g[3:7], rr) and not (alts[k] is not None and any(same(x, g[3:7]) for x in alts[k]())):
+                    ok = False
+            ok = ok and len(got) == 10 * len(pose)
+            once = [v for p in sample_ref(dur, channels, joints, time, True)[0] for part in p for v in part]
+        else:
+            ok = False
+            print(f"animation: {fn}: no re-derivation in validate.py")
+        if not ok:
+            bad += 1
+            print(f"animation: {fn} {note}: re-derived outputs differ from the corpus")
+        elif cls == "E" and once is not None:
+            n, d = gains.get(fn, (0, 0))
+            if not same(once, g_values(outs)):
+                erows.append(f"{fn}\t{ins}\t{g_tokens(outs, once)}\t{note}: f64 once vs Rust f32")
+                d += 1
+            gains[fn] = (n + 1, d)
+    return bad, erows, gains
+
+
 def cube_ref():
     faces = [((0, 0, 1), [(-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]),
              ((0, 0, -1), [(1, -1, -1), (-1, -1, -1), (-1, 1, -1), (1, 1, -1)]),
@@ -1454,6 +1833,10 @@ def main():
         failures += gbad
         sides_e.append((gname + ".e.tsv", "class-E rows (ADR 0002 #4, D4 rule b): Rust's formula in f64, rounded once to "
                         "f32, where that differs from Rust's f32 outputs", gerows))
+    abad, aerows, again = check_anim(plat)
+    failures += abad
+    sides_e.append(("animation.e.tsv", "class-E rows (ADR 0002 #4, D4 rule b): Rust's formula in f64, rounded once to "
+                    "f32, where that differs from Rust's f32 outputs", aerows))
     sides = sides_e + [
         ("lights.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's outputs with each f32 cos correctly "
          "rounded (glibc's f64 cos, rounded once), where glibc's cosf differs", lcr),
@@ -1502,6 +1885,8 @@ def main():
 
     for fn, (n, d) in sorted(gains.items()):
         print(f"math {fn:<16} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
+    for fn, (n, d) in sorted(again.items()):
+        print(f"animation {fn:<33} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
 
     e_path = os.path.join(GOLDEN, "math.e.tsv")
     e_text = "\n".join([

@@ -19,6 +19,7 @@
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
+mod m_anim;
 mod m_color;
 mod m_color_optics;
 mod m_constants;
@@ -222,6 +223,7 @@ fn main() {
         m_geom::primitives(),
         m_geom::viz(),
         m_geom::terrain(),
+        m_anim::module(),
         m_json::module(),
     ];
 

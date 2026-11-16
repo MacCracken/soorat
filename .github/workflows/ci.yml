@@ -81,6 +81,7 @@ jobs:
       # Needs no toolchain while there are no ```cyrius examples; once there are, move it into the `cyrius`
       # job after Build, preceded by `cyrius distlib`.
       - run: python3 -I -B scripts/doc_examples.py . --check
+      - run: python3 -I -B scripts/vendor_crmath.py . --check   # ../kimiya isn't checked out on CI: reports "unverified"
 
   oracle-check:
     name: Oracle (Rust 1.2.0) — check & lint

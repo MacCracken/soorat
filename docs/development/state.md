@@ -29,7 +29,8 @@ Decisions: [ADR 0001](../adr/0001-cyrius-port-with-rust-oracle.md),
 | M2 part a: sprite, batch | ✅ 2026-11-15 (below) |
 | M2 part b: text, ui, debug geometry | ✅ 2026-11-15: **M2 complete** |
 | M3 part a: primitives, viz, terrain | ✅ 2026-11-15 (below) |
-| M3 parts b (animation) and c (GLB loader); M4–M10 | ☐ |
+| M3 part b: animation (no loader), crmath | ✅ 2026-11-15 (below) |
+| M3 part c (GLB loader); M4–M10 | ☐ |
 
 **M1.** 13,793 golden rows over nine modules pass:
 - 1,149 class-E rows are bit-identical to Rust's formula in f64 rounded once;
@@ -52,6 +53,13 @@ correctly rounded row. All 113 M2 items, 69 tests and 16 benches are done.
 **M3 part a.** `src/primitives.cyr`, `src/viz.cyr` and `src/terrain.cyr` (ADR 0002 #23): 637 golden rows pass, 36
 of them class E (the geometry in f64, rounded once). All 37 Rust tests are ported; the 4 bench twins run 4.3–8.1×
 Rust. `create_terrain_mesh` uploads to the GPU, so it moved to M6. Measurements: `port-parity.md` §4.
+
+**M3 part b.** `src/animation.cyr` (ADR 0002 #24): 1,777 golden rows pass, 520 of them class E. Joint chains accumulate
+in f64 (the 64-joint leaf: Rust's f32 is 183 ulp off). slerp's `acos` and `sin` are correctly rounded by
+`src/crmath.cyr`, vendored from kimiya 2.0.1 by `scripts/vendor_crmath.py` (ledger L1). It costs every binary that
+includes soorat 20.2 KB of tables, and 36.6 KB once slerp is reached. CUBICSPLINE plays back as the Hermite spline (#13).
+19 of 21 Rust tests are ported (2 need the loader); the 4 twins run 11.3–15.3× Rust. Measurements:
+`port-parity.md` §4.4–4.6.
 
 **Optional features.**
 - `optics` (prakash), `physics-debug` (impetus) and `serde` (JSON on bayan) are opt-in profiles:
@@ -129,9 +137,9 @@ kiran (rendering), salai (editor viewport), joshua (visualization): all still Ru
 
 ## Next
 
-**M3 part b (animation)**: keyframe sampling (LINEAR, STEP, and CUBICSPLINE per ADR 0002 #13), slerp and joint
-chains, with the `animation/compute_joints_*` twins. Then **part c**, the GLB loader (bayan, chitra; D6), which
-fills `SrMeshData.material_index`.
+**M3 part c**: the GLB loader (bayan, chitra; D6): `load_model`, `load_gltf_meshes` (which fill
+`SrMeshData.material_index`) and `load_gltf_animations` (with `sr_build_keyframes`), with every 1.1.0 rejection and
+`animation.rs`'s 2 loader tests.
 
 **Performance items carried forward:** `mul_mat4` at about 120 ns (M4's shadow matrices call it); the correctly
 rounded sRGB `pow` at 200–285 ns a call (M4's face encoding calls it three times a texel). port-parity §2.2 has the

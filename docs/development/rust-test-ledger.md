@@ -6,7 +6,7 @@
 > milestone (plan §3.1; done = ✅ in the plan's §14). The golden corpus checks every ported function on its
 > grid besides; this ledger is about the oracle's own assertions.
 
-**502 Rust tests** (460 unit, 12 integration, 9 GPU smoke, 18 oracle-hook, 2 shader-validation, 1 doc): 173 ported, 28 not applicable, 3 deferred, 298 pending, 0 unaccounted. Milestones done: M0, M1, M2.
+**502 Rust tests** (460 unit, 12 integration, 9 GPU smoke, 18 oracle-hook, 2 shader-validation, 1 doc): 192 ported, 28 not applicable, 3 deferred, 279 pending, 0 unaccounted. Milestones done: M0, M1, M2.
 
 | Rust file | Kind | Milestone | Cyrius tests | Rust tests | Ported | N/A | Deferred | Pending |
 |---|---|---|---|---:|---:|---:|---:|---:|
@@ -25,7 +25,7 @@
 | `src/primitives.rs` | unit | M3 | `tests/primitives.tcyr` | 12 | 12 | 0 | 0 | 0 |
 | `src/terrain.rs` | unit | M3 | `tests/terrain.tcyr` | 11 | 11 | 0 | 0 | 0 |
 | `src/viz.rs` | unit | M3 | `tests/viz.tcyr` | 14 | 14 | 0 | 0 | 0 |
-| `src/animation.rs` | unit | M3 | `tests/animation.tcyr` | 21 | 0 | 0 | 0 | 21 |
+| `src/animation.rs` | unit | M3 | `tests/animation.tcyr` | 21 | 19 | 0 | 0 | 2 |
 | `src/gltf_loader.rs` | unit | M3 | `tests/gltf.tcyr` | 5 | 0 | 0 | 0 | 5 |
 | `src/shadow.rs` | unit | M4 | `tests/shadow_math.tcyr`<br>`tests/shadow.tcyr` | 23 | 0 | 0 | 0 | 23 |
 | `src/environment.rs` | unit | M1+M4+M7 | `tests/tables.tcyr`<br>`tests/env_cpu.tcyr`<br>`tests/environment.tcyr` | 8 | 4 | 0 | 0 | 4 |
@@ -55,11 +55,11 @@
 | `tests/gpu_smoke.rs` | gpu smoke | M6+M7+M8 | `tests/gpu_smoke.tcyr` | 9 | 0 | 0 | 0 | 9 |
 | `tests/oracle.rs` | oracle hooks | — | — | 18 | 0 | 18 | 0 | 0 |
 | `tests/shaders.rs` | shader validation | — | — | 2 | 0 | 2 | 0 | 0 |
-| **Total** | | | | **502** | **173** | **28** | **3** | **298** |
+| **Total** | | | | **502** | **192** | **28** | **3** | **279** |
 
 ## Pending by milestone
 
-M3: 26, M4: 55, M5: 111, M6: 52, M7: 4, M8: 35, M9: 15
+M3: 7, M4: 55, M5: 111, M6: 52, M7: 4, M8: 35, M9: 15
 
 ## Rust's ignored tests
 

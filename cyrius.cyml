@@ -68,6 +68,7 @@ modules = [
     "src/error.cyr",
     "src/log.cyr",
     "src/mathx.cyr",
+    "src/crmath.cyr",
     "src/tables_data.cyr",
     "src/tables.cyr",
     "src/math.cyr",
@@ -83,6 +84,7 @@ modules = [
     "src/viz.cyr",
     "src/primitives.cyr",
     "src/terrain.cyr",
+    "src/animation.cyr",
 ]
 
 # The `optics` feature's bundle, dist/soorat-optics.cyr: the library plus Color's prakash conversions.
@@ -91,6 +93,7 @@ modules = [
     "src/error.cyr",
     "src/log.cyr",
     "src/mathx.cyr",
+    "src/crmath.cyr",
     "src/tables_data.cyr",
     "src/tables.cyr",
     "src/math.cyr",
@@ -106,6 +109,7 @@ modules = [
     "src/viz.cyr",
     "src/primitives.cyr",
     "src/terrain.cyr",
+    "src/animation.cyr",
     "src/color_optics.cyr",
 ]
 
@@ -117,6 +121,7 @@ modules = [
     "src/error.cyr",
     "src/log.cyr",
     "src/mathx.cyr",
+    "src/crmath.cyr",
     "src/tables_data.cyr",
     "src/tables.cyr",
     "src/math.cyr",
@@ -132,6 +137,7 @@ modules = [
     "src/viz.cyr",
     "src/primitives.cyr",
     "src/terrain.cyr",
+    "src/animation.cyr",
     "src/json.cyr",
 ]
 
@@ -141,6 +147,7 @@ modules = [
     "src/error.cyr",
     "src/log.cyr",
     "src/mathx.cyr",
+    "src/crmath.cyr",
     "src/tables_data.cyr",
     "src/tables.cyr",
     "src/math.cyr",
@@ -156,5 +163,6 @@ modules = [
     "src/viz.cyr",
     "src/primitives.cyr",
     "src/terrain.cyr",
+    "src/animation.cyr",
     "src/debug_collider.cyr",
 ]

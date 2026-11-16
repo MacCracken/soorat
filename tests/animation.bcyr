@@ -1,0 +1,97 @@
+# animation.bcyr — twins of Rust 1.2.0's `animation/*` benches (M3 part b): joint matrices of 16- and 64-joint chains
+# (sorted, and leaf-first through the general walk), and one sample of 64 rotation channels × 32 keys. The output
+# matrices go into one reused buffer; Rust allocates a Vec per call.
+
+include "tests/lib.cyr"
+
+var _sink = 0;
+
+# A chain of n default joints: parent i − 1 (sorted), or i + 1 with the last a root (leaf-first).
+fn chain(n, leaf_first): i64 {
+    var js = alloc(n * 112);
+    var i = 0;
+    while (i < n) {
+        var j = SrJoint_default(js + i * 112);
+        if (leaf_first == 1) {
+            if (i < n - 1) { store64(j, i + 1); }
+        } else {
+            store64(j, i - 1);
+        }
+        i = i + 1;
+    }
+    var sk = alloc(16);
+    store64(sk, js);
+    store64(sk + 8, n);
+    return sk;
+}
+
+# Times iters joint-matrix computations of the skeleton sk as the bench b.
+fn bench_joints(b, sk, out, iters): i64 {
+    bench_batch_start(b);
+    var i = 0;
+    while (i < iters) {
+        _sink = SrSkeleton_compute_joint_matrices(sk, out);
+        i = i + 1;
+    }
+    bench_batch_stop(b, iters);
+    bench_report(b);
+    return 0;
+}
+
+# Runs the animation benches.
+fn main(): i64 {
+    alloc_init();
+    var out = alloc(128 * 64);
+    bench_joints(bench_new("animation/compute_joints_16"), chain(16, 0), out, 20000);
+    bench_joints(bench_new("animation/compute_joints_64"), chain(64, 0), out, 5000);
+    bench_joints(bench_new("animation/compute_joints_64_unsorted"), chain(64, 1), out, 5000);
+
+    # 64 rotation channels × 32 keys: key k at k / 31 with value (0, sin(k·0.05), 0, cos(k·0.05)), as Rust's.
+    var chs = alloc(64 * 40);
+    var c005 = 0x3D4CCCCD;
+    var c31 = 0x41F80000;
+    var j = 0;
+    while (j < 64) {
+        var keys = alloc(32 * 40);
+        var vals = alloc(32 * 16);
+        var k = 0;
+        while (k < 32) {
+            var fk = f32_from(f64_from(k));
+            var half = _sr_f32_mul(fk, c005);
+            store32(vals + k * 16, 0);
+            store32(vals + k * 16 + 4, ganita_f32_sin(half));
+            store32(vals + k * 16 + 8, 0);
+            store32(vals + k * 16 + 12, ganita_f32_cos(half));
+            _sr_key_set(keys + k * 40, _sr_f32_div(fk, c31), vals + k * 16, 4);
+            k = k + 1;
+        }
+        var ch = chs + j * 40;
+        store64(ch, j);
+        store64(ch + 8, SR_ANIMATION_PROPERTY_ROTATION);
+        store64(ch + 16, keys);
+        store64(ch + 24, 32);
+        store64(ch + 32, SR_INTERPOLATION_LINEAR);
+        j = j + 1;
+    }
+    var clip = alloc(40);
+    store64(clip, 0);
+    store64(clip + 8, 0);
+    store64(clip + 16, 0x3F800000);
+    store64(clip + 24, chs);
+    store64(clip + 32, 64);
+    var sk = chain(64, 0);
+    var bs = bench_new("animation/sample_rotation_64x32");
+    bench_batch_start(bs);
+    var i = 0;
+    while (i < 5000) {
+        SrAnimationClip_sample(clip, sk, 0x3EDFBE77);
+        _sink = load32(load64(sk) + 84);
+        i = i + 1;
+    }
+    bench_batch_stop(bs, 5000);
+    bench_report(bs);
+    return 0;
+}
+
+var r = main();
+sys_exit_group(r);

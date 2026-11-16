@@ -37,8 +37,9 @@ SOURCES = (".cyr", ".tcyr", ".bcyr", ".fcyr")
 
 # Row -> (the milestone that writes its stand-in, the stand-in). Its marker is due once that milestone is done.
 STANDINS = {
-    # crmath moved to M5 at M1 part d: its only caller is acoustic_render's log10 / ln / exp.
-    "L1": ("M5", "the vendored correctly rounded crmath/crlog (impetus, kimiya): src/crmath.cyr (§3.1)"),
+    # crmath arrived at M3 part b with slerp's sin and acos (kimiya 2.0.1, scripts/vendor_crmath.py); M5 adds log10.
+    "L1": ("M3", "the vendored correctly rounded crmath (kimiya): src/crmath.cyr, slerp's sin and acos (§3.1)"),
+    "L22": ("M3", "Rust's f32 `%` for AnimationClip::sample's time wrap: _sr_f32_fmod in src/mathx.cyr"),
     "L8": ("M1", "f32 results returned as i64 bits, `var` constants and local f16 code: src/mathx.cyr (§3.1)"),
     "L9": ("M8", "selah's private PNG/JPEG/BMP encoders, vendored for screenshot (D8)"),
     "L21": ("M1", "Color's from_temperature / from_wavelength call prakash's allocating forms: src/color_optics.cyr"),

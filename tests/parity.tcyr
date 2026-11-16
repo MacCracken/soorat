@@ -62,6 +62,10 @@ fn _par_constants(fp, fl): i64 {
         }
         return 1;
     }
+    if (_par_eq(fp, fl, "const::MAX_JOINTS") == 1) {
+        _par_got_i(SR_MAX_JOINTS);
+        return 1;
+    }
     if (_par_eq(fp, fl, "const::MAX_LIGHTS") == 1) {
         _par_got_i(SR_MAX_LIGHTS);
         return 1;
@@ -858,6 +862,223 @@ fn _par_math(fp, fl): i64 {
     return 0;
 }
 
+# ── animation (src/animation.cyr) ─────────────────────────────────────────────────────
+
+var _par_k = 0;
+var _par_tn = 0;
+
+# The next input token (the animation rows are read in order).
+fn _par_next(): i64 {
+    var v = _par_in(_par_k);
+    _par_k = _par_k + 1;
+    return v;
+}
+
+# Reads `v:n` and n f32 at the cursor into dst; returns n.
+fn _par_next_g32s(dst): i64 {
+    var n = _par_next();
+    var j = 0;
+    while (j < n) {
+        store32(dst + j * 4, _par_next());
+        j = j + 1;
+    }
+    return n;
+}
+
+# Reads a keyframe track at the cursor into keys and values from the arena; returns the keys (their count in _par_tn).
+fn _par_track(): i64 {
+    var n = _par_next();
+    _par_tn = n;
+    var keys = alloc_via(_par_arena, n * 40 + 8);
+    var i = 0;
+    while (i < n) {
+        var time = _par_next();
+        var vals = alloc_via(_par_arena, 4 * 64);
+        var len = _par_next_g32s(vals);
+        _sr_key_set(keys + i * 40, time, vals, len);
+        i = i + 1;
+    }
+    return keys;
+}
+
+# Reads a joint at the cursor into the SrJoint j.
+fn _par_joint(j) {
+    store64(j, _par_next());
+    _par_next_g32s(j + 8);
+    _par_next_g32s(j + 72);
+    _par_next_g32s(j + 84);
+    _par_next_g32s(j + 100);
+    return j;
+}
+
+# Reads a skeleton at the cursor; returns its joints (their count in _par_tn).
+fn _par_skeleton(): i64 {
+    var n = _par_next();
+    var joints = alloc_via(_par_arena, n * 112 + 8);
+    var i = 0;
+    while (i < n) {
+        _par_joint(joints + i * 112);
+        i = i + 1;
+    }
+    _par_tn = n;
+    return joints;
+}
+
+# Appends a keyframe track: `i:n`, then each key's time and value.
+fn _par_got_track(keys, n) {
+    _par_got_i(n);
+    var i = 0;
+    while (i < n) {
+        _par_got_g(load32(keys + i * 40));
+        _par_got_g32s(load64(keys + i * 40 + 8), load64(keys + i * 40 + 16));
+        i = i + 1;
+    }
+    return 0;
+}
+
+# Appends a joint: parent, inverse bind, translation, rotation, scale.
+fn _par_got_joint(j) {
+    _par_got_i(load64(j));
+    _par_got_g32s(j + 8, 16);
+    _par_got_g32s(j + 72, 3);
+    _par_got_g32s(j + 84, 4);
+    _par_got_g32s(j + 100, 3);
+    return 0;
+}
+
+fn _par_anim(fp, fl): i64 {
+    reset_via(_par_arena);
+    var a = _par_arena;
+    _par_k = 0;
+    var buf = alloc_via(a, 128 * 64 + 64);
+    if (_par_eq(fp, fl, "Joint::default") == 1) { return _par_got_joint(SrJoint_default(buf)) + 1; }
+    if (_par_eq(fp, fl, "JointUniforms::default") == 1 || _par_eq(fp, fl, "JointUniforms::set_joints") == 1) {
+        var u = SrJointUniforms_default(alloc_via(a, 8208 + 8));
+        if (_par_eq(fp, fl, "JointUniforms::set_joints") == 1) {
+            var n = _par_next();
+            var ms = alloc_via(a, n * 64 + 8);
+            _par_next_g32s(ms);
+            SrJointUniforms_set_joints(u, ms, n);
+        }
+        _par_got_g32s(u, 4);
+        _par_got_g32s(u + 16, 2048);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "slerp") == 1) {
+        var qa = alloc_via(a, 16);
+        var qb = alloc_via(a, 16);
+        _par_next_g32s(qa);
+        _par_next_g32s(qb);
+        _par_got_g32s(sr_slerp(qa, qb, _par_next(), buf), 4);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "bracket") == 1) {
+        var keys = _par_track();
+        var nk = _par_tn;
+        var br[24];
+        var kind = sr_bracket(keys, nk, _par_next(), &br);
+        if (kind == SR_BRACKET_NONE) {
+            _par_got_none();
+        } elif (kind == SR_BRACKET_AT) {
+            _par_got_s("At", 2);
+            var ka = keys + load64(&br) * 40;
+            _par_got_g32s(load64(ka + 8), load64(ka + 16));
+        } else {
+            _par_got_s("Between", 7);
+            var k0 = keys + load64(&br) * 40;
+            var k1 = keys + load64(&br + 8) * 40;
+            _par_got_g32s(load64(k0 + 8), load64(k0 + 16));
+            _par_got_g32s(load64(k1 + 8), load64(k1 + 16));
+            _par_got_g(load64(&br + 16));
+        }
+        return 1;
+    }
+    if (_par_eq(fp, fl, "interpolate_keyframes") == 1 || _par_eq(fp, fl, "interpolate_rotation") == 1) {
+        var tk = _par_track();
+        var tn = _par_tn;
+        var c = 0;
+        if (_par_eq(fp, fl, "interpolate_rotation") == 1) {
+            c = sr_interpolate_rotation(tk, tn, _par_next(), buf, 64);
+        } else {
+            c = sr_interpolate_keyframes(tk, tn, _par_next(), buf, 64);
+        }
+        _par_got_g32s(buf, c);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "build_keyframes") == 1) {
+        var mode = _par_next();
+        var times = alloc_via(a, 4 * 64);
+        var nt = _par_next_g32s(times);
+        var width = _par_next();
+        var values = alloc_via(a, 4 * 64);
+        var nflat = _par_next_g32s(values);
+        var ch = alloc_via(a, 40);
+        sr_build_keyframes(ch, times, nt, values, nflat / width, width, mode, a);
+        return _par_got_track(load64(ch + 16), load64(ch + 24)) + 1;
+    }
+    if (_par_eq(fp, fl, "local_transform") == 1) {
+        var lj = _par_joint(alloc_via(a, 112));
+        _par_got_g32s(sr_local_transform(lj, buf), 16);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "world_transforms") == 1 || _par_eq(fp, fl, "world_transforms_resolved") == 1) {
+        var wj = _par_skeleton();
+        var wc = 0;
+        if (_par_eq(fp, fl, "world_transforms") == 1) {
+            wc = sr_world_transforms(wj, _par_tn, buf);
+        } else {
+            wc = sr_world_transforms_resolved(wj, _par_tn, buf);
+        }
+        _par_got_g32s(buf, wc * 16);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "Skeleton::compute_joint_matrices") == 1) {
+        var sk = alloc_via(a, 16);
+        store64(sk, _par_skeleton());
+        store64(sk + 8, _par_tn);
+        _par_got_g32s(buf, SrSkeleton_compute_joint_matrices(sk, buf) * 16);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "AnimationClip::sample") == 1) {
+        var clip = alloc_via(a, 40);
+        store64(clip, 0);
+        store64(clip + 8, 0);
+        store64(clip + 16, _par_next());
+        var nc = _par_next();
+        var chs = alloc_via(a, nc * 40 + 8);
+        var i = 0;
+        while (i < nc) {
+            var cp = chs + i * 40;
+            store64(cp, _par_next());
+            store64(cp + 8, _par_next());
+            store64(cp + 16, _par_track());
+            store64(cp + 24, _par_tn);
+            store64(cp + 32, SR_INTERPOLATION_LINEAR);
+            i = i + 1;
+        }
+        store64(clip + 24, chs);
+        store64(clip + 32, nc);
+        var skel = alloc_via(a, 16);
+        store64(skel, _par_skeleton());
+        store64(skel + 8, _par_tn);
+        SrAnimationClip_sample(clip, skel, _par_next());
+        var nj = load64(skel + 8);
+        _par_got_seq(nj * 10);
+        var jj = 0;
+        while (jj < nj) {
+            var jp = load64(skel) + jj * 112 + 72;
+            var w = 0;
+            while (w < 10) {
+                _par_got_g(load32(jp + w * 4));
+                w = w + 1;
+            }
+            jj = jj + 1;
+        }
+        return 1;
+    }
+    return 0;
+}
+
 # ── hooks ────────────────────────────────────────────────────────────────────────────
 
 # The Rust variant name of an `SR_ERR_*` code (src/error.cyr), which a golden `E:<Variant>` token names.
@@ -883,6 +1104,7 @@ fn _par_dispatch(mp, ml, fp, fl): i64 {
     if (_par_eq(mp, ml, "primitives") == 1 || _par_eq(mp, ml, "viz") == 1 || _par_eq(mp, ml, "terrain") == 1) {
         return _par_geom(fp, fl);
     }
+    if (_par_eq(mp, ml, "animation") == 1) { return _par_anim(fp, fl); }
     return 0;
 }
 

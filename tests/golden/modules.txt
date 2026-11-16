@@ -14,4 +14,5 @@ debug_collider
 primitives
 viz
 terrain
+animation
 json

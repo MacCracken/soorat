@@ -201,3 +201,36 @@ fn _sr_utf8_next(p, n, at, out): i64 {
     store64(out, cp);
     return need + 1;
 }
+
+# x mod y for the f32 x and y (bits), as Rust's f32 `%` (C's fmodf): x − n·y for the integer n that truncates x / y,
+# exact, with x's sign. NaN when x is NaN or ±∞, or y is NaN or ±0; x when y is ±∞ or |x| < |y|. Computed on the
+# integer significands (mx·2^k mod my, one doubling a step), so no rounding can occur.
+#
+# UPSTREAM(L22): ganita:docs/development/issues/2026-11-11-no-fmod.md
+#   call ganita's f32 fmod once it ships; parity: the AnimationClip::sample rows of tests/golden/animation.tsv (the
+#   time wrap) and tests/animation.tcyr's f32_fmod_is_exact.
+#must_use
+fn _sr_f32_fmod(x, y): i64 {
+    var xb = x & 0xFFFFFFFF;
+    var ax = xb & 0x7FFFFFFF;
+    var ay = y & 0x7FFFFFFF;
+    if (ax >= 0x7F800000 || ay > 0x7F800000 || ay == 0) { return 0x7FC00000; }
+    if (ay == 0x7F800000 || ax < ay) { return xb; }
+    var ex = ax >> 23;
+    var ey = ay >> 23;
+    var mx = ax & 0x7FFFFF;
+    var my = ay & 0x7FFFFF;
+    if (ex == 0) { ex = 1; } else { mx = mx | 0x800000; }
+    if (ey == 0) { ey = 1; } else { my = my | 0x800000; }
+    var r = mx % my;
+    var k = ex - ey;
+    while (k > 0) {
+        r = (r * 2) % my;
+        k = k - 1;
+    }
+    var rv: f64 = f64_from(r);
+    var pb = (ey + 873) << 52;
+    var p2: f64 = pb;
+    var v: f64 = rv * p2;
+    return f32_from(v) | (xb & 0x80000000);
+}

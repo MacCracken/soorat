@@ -46,6 +46,8 @@ soorat is being ported to Cyrius. Plan of record: `docs/development/soorat-port-
   defines those.
 - **Memory:** per-frame data goes in a frame arena. The global `alloc` never frees.
 - Generate vertices straight into the upload buffer; `memcpy` is a byte loop.
+- **Class-E transcendentals are correctly rounded:** f64 `sin`/`acos` from `src/crmath.cyr` (kimiya's, vendored by
+  `scripts/vendor_crmath.py`; never edit it). ganita's are up to 2 ulp off, which shows wherever a formula cancels.
 - **GPU access goes through mabda only.** No wgpu-native FFI in soorat.
 - **Optional dependencies are profiles** (M1): the code is a file outside `[lib]`, bundled by `[lib.<feature>]`
   (`optics`: prakash; `serde`: bayan, whose tables cost every including binary ~372 KB; `physics-debug`:

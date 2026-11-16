@@ -1,0 +1,787 @@
+# animation.cyr — Rust 1.2.0's src/animation.rs (M3 part b): joints and skeletons, joint matrices, joint uniforms,
+# keyframe brackets and interpolation, slerp, sampler pairing and clip sampling. `load_gltf_animations` is part c.
+#
+# **Types** (ADR 0002 #24). Rust's `Vec`s are a pointer and a count the caller owns (a frame arena for per-frame
+# work, the loader's arena for a loaded clip):
+# - `SrJoint` (112 bytes): parent (i64; −1 for a root), inverse_bind (16 f32), translation, rotation (x, y, z, w) and
+#   scale (f32), at 0, 8, 72, 84 and 100.
+# - `SrSkeleton`: joints (SrJoint array) and joint_count.
+# - `SrKeyframe` (40 bytes): time (f32), and its value as a pointer and a length (len f32), as Rust's `Vec<f32>`;
+#   plus in_tangent and out_tangent (len f32 each, or 0), which Rust has no place for: a CUBICSPLINE key's (#13).
+# - `SrAnimationChannel` (40 bytes): joint_index, property (SR_ANIMATION_PROPERTY_*), keyframes, keyframe_count, and
+#   interpolation (SR_INTERPOLATION_*; Rust drops it).
+# - `SrAnimationClip` (40 bytes): name and name_len, duration (f32), channels and channel_count.
+#
+# **Precision** (D4, plan §7). Brackets, linear interpolation and the time wrap are Rust's f32 sequence: class A.
+# Joint chains, local transforms and slerp are class E: Rust's formula in f64 from the f32 inputs, rounded once. A
+# chain accumulates its world transforms in f64 and rounds each joint's matrix once, so the leaf of a 64-joint chain
+# carries one rounding, not 64 levels of them. slerp's acos and sin are correctly rounded (src/crmath.cyr).
+# CUBICSPLINE channels play back as the glTF cubic Hermite spline, in f64 rounded once (class R, ADR 0002 #13).
+#
+# **Scratch.** The world transforms (128 × 16 f64), the joint states and the ancestor chain live in module state,
+# allocated once on first use (as debug_geom's trig cache is module state): joint matrices allocate nothing per call,
+# and are not reentrant.
+
+# The most joints a skin poses. Mirrors `MAX_JOINTS`.
+var SR_MAX_JOINTS = 128;
+
+# What a channel animates. Mirrors `AnimationProperty`.
+enum SrAnimationProperty {
+    SR_ANIMATION_PROPERTY_TRANSLATION = 0;
+    SR_ANIMATION_PROPERTY_ROTATION = 1;
+    SR_ANIMATION_PROPERTY_SCALE = 2;
+}
+
+# A glTF sampler's interpolation. STEP is paired into duplicate-time keys and plays back linearly, as in Rust;
+# CUBICSPLINE keeps its tangents and plays back as the Hermite spline (ADR 0002 #13).
+enum SrInterpolation {
+    SR_INTERPOLATION_LINEAR = 0;
+    SR_INTERPOLATION_STEP = 1;
+    SR_INTERPOLATION_CUBICSPLINE = 2;
+}
+
+# Where a time falls in a track (sr_bracket): no keys, one key, or between two.
+enum SrBracketKind {
+    SR_BRACKET_NONE = 0;
+    SR_BRACKET_AT = 1;
+    SR_BRACKET_BETWEEN = 2;
+}
+
+struct SrJoint { parent; inverse_bind: SrM4; translation: SrV3; rotation: SrV4; scale: SrV3; }
+struct SrSkeleton { joints; joint_count; }
+struct SrKeyframe { time: f32; _pad0: f32; value; len; in_tangent; out_tangent; }
+struct SrAnimationChannel { joint_index; property; keyframes; keyframe_count; interpolation; }
+struct SrAnimationClip { name; name_len; duration: f32; _pad0: f32; channels; channel_count; }
+
+# The joint-chain scratch, allocated once (17,536 bytes from the global allocator) on first use: the world transforms
+# (128 × 16 f64) at 0, the joint states (128 bytes) at 16384, the ancestor chain (128 indices) at 16512.
+var _sr_anim_scratch = 0;
+
+# The joint-chain scratch, or 0 when its one allocation fails.
+#must_use
+fn _sr_anim_scratch_get(): i64 {
+    if (_sr_anim_scratch == 0) { _sr_anim_scratch = alloc(17536); }
+    return _sr_anim_scratch;
+}
+
+# Copies n bytes (a multiple of 8) from src to dst a word at a time; returns dst.
+fn _sr_copy_words(dst, src, n) {
+    var i = 0;
+    while (i < n) {
+        store64(dst + i, load64(src + i));
+        i = i + 8;
+    }
+    return dst;
+}
+
+# ── joints, uniforms ─────────────────────────────────────────────────────────────────
+
+# A root joint at rest (parent −1, identity inverse bind, zero translation, identity rotation, unit scale), into out.
+# Mirrors `impl Default for Joint`.
+fn SrJoint_default(out) {
+    store64(out, 0 - 1);
+    _sr_copy_words(out + 8, SR_IDENTITY_MAT4, 64);
+    store64(out + 72, 0);
+    store64(out + 80, 0);
+    store64(out + 88, 0);
+    store32(out + 96, 0x3F800000);
+    store32(out + 100, 0x3F800000);
+    store32(out + 104, 0x3F800000);
+    store32(out + 108, 0x3F800000);
+    return out;
+}
+
+# Joint uniforms with a count of 0 and every matrix the identity, into out (an SrJointUniforms). Mirrors
+# `impl Default for JointUniforms`.
+fn SrJointUniforms_default(out) {
+    store64(out, 0);
+    store64(out + 8, 0);
+    var i = 0;
+    while (i < 128) {
+        _sr_copy_words(out + 16 + i * 64, SR_IDENTITY_MAT4, 64);
+        i = i + 1;
+    }
+    return out;
+}
+
+# Copies the first min(n, SR_MAX_JOINTS) of the n matrices at matrices (16 f32 each) into u and sets its count (x of
+# joint_count, as f32); the other matrices and joint_count's y, z, w are kept. Mirrors `JointUniforms::set_joints`.
+fn SrJointUniforms_set_joints(u, matrices, n) {
+    var c = n;
+    if (c > SR_MAX_JOINTS) { c = SR_MAX_JOINTS; }
+    if (c < 0) { c = 0; }
+    store32(u, _sr_i64_to_f32(c));
+    _sr_copy_words(u + 16, matrices, c * 64);
+    return u;
+}
+
+# The joint's local transform T·R·S (16 f32, column-major) into out: sr_compose_trs, rounded once (class E). Mirrors
+# `local_transform`.
+fn sr_local_transform(joint, out) {
+    return sr_compose_trs(joint + 72, joint + 84, joint + 100, out);
+}
+
+# The joint's local transform in f64 (16 f64 at m), unrounded: sr_compose_trs's formula.
+fn _sr_compose_trs64(j, m) {
+    var x: f64 = f32_to(load32(j + 84));
+    var y: f64 = f32_to(load32(j + 88));
+    var z: f64 = f32_to(load32(j + 92));
+    var w: f64 = f32_to(load32(j + 96));
+    var one: f64 = 1.0;
+    var two: f64 = 2.0;
+    var zero: f64 = 0.0;
+    var r00: f64 = one - (two * ((y * y) + (z * z)));
+    var r01: f64 = two * ((x * y) + (w * z));
+    var r02: f64 = two * ((x * z) - (w * y));
+    var r10: f64 = two * ((x * y) - (w * z));
+    var r11: f64 = one - (two * ((x * x) + (z * z)));
+    var r12: f64 = two * ((y * z) + (w * x));
+    var r20: f64 = two * ((x * z) + (w * y));
+    var r21: f64 = two * ((y * z) - (w * x));
+    var r22: f64 = one - (two * ((x * x) + (y * y)));
+    var s0: f64 = f32_to(load32(j + 100));
+    var s1: f64 = f32_to(load32(j + 104));
+    var s2: f64 = f32_to(load32(j + 108));
+    var t0: f64 = f32_to(load32(j + 72));
+    var t1: f64 = f32_to(load32(j + 76));
+    var t2: f64 = f32_to(load32(j + 80));
+    store64(m, s0 * r00);
+    store64(m + 8, s0 * r01);
+    store64(m + 16, s0 * r02);
+    store64(m + 24, zero);
+    store64(m + 32, s1 * r10);
+    store64(m + 40, s1 * r11);
+    store64(m + 48, s1 * r12);
+    store64(m + 56, zero);
+    store64(m + 64, s2 * r20);
+    store64(m + 72, s2 * r21);
+    store64(m + 80, s2 * r22);
+    store64(m + 88, zero);
+    store64(m + 96, t0);
+    store64(m + 104, t1);
+    store64(m + 112, t2);
+    store64(m + 120, one);
+    return m;
+}
+
+# a · b (a: 16 f64; b: 16 f32, widened) rounded once to 16 f32 at out: a joint matrix.
+fn _sr_mul64_round(a, b, out) {
+    var a00: f64 = load64(a + 0);
+    var a01: f64 = load64(a + 8);
+    var a02: f64 = load64(a + 16);
+    var a03: f64 = load64(a + 24);
+    var a10: f64 = load64(a + 32);
+    var a11: f64 = load64(a + 40);
+    var a12: f64 = load64(a + 48);
+    var a13: f64 = load64(a + 56);
+    var a20: f64 = load64(a + 64);
+    var a21: f64 = load64(a + 72);
+    var a22: f64 = load64(a + 80);
+    var a23: f64 = load64(a + 88);
+    var a30: f64 = load64(a + 96);
+    var a31: f64 = load64(a + 104);
+    var a32: f64 = load64(a + 112);
+    var a33: f64 = load64(a + 120);
+    var b00: f64 = f32_to(load32(b + 0));
+    var b01: f64 = f32_to(load32(b + 4));
+    var b02: f64 = f32_to(load32(b + 8));
+    var b03: f64 = f32_to(load32(b + 12));
+    var b10: f64 = f32_to(load32(b + 16));
+    var b11: f64 = f32_to(load32(b + 20));
+    var b12: f64 = f32_to(load32(b + 24));
+    var b13: f64 = f32_to(load32(b + 28));
+    var b20: f64 = f32_to(load32(b + 32));
+    var b21: f64 = f32_to(load32(b + 36));
+    var b22: f64 = f32_to(load32(b + 40));
+    var b23: f64 = f32_to(load32(b + 44));
+    var b30: f64 = f32_to(load32(b + 48));
+    var b31: f64 = f32_to(load32(b + 52));
+    var b32: f64 = f32_to(load32(b + 56));
+    var b33: f64 = f32_to(load32(b + 60));
+    var z: f64 = 0.0;
+    var r00: f64 = (((z + (a00 * b00)) + (a10 * b01)) + (a20 * b02)) + (a30 * b03);
+    var r01: f64 = (((z + (a01 * b00)) + (a11 * b01)) + (a21 * b02)) + (a31 * b03);
+    var r02: f64 = (((z + (a02 * b00)) + (a12 * b01)) + (a22 * b02)) + (a32 * b03);
+    var r03: f64 = (((z + (a03 * b00)) + (a13 * b01)) + (a23 * b02)) + (a33 * b03);
+    var r10: f64 = (((z + (a00 * b10)) + (a10 * b11)) + (a20 * b12)) + (a30 * b13);
+    var r11: f64 = (((z + (a01 * b10)) + (a11 * b11)) + (a21 * b12)) + (a31 * b13);
+    var r12: f64 = (((z + (a02 * b10)) + (a12 * b11)) + (a22 * b12)) + (a32 * b13);
+    var r13: f64 = (((z + (a03 * b10)) + (a13 * b11)) + (a23 * b12)) + (a33 * b13);
+    var r20: f64 = (((z + (a00 * b20)) + (a10 * b21)) + (a20 * b22)) + (a30 * b23);
+    var r21: f64 = (((z + (a01 * b20)) + (a11 * b21)) + (a21 * b22)) + (a31 * b23);
+    var r22: f64 = (((z + (a02 * b20)) + (a12 * b21)) + (a22 * b22)) + (a32 * b23);
+    var r23: f64 = (((z + (a03 * b20)) + (a13 * b21)) + (a23 * b22)) + (a33 * b23);
+    var r30: f64 = (((z + (a00 * b30)) + (a10 * b31)) + (a20 * b32)) + (a30 * b33);
+    var r31: f64 = (((z + (a01 * b30)) + (a11 * b31)) + (a21 * b32)) + (a31 * b33);
+    var r32: f64 = (((z + (a02 * b30)) + (a12 * b31)) + (a22 * b32)) + (a32 * b33);
+    var r33: f64 = (((z + (a03 * b30)) + (a13 * b31)) + (a23 * b32)) + (a33 * b33);
+    store32(out + 0, f32_from(r00));
+    store32(out + 4, f32_from(r01));
+    store32(out + 8, f32_from(r02));
+    store32(out + 12, f32_from(r03));
+    store32(out + 16, f32_from(r10));
+    store32(out + 20, f32_from(r11));
+    store32(out + 24, f32_from(r12));
+    store32(out + 28, f32_from(r13));
+    store32(out + 32, f32_from(r20));
+    store32(out + 36, f32_from(r21));
+    store32(out + 40, f32_from(r22));
+    store32(out + 44, f32_from(r23));
+    store32(out + 48, f32_from(r30));
+    store32(out + 52, f32_from(r31));
+    store32(out + 56, f32_from(r32));
+    store32(out + 60, f32_from(r33));
+    return out;
+}
+
+# out = a · TRS(joint j) in f64 (a: 16 f64; out: 16 f64): _sr_compose_trs64's matrix, kept in locals rather than
+# stored and reloaded, then sr_mul_mat4's sums in its order with no rounding.
+fn _sr_mul64_trs(a, j, out) {
+    var a00: f64 = load64(a + 0);
+    var a01: f64 = load64(a + 8);
+    var a02: f64 = load64(a + 16);
+    var a03: f64 = load64(a + 24);
+    var a10: f64 = load64(a + 32);
+    var a11: f64 = load64(a + 40);
+    var a12: f64 = load64(a + 48);
+    var a13: f64 = load64(a + 56);
+    var a20: f64 = load64(a + 64);
+    var a21: f64 = load64(a + 72);
+    var a22: f64 = load64(a + 80);
+    var a23: f64 = load64(a + 88);
+    var a30: f64 = load64(a + 96);
+    var a31: f64 = load64(a + 104);
+    var a32: f64 = load64(a + 112);
+    var a33: f64 = load64(a + 120);
+    var x: f64 = f32_to(load32(j + 84));
+    var y: f64 = f32_to(load32(j + 88));
+    var z: f64 = f32_to(load32(j + 92));
+    var w: f64 = f32_to(load32(j + 96));
+    var one: f64 = 1.0;
+    var two: f64 = 2.0;
+    var zero: f64 = 0.0;
+    var s0: f64 = f32_to(load32(j + 100));
+    var s1: f64 = f32_to(load32(j + 104));
+    var s2: f64 = f32_to(load32(j + 108));
+    var b00: f64 = s0 * (one - (two * ((y * y) + (z * z))));
+    var b01: f64 = s0 * (two * ((x * y) + (w * z)));
+    var b02: f64 = s0 * (two * ((x * z) - (w * y)));
+    var b10: f64 = s1 * (two * ((x * y) - (w * z)));
+    var b11: f64 = s1 * (one - (two * ((x * x) + (z * z))));
+    var b12: f64 = s1 * (two * ((y * z) + (w * x)));
+    var b20: f64 = s2 * (two * ((x * z) + (w * y)));
+    var b21: f64 = s2 * (two * ((y * z) - (w * x)));
+    var b22: f64 = s2 * (one - (two * ((x * x) + (y * y))));
+    var b30: f64 = f32_to(load32(j + 72));
+    var b31: f64 = f32_to(load32(j + 76));
+    var b32: f64 = f32_to(load32(j + 80));
+    store64(out + 0, (((zero + (a00 * b00)) + (a10 * b01)) + (a20 * b02)) + (a30 * zero));
+    store64(out + 8, (((zero + (a01 * b00)) + (a11 * b01)) + (a21 * b02)) + (a31 * zero));
+    store64(out + 16, (((zero + (a02 * b00)) + (a12 * b01)) + (a22 * b02)) + (a32 * zero));
+    store64(out + 24, (((zero + (a03 * b00)) + (a13 * b01)) + (a23 * b02)) + (a33 * zero));
+    store64(out + 32, (((zero + (a00 * b10)) + (a10 * b11)) + (a20 * b12)) + (a30 * zero));
+    store64(out + 40, (((zero + (a01 * b10)) + (a11 * b11)) + (a21 * b12)) + (a31 * zero));
+    store64(out + 48, (((zero + (a02 * b10)) + (a12 * b11)) + (a22 * b12)) + (a32 * zero));
+    store64(out + 56, (((zero + (a03 * b10)) + (a13 * b11)) + (a23 * b12)) + (a33 * zero));
+    store64(out + 64, (((zero + (a00 * b20)) + (a10 * b21)) + (a20 * b22)) + (a30 * zero));
+    store64(out + 72, (((zero + (a01 * b20)) + (a11 * b21)) + (a21 * b22)) + (a31 * zero));
+    store64(out + 80, (((zero + (a02 * b20)) + (a12 * b21)) + (a22 * b22)) + (a32 * zero));
+    store64(out + 88, (((zero + (a03 * b20)) + (a13 * b21)) + (a23 * b22)) + (a33 * zero));
+    store64(out + 96, (((zero + (a00 * b30)) + (a10 * b31)) + (a20 * b32)) + (a30 * one));
+    store64(out + 104, (((zero + (a01 * b30)) + (a11 * b31)) + (a21 * b32)) + (a31 * one));
+    store64(out + 112, (((zero + (a02 * b30)) + (a12 * b31)) + (a22 * b32)) + (a32 * one));
+    store64(out + 120, (((zero + (a03 * b30)) + (a13 * b31)) + (a23 * b32)) + (a33 * one));
+    return out;
+}
+
+# ── world transforms, joint matrices ─────────────────────────────────────────────────
+
+# Joint i's parent when it is in range and not i itself, else −1 (a root).
+#must_use
+fn _sr_parent_of(joints, i, n): i64 {
+    var p = load64(joints + i * 112);
+    if (p >= 0 && p < n && p != i) { return p; }
+    return 0 - 1;
+}
+
+# Fills the scratch world transforms (f64) of the n ≤ SR_MAX_JOINTS joints: one forward pass when every parent
+# precedes its child (and resolve is 0), else Rust's general walk (each unresolved ancestor chain climbed once, then
+# resolved top-down; a parent out of range, the joint itself, or closing a cycle makes a root). Returns n, or 0 when
+# the scratch can't be allocated.
+fn _sr_world64(joints, n, resolve): i64 {
+    var w = _sr_anim_scratch_get();
+    if (w == 0) { return 0; }
+    var sorted = 1 - resolve;
+    var i = 0;
+    while (sorted == 1 && i < n) {
+        var p = load64(joints + i * 112);
+        if (p >= i) { sorted = 0; }
+        i = i + 1;
+    }
+    if (sorted == 1) {
+        i = 0;
+        while (i < n) {
+            var pj = load64(joints + i * 112);
+            if (pj >= 0) {
+                _sr_mul64_trs(w + pj * 128, joints + i * 112, w + i * 128);
+            } else {
+                _sr_compose_trs64(joints + i * 112, w + i * 128);
+            }
+            i = i + 1;
+        }
+        return n;
+    }
+    var st = w + 16384;
+    var ch = w + 16512;
+    i = 0;
+    while (i < n) {
+        store8(st + i, 0);
+        i = i + 1;
+    }
+    var start = 0;
+    while (start < n) {
+        if (load8(st + start) != 2) {
+            var len = 0;
+            var j = start;
+            var climbing = 1;
+            while (climbing == 1) {
+                store8(st + j, 1);
+                store64(ch + len * 8, j);
+                len = len + 1;
+                var up = _sr_parent_of(joints, j, n);
+                if (up >= 0 && load8(st + up) == 0) { j = up; } else { climbing = 0; }
+            }
+            while (len > 0) {
+                len = len - 1;
+                var k = load64(ch + len * 8);
+                var pk = _sr_parent_of(joints, k, n);
+                if (pk >= 0 && load8(st + pk) == 2) {
+                    _sr_mul64_trs(w + pk * 128, joints + k * 112, w + k * 128);
+                } else {
+                    _sr_compose_trs64(joints + k * 112, w + k * 128);
+                }
+                store8(st + k, 2);
+            }
+        }
+        start = start + 1;
+    }
+    return n;
+}
+
+# The world transforms (16 f32 each, rounded once from f64) of the first min(n, SR_MAX_JOINTS) of the n joints, into
+# out; returns how many (0 when the scratch can't be allocated). resolve 1 forces the general walk. The oracle hooks
+# `world_transforms(_resolved)`.
+fn _sr_world_out(joints, n, out, resolve): i64 {
+    var c = n;
+    if (c > SR_MAX_JOINTS) { c = SR_MAX_JOINTS; }
+    if (c < 0) { c = 0; }
+    c = _sr_world64(joints, c, resolve);
+    var w = _sr_anim_scratch;
+    var i = 0;
+    while (i < c * 16) {
+        var x: f64 = load64(w + i * 8);
+        store32(out + i * 4, f32_from(x));
+        i = i + 1;
+    }
+    return c;
+}
+
+# World transforms by the library's own path (one pass when parents precede children). Mirrors `world_transforms`.
+fn sr_world_transforms(joints, n, out): i64 { return _sr_world_out(joints, n, out, 0); }
+
+# World transforms by the general walk alone. Mirrors the oracle's `world_transforms_resolved`.
+fn sr_world_transforms_resolved(joints, n, out): i64 { return _sr_world_out(joints, n, out, 1); }
+
+# The skeleton's joint matrices, world transform · inverse bind for each of its first SR_MAX_JOINTS joints (16 f32
+# each, rounded once from f64), into out (room for SR_MAX_JOINTS matrices: an SrJointUniforms' joints will do); returns
+# how many (0 when the one-time scratch allocation fails). Mirrors `Skeleton::compute_joint_matrices`.
+fn SrSkeleton_compute_joint_matrices(sk, out): i64 {
+    var joints = load64(sk);
+    var c = load64(sk + 8);
+    if (c > SR_MAX_JOINTS) { c = SR_MAX_JOINTS; }
+    if (c < 0) { c = 0; }
+    c = _sr_world64(joints, c, 0);
+    var w = _sr_anim_scratch;
+    var i = 0;
+    while (i < c) {
+        _sr_mul64_round(w + i * 128, joints + i * 112 + 8, out + i * 64);
+        i = i + 1;
+    }
+    return c;
+}
+
+# ── slerp ────────────────────────────────────────────────────────────────────────────
+
+# (q0, q1, q2, q3) / its length, rounded once to 4 f32 at out; the identity (0, 0, 0, 1) when the length is not finite
+# or ≤ 1e-12f32. The length is √(((q0² + q1²) + q2²) + q3²) in f64.
+fn _sr_quat_unit(q0: f64, q1: f64, q2: f64, q3: f64, out) {
+    var ss: f64 = (((q0 * q0) + (q1 * q1)) + (q2 * q2)) + (q3 * q3);
+    var ln: f64 = f64_sqrt(ss);
+    var lim: f64 = f32_to(0x2B8CBCCC);
+    if (_sr_f64_finite(ln) == 1 && ln > lim) {
+        store32(out, f32_from(q0 / ln));
+        store32(out + 4, f32_from(q1 / ln));
+        store32(out + 8, f32_from(q2 / ln));
+        store32(out + 12, f32_from(q3 / ln));
+        return out;
+    }
+    store64(out, 0);
+    store64(out + 8, 0x3F80000000000000);
+    return out;
+}
+
+# The shortest-path slerp of the quaternions a and b (x, y, z, w; 4 f32 each) at t (f32 bits), normalized (the identity
+# when degenerate), into out. Rust's formula in f64, rounded once (class E): cos = ((a0b0 + a1b1) + a2b2) + a3b3; b and
+# cos negated when cos < 0; weights (1 − t, t) when cos > 0.9995f32, else sin((1 − t)θ) / sin θ and sin(tθ) / sin θ with
+# θ = acos(clamp(cos, −1, 1)). acos and sin are correctly rounded (src/crmath.cyr): with ganita's, a 1-ulp difference
+# survives the final rounding wherever the weights cancel. Mirrors `slerp`.
+#
+# UPSTREAM(L1): ganita:docs/development/issues/2026-11-09-correctly-rounded-exp-sin-cos-hypot.md
+#   call ganita's f64 acos and sin once they are correctly rounded, and drop src/crmath.cyr's vendored copies;
+#   parity: the slerp, interpolate_rotation and AnimationClip::sample rows of tests/golden/animation.tsv (class E).
+fn sr_slerp(a, b, t, out) {
+    var a0: f64 = f32_to(load32(a));
+    var a1: f64 = f32_to(load32(a + 4));
+    var a2: f64 = f32_to(load32(a + 8));
+    var a3: f64 = f32_to(load32(a + 12));
+    var bb0 = load32(b);
+    var bb1 = load32(b + 4);
+    var bb2 = load32(b + 8);
+    var bb3 = load32(b + 12);
+    var b0: f64 = f32_to(bb0);
+    var b1: f64 = f32_to(bb1);
+    var b2: f64 = f32_to(bb2);
+    var b3: f64 = f32_to(bb3);
+    var c: f64 = (((a0 * b0) + (a1 * b1)) + (a2 * b2)) + (a3 * b3);
+    var zero: f64 = 0.0;
+    if (c < zero) {
+        b0 = f32_to(bb0 ^ 0x80000000);
+        b1 = f32_to(bb1 ^ 0x80000000);
+        b2 = f32_to(bb2 ^ 0x80000000);
+        b3 = f32_to(bb3 ^ 0x80000000);
+        c = zero - c;
+    }
+    var tt: f64 = f32_to(t & 0xFFFFFFFF);
+    var one: f64 = 1.0;
+    var wa: f64 = one - tt;
+    var wb: f64 = tt;
+    var sw: f64 = f32_to(0x3F7FDF3B);
+    var near = 0;
+    if (c > sw) { near = 1; }
+    if (near == 0) {
+        var m1: f64 = zero - one;
+        var cc: f64 = c;
+        if (cc < m1) { cc = m1; }
+        if (cc > one) { cc = one; }
+        var th: f64 = _sr_km_cr_acos(cc);
+        var sn: f64 = _sr_km_cr_sin(th);
+        wa = _sr_km_cr_sin(wa * th) / sn;
+        wb = _sr_km_cr_sin(tt * th) / sn;
+    }
+    var q0: f64 = (wa * a0) + (wb * b0);
+    var q1: f64 = (wa * a1) + (wb * b1);
+    var q2: f64 = (wa * a2) + (wb * b2);
+    var q3: f64 = (wa * a3) + (wb * b3);
+    return _sr_quat_unit(q0, q1, q2, q3, out);
+}
+
+# ── brackets, interpolation ──────────────────────────────────────────────────────────
+
+# Rust 1.100's `partition_point(|k| k.time <= time)` over the n keys: its branch-free binary search (the loop count
+# depends only on n), so an unsorted track gives Rust's index too.
+#must_use
+fn _sr_partition_point(keys, n, time): i64 {
+    var size = n;
+    var base = 0;
+    while (size > 1) {
+        var half = size / 2;
+        if (_sr_f32_le(load32(keys + (base + half) * 40), time) == 1) { base = base + half; }
+        size = size - half;
+    }
+    return base + _sr_f32_le(load32(keys + base * 40), time);
+}
+
+# Where time (f32 bits) falls in the n keys (time-sorted): SR_BRACKET_NONE for no keys; SR_BRACKET_AT with the key's
+# index at out (the first key for one key, a NaN time or a time ≤ the first key's; the last for one ≥ the last key's);
+# SR_BRACKET_BETWEEN with the two keys' indices and t ∈ [0, 1] (f32: (time − a) / (b − a), clamped; 0 when
+# |b − a| ≤ f32::EPSILON) at out, out + 8, out + 16. Rust's f32 sequence (class A). Mirrors `bracket`.
+fn sr_bracket(keys, n, time, out): i64 {
+    if (n <= 0) { return SR_BRACKET_NONE; }
+    var tb = time & 0xFFFFFFFF;
+    if (n == 1 || _sr_f32_is_nan(tb) == 1 || _sr_f32_le(tb, load32(keys)) == 1) {
+        store64(out, 0);
+        return SR_BRACKET_AT;
+    }
+    if (_sr_f32_le(load32(keys + (n - 1) * 40), tb) == 1) {
+        store64(out, n - 1);
+        return SR_BRACKET_AT;
+    }
+    var hi = _sr_partition_point(keys, n, tb);
+    if (hi < 1) { hi = 1; }
+    if (hi > n - 1) { hi = n - 1; }
+    var ta = load32(keys + (hi - 1) * 40);
+    var dt = _sr_f32_sub(load32(keys + hi * 40), ta) & 0xFFFFFFFF;
+    var t = 0;
+    if (_sr_f32_lt(0x34000000, dt & 0x7FFFFFFF) == 1) {
+        t = _sr_clamp32(_sr_f32_div(_sr_f32_sub(tb, ta), dt), 0, 0x3F800000);
+    }
+    store64(out, hi - 1);
+    store64(out + 8, hi);
+    store64(out + 16, t & 0xFFFFFFFF);
+    return SR_BRACKET_BETWEEN;
+}
+
+# The value of a bracket (kind, br from sr_bracket) by linear interpolation: the key's own for SR_BRACKET_AT,
+# a + (b − a)·t per component in f32 (as many as the shorter key has) for SR_BRACKET_BETWEEN. Writes the first cap
+# components to out; returns how many there are (0 for SR_BRACKET_NONE).
+fn _sr_lerp_bracket(keys, kind, br, out, cap): i64 {
+    if (kind == SR_BRACKET_NONE) { return 0; }
+    var ka = keys + load64(br) * 40;
+    var va = load64(ka + 8);
+    var m = load64(ka + 16);
+    var i = 0;
+    if (kind == SR_BRACKET_AT) {
+        while (i < m && i < cap) {
+            store32(out + i * 4, load32(va + i * 4));
+            i = i + 1;
+        }
+        return m;
+    }
+    var kb = keys + load64(br + 8) * 40;
+    var vb = load64(kb + 8);
+    if (load64(kb + 16) < m) { m = load64(kb + 16); }
+    var t = load64(br + 16);
+    while (i < m && i < cap) {
+        store32(out + i * 4, _sr_f32_lerp(load32(va + i * 4), load32(vb + i * 4), t));
+        i = i + 1;
+    }
+    return m;
+}
+
+# The n keys' linear interpolation at time (f32 bits): its first cap components into out; returns how many components
+# it has (0 for no keys). Class A. Mirrors `interpolate_keyframes`.
+fn sr_interpolate_keyframes(keys, n, time, out, cap): i64 {
+    var br[24];
+    var kind = sr_bracket(keys, n, time, &br);
+    return _sr_lerp_bracket(keys, kind, &br, out, cap);
+}
+
+# A rotation track at time: the slerp of the two keys around it when both have ≥ 4 components (4 components),
+# otherwise linear interpolation. Its first cap components into out; returns how many it has. Mirrors
+# `interpolate_rotation`.
+fn sr_interpolate_rotation(keys, n, time, out, cap): i64 {
+    var br[24];
+    var kind = sr_bracket(keys, n, time, &br);
+    if (kind == SR_BRACKET_BETWEEN) {
+        var ka = keys + load64(&br) * 40;
+        var kb = keys + load64(&br + 8) * 40;
+        if (load64(ka + 16) >= 4 && load64(kb + 16) >= 4) {
+            var q[16];
+            sr_slerp(load64(ka + 8), load64(kb + 8), load64(&br + 16), &q);
+            var i = 0;
+            while (i < 4 && i < cap) {
+                store32(out + i * 4, load32(&q + i * 4));
+                i = i + 1;
+            }
+            return 4;
+        }
+    }
+    return _sr_lerp_bracket(keys, kind, &br, out, cap);
+}
+
+# Component i of the f32 array p as f64, or 0 when p is 0 (a missing tangent).
+fn _sr_tan(p, i): i64 {
+    if (p == 0) { return 0; }
+    var x: f64 = f32_to(load32(p + i * 4));
+    return x;
+}
+
+# A CUBICSPLINE track at time (ADR 0002 #13): outside or at the ends, and between keys less than f32::EPSILON apart,
+# as sr_interpolate_keyframes; between keys a and b at s (the bracket's t), the glTF cubic Hermite spline in f64
+# from the f32 inputs, rounded once (class R):
+#   p = (((h00·va + h10·(dt·out_a)) + h01·vb) + h11·(dt·in_b)),  dt = time_b − time_a,
+#   h00 = (2s³ − 3s²) + 1, h10 = (s³ − 2s²) + s, h01 = 3s² − 2s³, h11 = s³ − s²  (s² = s·s, s³ = s²·s),
+# a missing tangent counting as 0. A rotation (rot 1, ≥ 4 components) is normalized as slerp's result is. Its first
+# cap components into out; returns how many it has.
+fn sr_interpolate_cubic(keys, n, time, out, cap, rot): i64 {
+    var br[24];
+    var kind = sr_bracket(keys, n, time, &br);
+    if (kind != SR_BRACKET_BETWEEN) { return _sr_lerp_bracket(keys, kind, &br, out, cap); }
+    var ka = keys + load64(&br) * 40;
+    var kb = keys + load64(&br + 8) * 40;
+    var m = load64(ka + 16);
+    if (load64(kb + 16) < m) { m = load64(kb + 16); }
+    var ta: f64 = f32_to(load32(ka));
+    var tb: f64 = f32_to(load32(kb));
+    var dt: f64 = tb - ta;
+    var s: f64 = f32_to(load64(&br + 16));
+    var one: f64 = 1.0;
+    var two: f64 = 2.0;
+    var three: f64 = 3.0;
+    var s2: f64 = s * s;
+    var s3: f64 = s2 * s;
+    var h00: f64 = ((two * s3) - (three * s2)) + one;
+    var h10: f64 = (s3 - (two * s2)) + s;
+    var h01: f64 = (three * s2) - (two * s3);
+    var h11: f64 = s3 - s2;
+    var va = load64(ka + 8);
+    var vb = load64(kb + 8);
+    var oa = load64(ka + 32);
+    var ib = load64(kb + 24);
+    var p[32];
+    var i = 0;
+    while (i < m && (i < cap || (rot == 1 && i < 4))) {
+        var x: f64 = f32_to(load32(va + i * 4));
+        var y: f64 = f32_to(load32(vb + i * 4));
+        var u: f64 = _sr_tan(oa, i);
+        var w: f64 = _sr_tan(ib, i);
+        var v: f64 = (((h00 * x) + (h10 * (dt * u))) + (h01 * y)) + (h11 * (dt * w));
+        if (i < 4) { store64(&p + i * 8, v); }
+        if (rot == 0 || m < 4) {
+            if (i < cap) { store32(out + i * 4, f32_from(v)); }
+        }
+        i = i + 1;
+    }
+    if (rot == 1 && m >= 4) {
+        var q[16];
+        _sr_quat_unit(load64(&p), load64(&p + 8), load64(&p + 16), load64(&p + 24), &q);
+        i = 0;
+        while (i < 4 && i < cap) {
+            store32(out + i * 4, load32(&q + i * 4));
+            i = i + 1;
+        }
+        return 4;
+    }
+    return m;
+}
+
+# ── sampler pairing ──────────────────────────────────────────────────────────────────
+
+# Sets the keyframe key to time (f32 bits) and the len f32 at value, with no tangents; returns key.
+fn _sr_key_set(key, time, value, len) {
+    store64(key, time & 0xFFFFFFFF);
+    store64(key + 8, value);
+    store64(key + 16, len);
+    store64(key + 24, 0);
+    store64(key + 32, 0);
+    return key;
+}
+
+# Pairs a glTF sampler's nt input times (f32 at times) with its nv outputs (width f32 each, at values) by mode
+# (SR_INTERPOLATION_*), into the channel ch: its keyframes (allocated from a; each key's value, and a CUBICSPLINE
+# key's tangents, point into values, which must outlive the channel), keyframe_count and interpolation. LINEAR pairs
+# them one to one; CUBICSPLINE takes the (in-tangent, value, out-tangent) triplets, keeping the tangents Rust drops
+# (ADR 0002 #13); STEP adds a duplicate-time key with the previous value before every key after the first, so linear
+# playback holds each value. 1, or 0 when the allocation fails (ch then has no keys). Mirrors `build_keyframes`.
+fn sr_build_keyframes(ch, times, nt, values, nv, width, mode, a): i64 {
+    var stride = width * 4;
+    var n = nt;
+    if (nv < n) { n = nv; }
+    var count = n;
+    if (mode == SR_INTERPOLATION_CUBICSPLINE) {
+        var nk = 0;
+        if (nv > 1) { nk = (nv - 2) / 3 + 1; }
+        count = nt;
+        if (nk < count) { count = nk; }
+    }
+    if (mode == SR_INTERPOLATION_STEP && n > 0) { count = 2 * n - 1; }
+    if (count < 0) { count = 0; }
+    store64(ch + 16, 0);
+    store64(ch + 24, 0);
+    store64(ch + 32, mode);
+    var keys = 0;
+    if (count > 0) {
+        keys = alloc_via(a, count * 40);
+        if (keys == 0) { return 0; }
+    }
+    var o = 0;
+    if (mode == SR_INTERPOLATION_STEP) {
+        var k = 0;
+        while (k < n) {
+            if (k > 0) {
+                _sr_key_set(keys + o * 40, load32(times + k * 4), values + (k - 1) * stride, width);
+                o = o + 1;
+            }
+            _sr_key_set(keys + o * 40, load32(times + k * 4), values + k * stride, width);
+            o = o + 1;
+            k = k + 1;
+        }
+    } elif (mode == SR_INTERPOLATION_CUBICSPLINE) {
+        while (o < count) {
+            var key = keys + o * 40;
+            _sr_key_set(key, load32(times + o * 4), values + (3 * o + 1) * stride, width);
+            store64(key + 24, values + 3 * o * stride);
+            if (3 * o + 2 < nv) { store64(key + 32, values + (3 * o + 2) * stride); }
+            o = o + 1;
+        }
+    } else {
+        while (o < count) {
+            _sr_key_set(keys + o * 40, load32(times + o * 4), values + o * stride, width);
+            o = o + 1;
+        }
+    }
+    store64(ch + 16, keys);
+    store64(ch + 24, count);
+    return 1;
+}
+
+# ── clip sampling ────────────────────────────────────────────────────────────────────
+
+# Rust's `f32::rem_euclid(x, y)`: r = x % y (exact), and r + |y| in f32 when r < 0.
+#must_use
+fn _sr_f32_rem_euclid(x, y): i64 {
+    var r = _sr_f32_fmod(x, y);
+    if (_sr_f32_lt(r, 0) == 1) { return _sr_f32_add(r, y & 0x7FFFFFFF); }
+    return r;
+}
+
+# Poses the skeleton sk at time (f32 bits): the time wraps into [0, duration) (negative times backwards) when the
+# duration is > 0 and the time finite, else 0. Each channel whose joint exists sets that joint's translation or scale
+# (when its value has ≥ 3 components) or rotation (≥ 4): linear interpolation, slerp for rotations, the Hermite spline
+# for CUBICSPLINE channels. Mirrors `AnimationClip::sample`.
+fn SrAnimationClip_sample(clip, sk, time) {
+    var dur = load32(clip + 16);
+    var tb = time & 0xFFFFFFFF;
+    var t = 0;
+    if (_sr_f32_lt(0, dur) == 1 && (tb & 0x7F800000) != 0x7F800000) { t = _sr_f32_rem_euclid(tb, dur); }
+    var joints = load64(sk);
+    var nj = load64(sk + 8);
+    var chs = load64(clip + 24);
+    var nc = load64(clip + 32);
+    var v[16];
+    var c = 0;
+    while (c < nc) {
+        var ch = chs + c * 40;
+        var ji = load64(ch);
+        if (ji >= 0 && ji < nj) {
+            var j = joints + ji * 112;
+            var prop = load64(ch + 8);
+            var keys = load64(ch + 16);
+            var nk = load64(ch + 24);
+            var rot = 0;
+            if (prop == SR_ANIMATION_PROPERTY_ROTATION) { rot = 1; }
+            var got = 0;
+            if (load64(ch + 32) == SR_INTERPOLATION_CUBICSPLINE) {
+                got = sr_interpolate_cubic(keys, nk, t, &v, 4, rot);
+            } elif (rot == 1) {
+                got = sr_interpolate_rotation(keys, nk, t, &v, 4);
+            } else {
+                got = sr_interpolate_keyframes(keys, nk, t, &v, 4);
+            }
+            if (prop == SR_ANIMATION_PROPERTY_TRANSLATION && got >= 3) {
+                store64(j + 72, load64(&v));
+                store32(j + 80, load32(&v + 8));
+            }
+            if (rot == 1 && got >= 4) {
+                store64(j + 84, load64(&v));
+                store64(j + 92, load64(&v + 8));
+            }
+            if (prop == SR_ANIMATION_PROPERTY_SCALE && got >= 3) {
+                store64(j + 100, load64(&v));
+                store32(j + 108, load32(&v + 8));
+            }
+        }
+        c = c + 1;
+    }
+    return clip;
+}

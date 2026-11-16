@@ -96,9 +96,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - All 37 Rust tests ported (`tests/{primitives,viz,terrain}.tcyr`, a winding check in `tests/support.cyr`);
     `terrain/*` and `primitives/sphere_32x16` twins (`tests/geom.bcyr`). `create_terrain_mesh` moved to M6 (GPU).
 
+- **M3 part b: animation** (`src/animation.cyr`; ADR 0002 #24), all but the glTF loader (part c).
+  - `SrJoint`, `SrSkeleton`, `SrJointUniforms_default` / `_set_joints`, `SrKeyframe`, `SrAnimationChannel`,
+    `SrAnimationClip` and `SrAnimationClip_sample`; brackets (Rust's binary search, so unsorted tracks match too),
+    linear and rotation interpolation, `sr_slerp`, `sr_build_keyframes`, local and world transforms.
+  - Joint chains accumulate in f64 and round once per joint. On the 64-joint chain, Rust's f32 leaf is 183 ulp from
+    that value.
+  - **CUBICSPLINE plays back as the glTF cubic Hermite spline** (ADR 0002 #13): channels keep their interpolation mode
+    and keys their tangents (`sr_interpolate_cubic`). Rust 1.x drops the tangents and plays linearly.
+  - 1,777 golden rows pass (`tests/golden/animation.tsv`), 520 as class E. 19 of 21 Rust tests ported, with Cyrius-only
+    tests for the spline (class R), fmod and crmath (`tests/animation.tcyr`); `animation/*` twins (`tests/animation.bcyr`).
+- **`src/crmath.cyr`**: correctly rounded f64 `sin` and `acos`, vendored from kimiya 2.0.1 by `scripts/vendor_crmath.py`
+  (29 functions, 26 MPFR tables; `--check` against `../kimiya`). It is upstream ledger L1's stand-in, due at M5 and
+  needed now: ganita's `acos` is up to 2 ulp from glibc's on 21.8 % of a dense grid. One slerp row, whose weights
+  cancel to exactly 0, showed it. Every binary that includes soorat carries its tables (+20.2 KB); one that reaches
+  slerp also carries its code (+36.6 KB in all).
+- **`_sr_f32_fmod`**: Rust's f32 `%`, exact on the integer significands, for `rem_euclid` (ledger L22).
+- `scripts/oracle/validate.py` re-derives every animation row, emulating Rust 1.100's `partition_point` and glibc's
+  f32 trigonometry within 1 ulp. Its f64 reference now uses its own correctly rounded `sin` and `acos` (80-digit
+  decimal arithmetic) rather than glibc's.
+
 ### Performance (M3)
 - sphere: each column's `cos θ` and `sin θ` computed once, not once per ring (the same values).
   `primitives/sphere_32x16` 68.1 → 24.8 µs (−64 %). Every golden row is unchanged.
+- joint chains: a joint's TRS matrix multiplied from locals, not stored and reloaded (the same values).
+  `animation/compute_joints_16` 4.66 → 4.25 µs (−9 %), `compute_joints_64` 18.6 → 17.0 µs (−9 %),
+  `compute_joints_64_unsorted` 20.0 → 18.1 µs (−9 %).
+- slerp's correctly rounded `acos` and `sin` cost about 68 ns a call more than ganita's:
+  `animation/sample_rotation_64x32` 20.6 µs with ganita's (one golden row fails), 38.1 µs correctly rounded (all pass).
 
 ### Performance (M2)
 - debug geometry: each line's two vertices written inline, and a circle's `sin`/`cos` table cached for its segment

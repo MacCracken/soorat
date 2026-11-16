@@ -1,0 +1,505 @@
+# animation.tcyr — the ported tests of Rust 1.2.0's src/animation.rs (M3 part b): 19 of its 21
+# (`load_fixture_animations` and `load_invalid_gltf_animations` need the GLB loader, part c). Then the Cyrius-only
+# tests: CUBICSPLINE playback (ADR 0002 #13, class R against the glTF formula evaluated here independently), the exact
+# f32 fmod, the correctly rounded acos and sin (src/crmath.cyr), and the layouts. The golden rows
+# (tests/golden/animation.tsv, its .e.tsv) are replayed by tests/parity.tcyr.
+
+include "tests/lib.cyr"
+include "tests/support.cyr"
+
+var A = 0;
+var H = 0x3F3504F3;
+
+# The f32 bits of the integer k.
+fn f(k): i64 { return f32_from(f64_from(k)); }
+
+# The f64 of the f32 at p + 4·k.
+fn at(p, k): f64 {
+    var x: f64 = f32_to(load32(p + k * 4));
+    return x;
+}
+
+# The length of the quaternion (4 f32) at q, in f64.
+fn qlen(q): f64 {
+    var s: f64 = (((at(q, 0) * at(q, 0)) + (at(q, 1) * at(q, 1))) + (at(q, 2) * at(q, 2))) + (at(q, 3) * at(q, 3));
+    return f64_sqrt(s);
+}
+
+# 4 f32 (x, y, z, w) in a fresh buffer.
+fn quat(x, y, z, w): i64 {
+    var q = alloc_via(A, 16);
+    t_set4(q, x, y, z, w);
+    return q;
+}
+
+# n f32 values from the f32 bits in the word array w, in a fresh buffer.
+fn vals(w, n): i64 {
+    var p = alloc_via(A, n * 4 + 4);
+    var i = 0;
+    while (i < n) {
+        store32(p + i * 4, load64(w + i * 8));
+        i = i + 1;
+    }
+    return p;
+}
+
+# A keyframe track of n keys, key i at time times[i] (f32 bits, a word array) with value values + i·len·4.
+fn track(times, values, len, n): i64 {
+    var keys = alloc_via(A, n * 40 + 8);
+    var i = 0;
+    while (i < n) {
+        _sr_key_set(keys + i * 40, load64(times + i * 8), values + i * len * 4, len);
+        i = i + 1;
+    }
+    return keys;
+}
+
+# A word array of up to four words.
+fn words(a, b, c, d): i64 {
+    var w = alloc_via(A, 32);
+    store64(w, a);
+    store64(w + 8, b);
+    store64(w + 16, c);
+    store64(w + 24, d);
+    return w;
+}
+
+# A one-channel clip: duration (f32 bits), the channel on joint 0 for property, its n keys, LINEAR.
+fn clip1(duration, property, keys, n): i64 {
+    var ch = alloc_via(A, 40);
+    store64(ch, 0);
+    store64(ch + 8, property);
+    store64(ch + 16, keys);
+    store64(ch + 24, n);
+    store64(ch + 32, SR_INTERPOLATION_LINEAR);
+    var c = alloc_via(A, 40);
+    store64(c, 0);
+    store64(c + 8, 0);
+    store64(c + 16, duration);
+    store64(c + 24, ch);
+    store64(c + 32, 1);
+    return c;
+}
+
+# A skeleton of n joints from the array js.
+fn skel(js, n): i64 {
+    var s = alloc_via(A, 16);
+    store64(s, js);
+    store64(s + 8, n);
+    return s;
+}
+
+# Sets joint i of js to a default joint with parent p and translation (x, y, z) (f32 bits).
+fn jt(js, i, p, x, y, z) {
+    var j = SrJoint_default(js + i * 112);
+    store64(j, p);
+    store32(j + 72, x);
+    store32(j + 76, y);
+    store32(j + 80, z);
+    return j;
+}
+
+# 1 when the 16 f32 matrices at a and b are bit-identical.
+fn same_mat(a, b): i64 {
+    var i = 0;
+    while (i < 16) {
+        if (load32(a + i * 4) != load32(b + i * 4)) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+# The glTF spec's cubic Hermite value at s (f64) between (va, out-tangent ob) and (vb, in-tangent ib) over dt, in the
+# spec's own form (2s³ − 3s² + 1)·v_k + (s³ − 2s² + s)·dt·b_k + (−2s³ + 3s²)·v_k+1 + (s³ − s²)·dt·a_k+1, with s³ and s²
+# taken by powers: the independent reference for class R.
+fn spec_hermite(s: f64, va: f64, ob: f64, vb: f64, ib: f64, dt: f64): f64 {
+    var c3: f64 = s * s * s;
+    var c2: f64 = s * s;
+    var two: f64 = 2.0;
+    var three: f64 = 3.0;
+    var one: f64 = 1.0;
+    var zero: f64 = 0.0;
+    var p: f64 = (((two * c3) - (three * c2)) + one) * va;
+    p = p + ((((c3 - (two * c2)) + s) * dt) * ob);
+    p = p + ((((zero - two) * c3) + (three * c2)) * vb);
+    p = p + (((c3 - c2) * dt) * ib);
+    return p;
+}
+
+# Runs the ported and Cyrius-only animation tests.
+fn main() {
+    alloc_init();
+    A = arena_allocator_growable(1 << 20);
+    var one = 0x3F800000;
+    var tol: f64 = 0.00001;
+    var fone: f64 = 1.0;
+    var out = alloc_via(A, 64 * 130);
+    var id = quat(0, 0, 0, one);
+
+    test_group("slerp_halfway_is_half_angle_and_unit");
+    var q = sr_slerp(id, quat(0, 0, H, H), 0x3F000000, alloc_via(A, 16));
+    var s8: f64 = 0.3826834323650898;
+    var c8: f64 = 0.9238795325112867;
+    assert(t_near(at(q, 2), s8, tol) == 1 && t_near(at(q, 3), c8, tol) == 1, "45° about z: (0, 0, sin, cos of 22.5°)");
+    assert(t_near(qlen(q), fone, tol) == 1, "unit");
+
+    test_group("slerp_takes_shortest_path");
+    var qa = sr_slerp(id, quat(0, 0, H ^ 0x80000000, H ^ 0x80000000), 0x3F000000, alloc_via(A, 16));
+    var qb = sr_slerp(id, quat(0, 0, H, H), 0x3F000000, alloc_via(A, 16));
+    var k = 0;
+    var close = 1;
+    while (k < 4) {
+        if (t_near(at(qa, k), at(qb, k), tol) == 0) { close = 0; }
+        k = k + 1;
+    }
+    assert(close == 1, "-q blends as q");
+    var e = sr_slerp(id, quat(0, 0, H, H), one, alloc_via(A, 16));
+    var hh: f64 = f32_to(H);
+    assert(t_near(at(e, 2), hh, tol) == 1 && t_near(at(e, 3), hh, tol) == 1, "endpoint reproduced");
+
+    test_group("sample_rotation_stays_unit_length");
+    var rv = alloc_via(A, 32);
+    t_set4(rv, 0, 0, 0, one);
+    t_set4(rv + 16, H, 0, 0, H);
+    var rclip = clip1(one, SR_ANIMATION_PROPERTY_ROTATION, track(words(0, one, 0, 0), rv, 4, 2), 2);
+    var js1 = alloc_via(A, 112);
+    var sk1 = skel(SrJoint_default(js1), 1);
+    var unit = 1;
+    var step = 0;
+    while (step <= 10) {
+        var c099 = 0x3DCAC083;
+        SrAnimationClip_sample(rclip, sk1, _sr_f32_mul(f(step), c099));
+        if (t_near(qlen(js1 + 84), fone, tol) == 0) { unit = 0; }
+        step = step + 1;
+    }
+    assert(unit == 1, "unit at every step");
+
+    test_group("sample_wraps_negative_and_non_finite_time");
+    var tv = alloc_via(A, 24);
+    t_set4(tv, 0, 0, 0, 0x40000000);
+    store64(tv + 16, 0);
+    var tclip = clip1(0x40000000, SR_ANIMATION_PROPERTY_TRANSLATION, track(words(0, 0x40000000, 0, 0), tv, 3, 2), 2);
+    var js2 = alloc_via(A, 112);
+    var sk2 = skel(SrJoint_default(js2), 1);
+    SrAnimationClip_sample(tclip, sk2, 0xBF000000);
+    var x15: f64 = 1.5;
+    assert(t_near(at(js2 + 72, 0), x15, tol) == 1, "-0.5 wraps to 1.5");
+    SrAnimationClip_sample(tclip, sk2, 0x7FC00000);
+    assert(load32(js2 + 72) == 0 && load32(js2 + 76) == 0 && load32(js2 + 80) == 0, "NaN samples the first key");
+    SrAnimationClip_sample(tclip, skel(0, 0), one);
+    assert(1 == 1, "out-of-range joint ignored");
+
+    test_group("joint_matrices_handle_unsorted_parents");
+    var sj = alloc_via(A, 3 * 112);
+    jt(sj, 0, 0 - 1, one, 0, 0);
+    jt(sj, 1, 0, 0, 0x40000000, 0);
+    jt(sj, 2, 1, 0, 0, 0x40400000);
+    var uj = alloc_via(A, 3 * 112);
+    jt(uj, 0, 1, 0, 0, 0x40400000);
+    jt(uj, 1, 2, 0, 0x40000000, 0);
+    jt(uj, 2, 0 - 1, one, 0, 0);
+    var ma = alloc_via(A, 3 * 64);
+    var mb = alloc_via(A, 3 * 64);
+    SrSkeleton_compute_joint_matrices(skel(sj, 3), ma);
+    SrSkeleton_compute_joint_matrices(skel(uj, 3), mb);
+    assert(same_mat(ma + 128, mb) == 1, "leaf world transform matches");
+    assert(same_mat(ma + 64, mb + 64) == 1 && same_mat(ma, mb + 128) == 1, "mid and root match");
+    var leaf = ma + 128;
+    assert(load32(leaf + 48) == one && load32(leaf + 52) == 0x40000000 && load32(leaf + 56) == 0x40400000, "(1, 2, 3)");
+
+    test_group("joint_matrices_break_cycles");
+    var cj = alloc_via(A, 4 * 112);
+    jt(cj, 0, 1, one, 0, 0);
+    jt(cj, 1, 0, 0, one, 0);
+    jt(cj, 2, 2, 0, 0, one);
+    jt(cj, 3, 99, 0, 0, 0);
+    assert(SrSkeleton_compute_joint_matrices(skel(cj, 4), out) == 4, "4 matrices");
+    assert(t_all_finite(out, 64) == 1, "all finite");
+    var m2 = out + 128;
+    assert(load32(m2 + 48) == 0 && load32(m2 + 52) == 0 && load32(m2 + 56) == one, "self-parent is a root");
+
+    test_group("build_keyframes_step_and_cubic");
+    var sv = vals(words(0, 0x41200000, 0x41A00000, 0), 3);
+    var sch = alloc_via(A, 40);
+    var st3 = vals(words(0, one, 0x40000000, 0), 3);
+    assert(sr_build_keyframes(sch, st3, 3, sv, 3, 1, SR_INTERPOLATION_STEP, A) == 1, "built");
+    var buf = alloc_via(A, 16);
+    var sk = load64(sch + 16);
+    var sn = load64(sch + 24);
+    sr_interpolate_keyframes(sk, sn, 0x3F000000, buf, 4);
+    var v05 = load32(buf);
+    sr_interpolate_keyframes(sk, sn, 0x3F7FBE77, buf, 4);
+    var v0999 = load32(buf);
+    assert(v05 == 0 && v0999 == 0, "holds 0 before 1");
+    sr_interpolate_keyframes(sk, sn, one, buf, 4);
+    var v1 = load32(buf);
+    sr_interpolate_keyframes(sk, sn, 0x3FC00000, buf, 4);
+    var v15 = load32(buf);
+    sr_interpolate_keyframes(sk, sn, 0x40200000, buf, 4);
+    assert(v1 == 0x41200000 && v15 == 0x41200000 && load32(buf) == 0x41A00000, "10 from 1, 20 after 2");
+    var cv = alloc_via(A, 24);
+    t_set4(cv, 0x41100000, one, 0x41100000, 0x41100000);
+    store32(cv + 16, 0x40400000);
+    store32(cv + 20, 0x41100000);
+    var cch = alloc_via(A, 40);
+    sr_build_keyframes(cch, vals(words(0, one, 0, 0), 2), 2, cv, 6, 1, SR_INTERPOLATION_CUBICSPLINE, A);
+    var ck = load64(cch + 16);
+    assert(load64(cch + 24) == 2, "2 keys");
+    assert(load32(load64(ck + 8)) == one && load32(load64(ck + 48)) == 0x40400000, "values 1, 3");
+
+    test_group("joint_default");
+    var dj = SrJoint_default(alloc_via(A, 112));
+    assert(load64(dj) == 0 - 1, "parent -1");
+    assert(load32(dj + 84) == 0 && load32(dj + 96) == one, "identity rotation");
+    assert(load32(dj + 100) == one && load32(dj + 104) == one && load32(dj + 108) == one, "unit scale");
+
+    test_group("skeleton_identity_pose");
+    assert(SrSkeleton_compute_joint_matrices(skel(dj, 1), out) == 1, "one matrix");
+    assert(same_mat(out, SR_IDENTITY_MAT4) == 1, "identity");
+
+    test_group("joint_uniforms_size");
+    assert_eq(sizeof(SrJointUniforms), 16 + SR_MAX_JOINTS * 64, "8208 bytes");
+
+    test_group("joint_uniforms_set_joints");
+    var u = SrJointUniforms_default(alloc_via(A, 8208));
+    var three = alloc_via(A, 192);
+    _sr_copy_words(three, SR_IDENTITY_MAT4, 64);
+    _sr_copy_words(three + 64, SR_IDENTITY_MAT4, 64);
+    _sr_copy_words(three + 128, SR_IDENTITY_MAT4, 64);
+    SrJointUniforms_set_joints(u, three, 3);
+    assert_eq(load32(u), 0x40400000, "count 3.0");
+
+    test_group("compose_trs_identity");
+    var ct = alloc_via(A, 64);
+    var t0 = alloc_via(A, 12);
+    t_set4(t0, 0, 0, 0, 0);
+    var s1 = alloc_via(A, 16);
+    t_set4(s1, one, one, one, 0);
+    sr_compose_trs(t0, id, s1, ct);
+    var near = 1;
+    var tol3: f64 = 0.001;
+    k = 0;
+    while (k < 16) {
+        if (t_near(at(ct, k), at(SR_IDENTITY_MAT4, k), tol3) == 0) { near = 0; }
+        k = k + 1;
+    }
+    assert(near == 1, "identity");
+
+    test_group("compose_trs_translation");
+    var t531 = alloc_via(A, 16);
+    t_set4(t531, 0x40A00000, 0x40400000, one, 0);
+    sr_compose_trs(t531, id, s1, ct);
+    assert(load32(ct + 48) == 0x40A00000 && load32(ct + 52) == 0x40400000 && load32(ct + 56) == one, "(5, 3, 1)");
+
+    test_group("interpolate_single_keyframe");
+    var k123 = track(words(0, 0, 0, 0), vals(words(one, 0x40000000, 0x40400000, 0), 3), 3, 1);
+    assert(sr_interpolate_keyframes(k123, 1, 0x3F000000, buf, 4) == 3, "3 components");
+    assert(load32(buf) == one && load32(buf + 4) == 0x40000000 && load32(buf + 8) == 0x40400000, "(1, 2, 3)");
+
+    test_group("interpolate_two_keyframes");
+    var k010 = track(words(0, one, 0, 0), vals(words(0, 0x41200000, 0, 0), 2), 1, 2);
+    sr_interpolate_keyframes(k010, 2, 0x3F000000, buf, 4);
+    var five: f64 = 5.0;
+    assert(t_near(at(buf, 0), five, tol3) == 1, "5");
+
+    test_group("interpolate_clamps_to_bounds");
+    sr_interpolate_keyframes(k010, 2, 0xBF800000, buf, 4);
+    var lo = load32(buf);
+    sr_interpolate_keyframes(k010, 2, 0x40A00000, buf, 4);
+    assert(lo == 0 && load32(buf) == 0x41200000, "0 before, 10 after");
+
+    test_group("interpolate_keyframes_empty");
+    assert_eq(sr_interpolate_keyframes(0, 0, 0x3F000000, buf, 4), 0, "no components");
+
+    test_group("skeleton_single_joint");
+    var one_j = jt(alloc_via(A, 112), 0, 0 - 1, one, 0x40000000, 0x40400000);
+    SrSkeleton_compute_joint_matrices(skel(one_j, 1), out);
+    assert(load32(out + 48) == one && load32(out + 52) == 0x40000000 && load32(out + 56) == 0x40400000, "column 3");
+
+    test_group("animation_property_values");
+    assert(SR_ANIMATION_PROPERTY_TRANSLATION != SR_ANIMATION_PROPERTY_ROTATION, "T != R");
+    assert(SR_ANIMATION_PROPERTY_ROTATION != SR_ANIMATION_PROPERTY_SCALE, "R != S");
+    assert(SR_ANIMATION_PROPERTY_TRANSLATION != SR_ANIMATION_PROPERTY_SCALE, "T != S");
+
+    # ── Cyrius-only ──
+
+    test_group("cubicspline_reproduces_a_cubic");
+    # f(t) = t³ at t = 0, 1, 2 with tangents f'(t) = 3t²: the Hermite spline is the cubic itself, exactly.
+    var cub = alloc_via(A, 40);
+    var cubv = vals(words(0, 0, 0, one), 4);
+    var cubv2 = alloc_via(A, 40);
+    t_set4(cubv2, 0, 0, 0, 0x40400000);
+    t_set4(cubv2 + 16, one, 0x40400000, 0x41400000, 0x41000000);
+    store32(cubv2 + 32, 0x41400000);
+    sr_build_keyframes(cub, vals(words(0, one, 0x40000000, 0), 3), 3, cubv2, 9, 1, SR_INTERPOLATION_CUBICSPLINE, A);
+    var ckk = load64(cub + 16);
+    var ckn = load64(cub + 24);
+    sr_interpolate_cubic(ckk, ckn, 0x3F000000, buf, 4, 0);
+    var c0: f64 = 0.125;
+    var c1: f64 = 3.375;
+    var c2: f64 = 0.015625;
+    assert(at(buf, 0) == c0, "f(0.5) = 0.125");
+    sr_interpolate_cubic(ckk, ckn, 0x3FC00000, buf, 4, 0);
+    assert(at(buf, 0) == c1, "f(1.5) = 3.375");
+    sr_interpolate_cubic(ckk, ckn, 0x3E800000, buf, 4, 0);
+    assert(at(buf, 0) == c2, "f(0.25) = 0.015625");
+    sr_interpolate_cubic(ckk, ckn, 0x40000000, buf, 4, 0);
+    assert(load32(buf) == 0x41000000, "f(2) = 8: the last key");
+    sr_interpolate_cubic(ckk, ckn, one, buf, 4, 0);
+    assert(load32(buf) == one, "f(1) = 1 at a key");
+    assert(cubv != 0, "-");
+
+    test_group("cubicspline_matches_the_spec_formula");
+    # Arbitrary values and tangents (width 3, two keys 0.75 apart), at 9 times: within 1 f32 ulp of the spec form.
+    var gv = alloc_via(A, 72);
+    var gk = 0;
+    while (gk < 18) {
+        store32(gv + gk * 4, f32_from(f64_from(gk * 7 % 11 - 5) / f64_from(3)));
+        gk = gk + 1;
+    }
+    var gch = alloc_via(A, 40);
+    sr_build_keyframes(gch, vals(words(0x3E800000, one, 0, 0), 2), 2, gv, 6, 3, SR_INTERPOLATION_CUBICSPLINE, A);
+    var within = 1;
+    var q025 = 0x3E800000;
+    var q075 = 0x3F400000;
+    var c008 = 0x3DA3D70A;
+    var gi = 1;
+    while (gi < 10) {
+        var tq = _sr_f32_add(q025, _sr_f32_mul(f(gi), c008));
+        var gn = sr_interpolate_cubic(load64(gch + 16), 2, tq, buf, 4, 0);
+        var sq: f64 = f32_to(_sr_f32_div(_sr_f32_sub(tq, q025), q075));
+        var dtq: f64 = 0.75;
+        var comp = 0;
+        while (comp < 3) {
+            var va: f64 = at(gv + 12, comp);
+            var ob: f64 = at(gv + 24, comp);
+            var vb: f64 = at(gv + 48, comp);
+            var ib: f64 = at(gv + 36, comp);
+            var want: f64 = spec_hermite(sq, va, ob, vb, ib, dtq);
+            var w32 = f32_from(want);
+            var d = load32(buf + comp * 4) - w32;
+            if (d < 0 - 1 || d > 1) { within = 0; }
+            comp = comp + 1;
+        }
+        if (gn != 3) { within = 0; }
+        gi = gi + 1;
+    }
+    assert(within == 1, "every component within 1 ulp");
+
+    test_group("cubicspline_rotation_is_unit");
+    var rq = alloc_via(A, 96);
+    t_set4(rq, 0x3E000000, 0, 0, 0);
+    t_set4(rq + 16, 0, 0, 0, one);
+    t_set4(rq + 32, 0, 0x3E000000, 0, 0);
+    t_set4(rq + 48, 0, 0, 0x3E800000, 0);
+    t_set4(rq + 64, H, 0, 0, H);
+    t_set4(rq + 80, 0, 0, 0, 0);
+    var rch = alloc_via(A, 40);
+    sr_build_keyframes(rch, vals(words(0, one, 0, 0), 2), 2, rq, 6, 4, SR_INTERPOLATION_CUBICSPLINE, A);
+    var ru = 1;
+    gi = 1;
+    while (gi < 10) {
+        var c01 = 0x3DCCCCCD;
+        assert(sr_interpolate_cubic(load64(rch + 16), 2, _sr_f32_mul(f(gi), c01), buf, 4, 1) == 4, "4");
+        if (t_near(qlen(buf), fone, tol) == 0) { ru = 0; }
+        gi = gi + 1;
+    }
+    assert(ru == 1, "normalized");
+
+    test_group("cubicspline_missing_tangent_is_zero");
+    # 5 outputs for 2 keys: the second key has no out-tangent (index 5), which the value between keys never reads, and
+    # an in-tangent (index 3); with the first key's out-tangent 0 too, the spline is (h01·vb + h11·dt·ib).
+    var mv = vals(words(0, 0, 0, 0), 4);
+    store32(mv + 4, 0);
+    store32(mv + 12, one);
+    var mv5 = alloc_via(A, 20);
+    t_set4(mv5, 0, 0, 0, one);
+    store32(mv5 + 16, 0x40000000);
+    var mch = alloc_via(A, 40);
+    sr_build_keyframes(mch, vals(words(0, one, 0, 0), 2), 2, mv5, 5, 1, SR_INTERPOLATION_CUBICSPLINE, A);
+    var mk = load64(mch + 16);
+    assert(load64(mk + 40 + 32) == 0 && load64(mk + 32) != 0, "no out-tangent on the last key");
+    sr_interpolate_cubic(mk, 2, 0x3F000000, buf, 4, 0);
+    var mw: f64 = spec_hermite(0.5, 0.0, 0.0, 2.0, 1.0, 1.0);
+    assert(at(buf, 0) == mw, "h01·2 + h11·1 at 0.5");
+    assert(mv != 0, "-");
+
+    test_group("cubicspline_channel_samples_the_spline");
+    var cc = clip1(0x40000000, SR_ANIMATION_PROPERTY_TRANSLATION, 0, 0);
+    var cch3 = load64(cc + 24);
+    var cvals = alloc_via(A, 108);
+    gk = 0;
+    while (gk < 27) {
+        store32(cvals + gk * 4, f(gk % 5));
+        gk = gk + 1;
+    }
+    sr_build_keyframes(cch3, vals(words(0, one, 0x40000000, 0), 3), 3, cvals, 9, 3, SR_INTERPOLATION_CUBICSPLINE, A);
+    var js3 = alloc_via(A, 112);
+    SrAnimationClip_sample(cc, skel(SrJoint_default(js3), 1), 0x3FC00000);
+    sr_interpolate_cubic(load64(cch3 + 16), 3, 0x3FC00000, buf, 4, 0);
+    assert(load32(js3 + 72) == load32(buf) && load32(js3 + 80) == load32(buf + 8), "the channel plays the spline");
+    assert(load64(cch3 + 32) == SR_INTERPOLATION_CUBICSPLINE, "interpolation kept");
+
+    test_group("step_rotation_holds_its_key");
+    var stq = alloc_via(A, 32);
+    t_set4(stq, 0, 0, 0, one);
+    t_set4(stq + 16, H, 0, 0, H);
+    var stc = clip1(one, SR_ANIMATION_PROPERTY_ROTATION, 0, 0);
+    sr_build_keyframes(load64(stc + 24), vals(words(0, 0x3F000000, 0, 0), 2), 2, stq, 2, 4, SR_INTERPOLATION_STEP, A);
+    var js4 = alloc_via(A, 112);
+    SrAnimationClip_sample(stc, skel(SrJoint_default(js4), 1), 0x3E800000);
+    assert(load32(js4 + 84) == 0 && load32(js4 + 96) == one, "key 0 held at 0.25");
+    SrAnimationClip_sample(stc, skel(js4, 1), 0x3F400000);
+    assert(load32(js4 + 84) == H && load32(js4 + 96) == H, "key 1 from 0.5");
+
+    test_group("slerp_weights_cancel_exactly");
+    # t = 1.5 at cos 0.5: the w weights cancel to exactly 0 with correctly rounded acos and sin (port-parity §4.5).
+    var c05 = alloc_via(A, 16);
+    t_set4(c05, 0, 0, 0x3F5DB3D7, 0x3F000000);
+    var qc = sr_slerp(id, c05, 0x3FC00000, alloc_via(A, 16));
+    assert_eq(load32(qc + 12), 0, "w = 0");
+
+    test_group("crmath_is_correctly_rounded");
+    var half: f64 = 0.5;
+    var ac: f64 = _sr_km_cr_acos(half);
+    var acb = alloc_via(A, 8);
+    store64(acb, ac);
+    assert_eq(load64(acb), 0x3FF0C152382D7366, "acos(0.5) = π/3 rounded to nearest");
+    var sn6: f64 = _sr_km_cr_sin(ac);
+    store64(acb, sn6);
+    assert_eq(load64(acb), 0x3FEBB67AE8584CAB, "sin(acos(0.5)) as glibc's correctly rounded sin");
+
+    test_group("f32_fmod_is_exact");
+    assert_eq(_sr_f32_fmod(0x40E00000, 0x40000000), 0x3F800000, "7 % 2 = 1");
+    assert_eq(_sr_f32_fmod(0xC0E00000, 0x40000000), 0xBF800000, "-7 % 2 = -1");
+    assert_eq(_sr_f32_fmod(0x40B00000, 0xC0000000), 0x3FC00000, "5.5 % -2 = 1.5");
+    assert_eq(_sr_f32_fmod(0x7149F2CA, 0x3DCCCCCD), 0x3D49F2CA, "1e30 % 0.1");
+    assert_eq(_sr_f32_fmod(0x3F800000, 0x3DCCCCCD), 0x3DCCCCCB, "1 % 0.1 = 0.09999999");
+    assert_eq(_sr_f32_fmod(0x00000003, 0x00000002), 0x00000001, "subnormals");
+    assert_eq(_sr_f32_fmod(0x7F7FC99E, 0x00000001), 0, "huge % the least subnormal");
+    assert_eq(_sr_f32_fmod(0x80000000, 0x40000000), 0x80000000, "-0 kept");
+    assert_eq(_sr_f32_fmod(0x7F800000, 0x40000000), 0x7FC00000, "inf % y = NaN");
+    assert_eq(_sr_f32_fmod(0x40000000, 0), 0x7FC00000, "x % 0 = NaN");
+    assert_eq(_sr_f32_fmod(0x40000000, 0x7F800000), 0x40000000, "x % inf = x");
+    assert_eq(_sr_f32_rem_euclid(0xBF000000, 0x40000000), 0x3FC00000, "rem_euclid(-0.5, 2) = 1.5");
+    assert_eq(_sr_f32_rem_euclid(0xB089705F, 0x40000000), 0x40000000, "rem_euclid(-1e-9, 2) rounds up to 2");
+
+    test_group("animation_layouts");
+    assert(sizeof(SrJoint) == 112 && sizeof(SrKeyframe) == 40 && sizeof(SrSkeleton) == 16, "joint, keyframe, skeleton");
+    assert(sizeof(SrAnimationChannel) == 40 && sizeof(SrAnimationClip) == 40, "channel, clip");
+
+    test_group("joint_matrices_cap_at_max_joints");
+    var big = alloc_via(A, 130 * 112);
+    k = 0;
+    while (k < 130) {
+        jt(big, k, k - 1, 0, 0, 0);
+        k = k + 1;
+    }
+    assert_eq(SrSkeleton_compute_joint_matrices(skel(big, 130), out), SR_MAX_JOINTS, "128 of 130");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

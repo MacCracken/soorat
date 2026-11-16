@@ -697,7 +697,7 @@ These run at setup, not per frame. The first full run of the three read slow aga
 - **A cache can be a parity-neutral speed-up** when it returns exactly the values it replaces: the circle's trig
   table changed no golden row.
 
-## 4. M3: geometry and animation (part a, 2026-11-15)
+## 4. M3: geometry and animation (parts a and b, 2026-11-15)
 
 ### 4.1 Parity
 
@@ -755,3 +755,86 @@ How far Rust's f32 sits from the f64-once value on the 36 class-E rows:
   no such field, so the terrain builds into a local `SrMeshData` and copies the four words it has.
 - **Rust's `f32::min`/`max` keep the later operand on a ±0 tie.** `finite_min_max` over `[-0.0, 0.0]` gives
   `(0.0, 0.0)` (golden row `set 3`). The golden rows caught it, and `validate.py` now compares bits.
+
+### 4.4 Part b: animation parity
+
+| Function | Rows | Class | Result |
+|---|---|---|---|
+| `Joint::default`, `JointUniforms::default`, `set_joints` | 7 | A | identical (`set_joints` with 0, 1, 3, 128 and 129 matrices) |
+| `bracket`, `interpolate_keyframes` | 760 | A | identical on 14 tracks, unsorted and NaN-timed ones included: `sr_bracket` runs Rust 1.100's branch-free `partition_point`, so even an unsorted track picks Rust's keys |
+| `build_keyframes` | 16 | A | identical for every mode, including truncated CUBICSPLINE triplets and mismatched counts |
+| `slerp` | 451 | E | 283 rows differ from Rust and match the f64-once value bit for bit |
+| `interpolate_rotation`, `AnimationClip::sample` | 441 | E | 143 rows differ from Rust and match the f64-once value |
+| `local_transform`, `world_transforms(_resolved)`, `Skeleton::compute_joint_matrices` | 102 | E | 94 rows differ from Rust and match the f64-once value |
+
+How far Rust's f32 sits from the f64-once value on the 520 class-E rows (values of magnitude ≥ 1e-6):
+
+| Function | Values that differ | Largest difference |
+|---|---|---|
+| `Skeleton::compute_joint_matrices` | 3,536 of 5,456 (64.8 %) | 6,310 ulp, on a small element (9.8e-4, joint 61 of the 64-joint chain). Relative to each matrix's largest element, Rust's error on that chain grows with depth: 9.2e-8 at the root (about 1.5 f32 ulp), 5.6e-7 at joint 15, 1.3e-6 at the leaf. Largest ulp gap per joint (elements ≥ 1e-6): root 2, joint 15 40, joint 31 31, joint 47 43, leaf 183 |
+| `world_transforms` | 3,486 of 5,456 (63.9 %) | 21,976 ulp, on a small element (3.5e-4, joint 33 of the 64-joint chain). The largest absolute gap is 4.4e-3 (85 ulp), on the scale-2 chain with translations near 100 |
+| `local_transform` | 231 of 928 (24.9 %) | 44 ulp |
+| `interpolate_rotation` | 286 of 492 (58.1 %) | 58 ulp |
+| `AnimationClip::sample` | 309 of 1,820 (17.0 %) | 69 ulp |
+| `slerp` | 529 of 1,132 (46.7 %) | Rust returns the identity for quaternions whose f32 dot product overflows (1e30 components), while f64 gives the normalized rotation, 0.707 away. Elsewhere tens of ulp |
+
+### 4.5 Correctly rounded `acos` and `sin` (ledger L1)
+
+The first replay passed 1,776 of the 1,777 rows. The one failure was `slerp(identity, cos 0.5 about z, t = 1.5)`: the
+w component is −sin(π/6)/sin(π/3) + 0.5·sin(π/2)/sin(π/3), exactly 0. glibc's `acos(0.5)` is the correctly rounded π/3
+(`0x3FF0C152382D7366`); ganita's is one ulp low (`…7365`, a 0.52-ulp error). After it, `sin((1 − t)θ)` is
+−0.49999999999999994 rather than −0.5, and the w component is 1.1e-16 rather than 0.
+
+Over the 65,537 points k/65536 of [0, 1], against glibc 2.44:
+
+| | Differs from glibc | Largest difference |
+|---|---|---|
+| `ganita_f64_acos` | 14,296 (21.81 %) | 2 ulp |
+| `ganita_f64_sin` (at 2x) | 1,688 (2.58 %) | 1 ulp |
+
+- The final f32 rounding hides these differences almost always. The tessellation rows (part a) never showed them.
+  slerp's weights cancel, and then they surface.
+- glibc's f64 functions are not always correctly rounded either. Against `validate.py`'s 80-digit decimal reference,
+  they differ on about 1 in 3,000 random `acos` arguments and 4 in 3,000 `sin` arguments.
+- So the class-E reference is now Rust's formula in f64 **with correctly rounded transcendentals**. `validate.py`
+  computes them itself (Taylor series and Newton in `decimal`, then Python's correctly rounded conversion). The port
+  calls kimiya 2.0.1's `_km_cr_acos` and `_km_cr_sin`: two-phase, on MPFR tables, from + − × ÷, `f64_sqrt` and
+  integer operations only. They are vendored by `scripts/vendor_crmath.py` as `src/crmath.cyr`: 29 functions,
+  26 tables, renamed `_sr_km_`. That is L1's planned stand-in, arriving at M3 rather than M5.
+- **Cost.**
+  - Binary size: a binary that includes soorat carries crmath's tables, +20.2 KB (121,984 against 101,776 bytes for
+    a `from_hex` program). One that reaches slerp also carries the code, +36.6 KB in all (154,752 against 118,160).
+  - Time: about 68 ns a call more than ganita's (§4.6).
+- The numbers went to ganita's open correctly-rounded request (L1). The f32 fmod went to its open no-fmod issue
+  (L22), with `_sr_f32_fmod` as the stand-in.
+
+### 4.6 Part b speed (`taskset -c 10 cyrius bench`; two runs agreed)
+
+| Bench | Rust | Cyrius | Ratio | Plan §11 |
+|---|---|---|---|---|
+| `animation/compute_joints_16` | 283 ns | 4.34 µs | 15.3× | 5–15× |
+| `animation/compute_joints_64` | 1.15 µs | 17.3 µs | 15.0× | 5–15× |
+| `animation/compute_joints_64_unsorted` | 1.55 µs | 18.4 µs | 11.8× | 5–15× |
+| `animation/sample_rotation_64x32` | 3.42 µs | 38.5 µs | 11.3× | — |
+
+- **Joint chains, first cut against final.** The first cut stored each joint's TRS matrix and loaded it back for the
+  multiply. Taking it from locals saved 9 % on every chain: `compute_joints_16` 4.66 → 4.25 µs, `_64` 18.6 → 17.0 µs,
+  `_64_unsorted` 20.0 → 18.1 µs (the standalone runs). A joint is about 270 ns of f64 arithmetic: two 4 × 4 products
+  and a TRS. Rust's f32 runs at about 18 ns a joint.
+- The recorded run sits at the band's edge (15.3×), about 2 % slower than the standalone runs.
+- **Correct rounding's price.** `sample_rotation_64x32` (64 slerps, each one `acos` and three `sin`) runs 20.6 µs with
+  ganita's functions and 38.1 µs correctly rounded: about 68 ns more a call. The fast functions fail one golden row,
+  so the record keeps the correct ones.
+- core 2 was idle this time, but its SMT sibling (core 3) ran another project's job at 100 %, so the record uses
+  core 10 again.
+
+### 4.7 What part b taught
+
+- **"Within 1 ulp" in f64 is not "the same after rounding to f32"** once a formula cancels. A reference that is exact
+  needs correctly rounded functions on both sides. glibc's f64 functions are not always correctly rounded, so the
+  reference computes its own.
+- **Rust's binary search is part of its behaviour.** `partition_point` on an unsorted track returns whatever Rust
+  1.100's branch-free search finds. Reproducing that search exactly, rather than any correct search, keeps those rows
+  identical.
+- **Static scratch counts against a compile's static data.** 17.6 KB of `var x[N]` buffers tipped `--bounds` into a
+  "large static data" warning. One `alloc` on first use avoids it. The initialized MPFR tables did not count.
