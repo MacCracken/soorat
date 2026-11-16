@@ -1,0 +1,23 @@
+# soorat golden corpus, format 1: constants
+# recorded: soorat 1.2.0 (rust-old/, oracle feature); libm: glibc 2.44 x86_64 fma
+# regenerate: cargo run --release --locked --manifest-path scripts/oracle/Cargo.toml (never patch a row)
+# columns: fn<TAB>class<TAB>inputs<TAB>outputs<TAB>note (tokens: scripts/oracle/README.md)
+# rows: 18
+const::MAX_JOINTS	A	-	i:128	MAX_JOINTS = 128
+const::MAX_LIGHTS	A	-	i:8	MAX_LIGHTS = 8
+const::MAX_CASCADES	A	-	i:4	MAX_CASCADES = 4
+const::MAX_PARTICLES	A	-	i:4194240	MAX_PARTICLES = 4194240
+const::MAX_SPRITES_PER_BATCH	A	-	i:16383	MAX_SPRITES_PER_BATCH = 16383
+const::DEFAULT_SHADOW_MAP_SIZE	A	-	i:2048	DEFAULT_SHADOW_MAP_SIZE = 2048
+const::MAX_SEGMENTS	A	-	i:1024	MAX_SEGMENTS = 1024
+const::MAX_QUADS	A	-	i:1073741823	MAX_QUADS = 1073741823
+const::XZ_QUAD_INDICES	A	-	v:6 i:0 i:3 i:2 i:0 i:2 i:1	XZ_QUAD_INDICES
+const::IDENTITY_MAT4	A	-	v:16 g:3f800000 g:00000000 g:00000000 g:00000000 g:00000000 g:3f800000 g:00000000 g:00000000 g:00000000 g:00000000 g:3f800000 g:00000000 g:00000000 g:00000000 g:00000000 g:3f800000	IDENTITY_MAT4 (column-major)
+const::Color::WHITE	A	-	v:4 g:3f800000 g:3f800000 g:3f800000 g:3f800000	Color::WHITE rgba
+const::Color::BLACK	A	-	v:4 g:00000000 g:00000000 g:00000000 g:3f800000	Color::BLACK rgba
+const::Color::RED	A	-	v:4 g:3f800000 g:00000000 g:00000000 g:3f800000	Color::RED rgba
+const::Color::GREEN	A	-	v:4 g:00000000 g:3f800000 g:00000000 g:3f800000	Color::GREEN rgba
+const::Color::BLUE	A	-	v:4 g:00000000 g:00000000 g:3f800000 g:3f800000	Color::BLUE rgba
+const::Color::TRANSPARENT	A	-	v:4 g:00000000 g:00000000 g:00000000 g:00000000	Color::TRANSPARENT rgba
+const::Color::CORNFLOWER_BLUE	A	-	v:4 g:3ec8b439 g:3f158106 g:3f6dd2f2 g:3f800000	Color::CORNFLOWER_BLUE rgba
+const::UvRect::FULL	A	-	v:4 g:00000000 g:00000000 g:3f800000 g:3f800000	UvRect::FULL

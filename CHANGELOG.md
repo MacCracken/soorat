@@ -22,6 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/version-bump.sh` bumps `VERSION` only; `cyrius.cyml` reads it. `scripts/bench-history.sh`
   re-measures the oracle in `rust-old/`.
 
+### Added
+- **The port's M0 machinery** (steps 3–8, 2026-11-15; port plan §4):
+  - **`scripts/oracle/`**: the golden generator, driving the `rust-old/` oracle. It writes `tests/golden/{constants,layout,math}.tsv` (1,473 rows) with the new f32 token `g:`. Two runs are byte-identical, and `--check` refuses another platform.
+  - **`scripts/oracle/validate.py`** re-derives every math row bit for bit without Rust, and writes `math.e.tsv`: 1,149 class-E rows where Rust's formula in f64, rounded once, beats Rust's f32 output.
+  - **`tests/parity.tcyr`**, `parity_core.cyr` and `ulp.cyr`: the replay harness, from pravash, with f32 tokens, class E and correctly rounded rows. It runs under `cyrius test`.
+  - **`scripts/render_ref/`**: the class-G render corpus, `tests/golden/render/` (12 scenes from 1.2.0's public API, adapter-pinned, byte-deterministic).
+  - **`scripts/surface_parity.py`, `rust_test_ledger.py`, `bench_record.py`, `doc_examples.py`, `upstream_ledger.py`**, with `docs/development/rust-test-ledger.md` and `docs/benchmarks-rust-v-cyrius.md` (generated), and a `port-tooling` CI job.
+  - **ADR 0002 row 16:** correctly rounded f32 transcendentals.
+
 ### Fixed
 - `cyrius port`'s scaffold defects, repaired as cyrius issue 2026-11-08 describes:
   - CLAUDE.md, the roadmap and the CI workflows, which the port overwrote, are restored or merged;

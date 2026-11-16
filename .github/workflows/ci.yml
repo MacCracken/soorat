@@ -43,12 +43,29 @@ jobs:
       - name: Build
         run: cyrius build
 
-      - name: Test
+      - name: Test (includes tests/parity.tcyr, the golden-corpus replay)
         run: cyrius test
+
+      - name: Golden corpus re-derivation (no Rust needed)
+        run: python3 -I -B scripts/oracle/validate.py .
 
       - name: Audit (fmt, lint, docs, tests, bench)
         # Run directly, not through a pipe, so the job sees audit's own exit status.
         run: cyrius audit
+
+  port-tooling:
+    name: Port tooling — surface, tests, benches, upstream ledger, doc examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      # Milestone "done" comes from the plan's §14 Tracking table (a ✅ in the Status cell).
+      - run: python3 -I -B scripts/surface_parity.py . --check
+      - run: python3 -I -B scripts/rust_test_ledger.py . --check
+      - run: python3 -I -B scripts/bench_record.py . --check
+      - run: python3 -I -B scripts/upstream_ledger.py . --check   # sibling repos aren't checked out on CI: filed paths report "unverified"
+      # Needs no toolchain while there are no ```cyrius examples; once there are, move it into the `cyrius`
+      # job after Build, preceded by `cyrius distlib`.
+      - run: python3 -I -B scripts/doc_examples.py . --check
 
   oracle-check:
     name: Oracle (Rust 1.2.0) — check & lint

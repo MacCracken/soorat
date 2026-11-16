@@ -22,4 +22,4 @@ stdlib = ["string", "fmt", "alloc", "vec", "str", "syscalls", "io", "args", "mat
 [test]
 # `bench` too: the port template omits it, so tests/soorat.bcyr and `cyrius audit` failed
 # (cyrius issue 2026-11-08-cyrius-port-clobbers-project-docs-and-omits-bench.md, item 3).
-stdlib = ["assert", "bench"]
+stdlib = ["assert", "bench", "overflow"]

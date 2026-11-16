@@ -1,0 +1,75 @@
+# parity.tcyr — replays soorat's golden corpus (tests/golden/*.tsv) against the Cyrius port.
+#
+# Port plan §4 step 5, adapted from pravash's tests/parity.tcyr (impetus's, kimiya's, tanmatra's). Format and
+# comparison rules: scripts/oracle/README.md. The module list is tests/golden/modules.txt, which the generator
+# (scripts/oracle) writes. The replay machinery is tests/parity_core.cyr; this file holds the hooks and the
+# dispatchers.
+#
+# Every row of every module is one of:
+# - ok: every output matched within its class (A exact, B ≤ 2 ulp, C its function's bound, E bit-identical to
+#   the f64-once outputs in <module>.e.tsv where they differ from Rust's, else to Rust's);
+# - FAILED: an output differs; the first 10 per module are printed with the row's note and both bit patterns;
+# - measured: class C with no bound set yet (recorded, not gated);
+# - accepted (cr) / accepted (E): a pass against the correctly rounded (ADR 0002 #16) or class-E (ADR 0002 #4)
+#   outputs, where those differ from Rust 1.2.0's;
+# - pending: its function isn't ported yet (no dispatcher entry).
+#
+# **M0:** nothing is ported, so every row is pending and the run exits 0. Each milestone adds its modules'
+# dispatchers here (`_par_<module>`), with the src files they need included above parity_core.
+# The exit code is the number of modules with a failure.
+
+include "tests/ulp.cyr"
+
+alloc_init();
+
+include "tests/parity_core.cyr"
+
+# ── hooks ────────────────────────────────────────────────────────────────────────────
+
+# The Rust variant name of an `SR_ERR_*` code (src/error.cyr, from M1), which a golden `E:<Variant>` token names.
+#must_use
+fn _par_error_name(code): i64 {
+    return "Unknown";
+}
+
+# Fills the got list for one row: 1 handled, 0 pending, -1 unusable. M0: every function is pending.
+fn _par_dispatch(mp, ml, fp, fl): i64 {
+    _par_got_n = 0;
+    return 0;
+}
+
+# A class-C function's ulp bound, or -1 (measured). Set per function from M0 step 8's baselines.
+#must_use
+fn _par_c_bound(fp, fl): i64 {
+    return 0 - 1;
+}
+
+# The ADR accepting a divergent row, or 0. Class E and the correctly rounded rows come from their own files.
+#must_use
+fn _par_accepted(fp, fl, ip, il): i64 {
+    return 0;
+}
+
+#must_use
+fn _par_accepted_quiet(adr): i64 {
+    return 0;
+}
+
+# No shadow comparisons yet.
+fn _par_shadows(mp, ml, fp, fl, cls) {
+    return 0;
+}
+
+# No module-specific summary lines yet.
+fn _par_module_done(mp, ml) {
+    return 0;
+}
+
+# Every module is replayed here.
+#must_use
+fn _par_skip(mp, ml): i64 {
+    return 0;
+}
+
+var exit_code = _par_main();
+sys_exit_group(exit_code);

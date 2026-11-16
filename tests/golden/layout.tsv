@@ -1,0 +1,24 @@
+# soorat golden corpus, format 1: layout
+# recorded: soorat 1.2.0 (rust-old/, oracle feature); libm: glibc 2.44 x86_64 fma
+# regenerate: cargo run --release --locked --manifest-path scripts/oracle/Cargo.toml (never patch a row)
+# columns: fn<TAB>class<TAB>inputs<TAB>outputs<TAB>note (tokens: scripts/oracle/README.md)
+# rows: 19
+layout::GpuParticle	A	-	i:48 v:3 i:0 i:16 i:32	size 48; position velocity color
+layout::SimParams	A	-	i:16 v:4 i:0 i:4 i:8 i:12	size 16; delta_time gravity_y damping particle_count
+layout::PostProcessUniforms	A	-	i:16 v:1 i:0	size 16; params
+layout::JointUniforms	A	-	i:8208 v:2 i:0 i:16	size 8208; joint_count joints
+layout::BloomUniforms	A	-	i:32 v:2 i:0 i:16	size 32; params texel_size
+layout::LineVertex	A	-	i:28 v:2 i:0 i:12	size 28; position color
+layout::GpuLight	A	-	i:64 v:4 i:0 i:16 i:32 i:48	size 64; position_type direction_range color_intensity spot_params
+layout::LightArrayUniforms	A	-	i:544 v:3 i:0 i:16 i:32	size 544; ambient light_count lights
+layout::MaterialUniforms	A	-	i:32 v:5 i:0 i:16 i:20 i:24 i:28	size 32; base_color_factor metallic roughness _pad0 _pad1
+layout::SsaoUniforms	A	-	i:144 v:3 i:0 i:16 i:80	size 144; params projection inv_projection
+layout::CameraUniforms	A	-	i:192 v:6 i:0 i:64 i:128 i:144 i:160 i:176	size 192; view_proj model camera_pos normal_matrix_0 normal_matrix_1 normal_matrix_2
+layout::LightUniforms	A	-	i:112 v:4 i:0 i:16 i:32 i:48	size 112; ambient_color light_direction light_color light_view_proj
+layout::ShadowPassUniforms	A	-	i:80 v:2 i:0 i:64	size 80; light_view_proj shadow_map_size
+layout::ShadowUniforms	A	-	i:128 v:2 i:0 i:64	size 128; light_view_proj model
+layout::CascadeUniforms	A	-	i:272 v:2 i:0 i:16	size 272; splits matrices
+layout::Vertex2D	A	-	i:32 v:3 i:0 i:8 i:16	size 32; position tex_coords color
+layout::Vertex3D	A	-	i:48 v:4 i:0 i:12 i:24 i:32	size 48; position normal tex_coords color
+layout::SkinnedVertex3D	A	-	i:96 v:7 i:0 i:12 i:24 i:32 i:48 i:64 i:80	size 96; position normal tex_coords color tangent joints weights
+layout::InstanceData	A	-	i:80 v:2 i:0 i:64	size 80; model color

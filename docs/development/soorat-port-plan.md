@@ -12,7 +12,9 @@
 > - CI checks both trees.
 > - ADRs 0001 and 0002 are written.
 >
-> Next: M0 steps 3–8. M1 can proceed. The `ranga` feature cannot be combined with `acoustics` or `thermo` until L18 lands.
+> **M0 is complete (2026-11-15).** Steps 3–8 built the manifest, the golden generator and corpus (`scripts/oracle/`, 1,473 rows), the parity harness, the class-G render corpus (`scripts/render_ref/`, 12 scenes), the five tooling scripts in CI, and the baselines.
+>
+> Next: **M1 (foundation)**. M1 can proceed. The `ranga` feature cannot be combined with `acoustics` or `thermo` until L18 lands.
 >
 > **Step 0 detail (2026-11-15, committed as `7f3213a`, tagged as 1.2.0).** 1.1.0 was tagged and released on 2026-11-15 (`0a94507`, GitHub release 14:26 UTC) before the oracle work started. The hooks and D2's fixes therefore ship together as **1.2.0**, the final Rust release and the oracle. It is a minor release, not 1.2.0, because it adds public API (`set_bloom`, `clear_bloom`, `with_bloom_intensity` and the `oracle` feature). The maintainer tags 1.2.0.
 > - Part 1, the hooks: done, every gate green.
@@ -38,8 +40,8 @@
 
 | Thing | Value | Source |
 |---|---|---|
-| Rust source | **soorat 1.1.0**, tagged and released 2026-11-15 (`0a94507`). The oracle will be 1.2.0 (D1, D2); the counts below are 1.1.0's. 7,649 code lines in `src/` (no tests, comments or blank lines) across 44 modules, 267 `pub fn`s and 15 `#[repr(C)]` GPU-layout types, plus 9 WGSL shaders (1,009 lines) | `VERSION`; count of `src/` |
-| Tests | 479: 458 unit, 12 integration, 7 GPU smoke (they skip without an adapter) and 2 shader-validation (naga, all 9 shaders). The 18 tests of the hidden `oracle` feature (`tests/oracle.rs`) check the hooks themselves, so they are n/a in the port's test ledger, as pravash's dump-hook tests were | `src/`, `tests/` |
+| Rust source | **soorat 1.2.0**, the oracle (`rust-old/`, tag `1.2.0` at `6625dc2`). The code-line counts are 1.1.0's; 1.2.0 has **280 public `pub fn`s** (plus 4 in `egui_bridge`) and 912 public items in all (`scripts/surface_parity.py`). 7,649 code lines in `src/` (no tests, comments or blank lines) across 44 modules, 267 `pub fn`s and 15 `#[repr(C)]` GPU-layout types, plus 9 WGSL shaders (1,009 lines) | `VERSION`; count of `src/` |
+| Tests (1.2.0) | **502**: 460 unit, 12 integration, 9 GPU smoke (they skip without an adapter), 18 oracle-hook, 2 shader-validation (naga), 1 ignored doc test. The ledger (`docs/development/rust-test-ledger.md`, `scripts/rust_test_ledger.py`): **471 to port**, 28 n/a (the oracle hooks, `egui_bridge`, naga, error text, `Send + Sync`, `GpuContext`), 3 deferred (drm, L10) | `rust-old/src/`, `rust-old/tests/` |
 | Benchmarks | 35 criterion benches. History in `bench-history.csv`: a baseline and two post-audit runs (2026-11-15) | `benches/benchmarks.rs` |
 | Features | `optics` (prakash), `ranga`, `physics-debug` (impetus), `fluids` (pravash), `acoustics` (goonj + hisab), `em` (bijli), `thermo` (ushma), `screenshot` (selah, uuid, chrono), `drm` (agnosys, git), `full` | `Cargo.toml` |
 | Rust health, 2026-11-15 | The P(-1) audit closed with every gate clean: fmt; clippy on all features and on each feature alone; rustdoc; deny; audit; vet. 479 tests pass with all features, and the GPU smoke tests ran on the local AMD GPU | `CHANGELOG.md` 1.1.0 |
@@ -232,31 +234,32 @@ Code lines exclude tests, comments and blank lines. "Track" is C (CPU, needs not
 | M1 | `lights.rs`, `lod.rs`, `material.rs` | 208 | 13 | 16 | `src/lights.cyr`, `src/lod.cyr`, `src/material.cyr` | — | C |
 | M2 | `sprite.rs`, `batch.rs` | 285 | 21 | 15 | `src/sprite.cyr`, `src/batch.cyr` | — | C |
 | M2 | `text.rs`, `ui.rs` | 245 | 21 | 16 | `src/text.cyr`, `src/ui.cyr` | kashi (optional, font import) | C |
-| M2 | `debug_draw.rs` (geometry half) | ≈ 200 | ≈ 12 | ≈ 12 | `src/debug_geom.cyr` | impetus (`physics-debug`) | C |
+| M2 | `debug_draw.rs` (geometry half) | ≈ 200 | 12 | 15 | `src/debug_geom.cyr` | impetus (`physics-debug`) | C |
 | M3 | `primitives.rs`, `terrain.rs`, `viz.rs` | 549 | 7 | 37 | `src/primitives.cyr`, `src/terrain.cyr`, `src/viz.cyr` | — | C |
 | M3 | `animation.rs` | 398 | 4 | 21 | `src/animation.cyr` | — | C |
 | M3 | `gltf_loader.rs` (+ animation loading) | 133 | 2 | 5 | `src/gltf.cyr` (D6) | bayan, chitra | C |
-| M4 | `shadow.rs` (matrices, splits, atlas) | ≈ 250 | ≈ 14 | ≈ 20 | `src/shadow_math.cyr` | — | C |
-| M4 | `environment.rs` (CPU: f16, sRGB, downsample, mips) | ≈ 200 | ≈ 3 | 8 | `src/env_cpu.cyr` | — | C |
+| M4 | `shadow.rs` (matrices, splits, atlas; every shadow test is CPU-only) | ≈ 250 | 6 | 23 | `src/shadow_math.cyr` | — | C |
+| M4 | `environment.rs` (CPU: f16, sRGB, downsample, mips; crate-private, reached through the oracle hooks) | ≈ 200 | 0 | 6 | `src/env_cpu.cyr` | — | C |
 | M4 | `pbr_material.rs` (BRDF LUT) | 93 | 5 | 8 | `src/pbr_material.cyr` | prakash | C |
 | M4 | `render_graph.rs`, `profiler.rs`, `capabilities.rs` | 223 | 11 | 22 | `src/render_graph.cyr` and the others over mabda `rg_*`, `profiler_*`, `gpu_caps_*` | mabda | C |
 | M5 | `acoustic_render.rs` | 414 | 7 | 35 | `src/acoustic_render.cyr` | goonj | C |
 | M5 | `thermo_render.rs` | 343 | 6 | 24 | `src/thermo_render.cyr` | ushma | C |
-| M5 | `fluid_render.rs` | 216 | 4 | 14 | `src/fluid_render.cyr` | pravash | C |
+| M5 | `fluid_render.rs` | 216 | 4 | 15 | `src/fluid_render.cyr` | pravash | C |
 | M5 | `em_render.rs` | 339 | 7 | 37 | `src/em_render.cyr` (D7) | bijli 2.0 | C |
 | M6 | `texture.rs`, `render_target.rs`, `compute.rs` | 301 | 19 | 18 | `src/texture.cyr`, … | mabda MB1, MB3 | G |
 | M6 | `pipeline.rs` (sprites) | 395 | 10 | 18 | `src/sprite_pipeline.cyr` | MB1 | G |
-| M6 | `debug_draw.rs` (line pipeline) | ≈ 150 | ≈ 5 | ≈ 4 | `src/line_pipeline.cyr` | MB1, MB2 | G |
+| M6 | `debug_draw.rs` (line pipeline) | ≈ 150 | 5 | 1 | `src/line_pipeline.cyr` | MB1, MB2 | G |
 | M6 | `mesh_pipeline.rs` | 398 | 15 | 15 | `src/mesh_pipeline.cyr` | MB1, MB2 | G |
-| M7 | `shadow.rs` (passes, maps, atlas textures) | ≈ 190 | ≈ 14 | ≈ 3 | `src/shadow.cyr` | MB2 | G |
-| M7 | `environment.rs` (GPU), PBR and skinned paths | ≈ 205 | ≈ 2 | — | `src/environment.cyr` | MB3 | G |
-| M8 | `hdr.rs`, `postprocess.rs`, `ssao.rs` | 493 | 17 | 15 | `src/hdr.cyr`, `src/postprocess.cyr`, `src/ssao.cyr` | MB3 | G |
+| M6 | `gpu.rs` (re-exports mabda's `GpuContext`) | 1 | — | 1 | — (ADR 0002 #2, #3) | mabda | G |
+| M7 | `shadow.rs` (passes, maps, atlas textures) | ≈ 190 | 12 | 0 | `src/shadow.cyr` | MB2 | G |
+| M7 | `environment.rs` (GPU), PBR and skinned paths | ≈ 205 | 5 | 2 | `src/environment.cyr` | MB3 | G |
+| M8 | `hdr.rs`, `postprocess.rs`, `ssao.rs` (1.2.0 added `set_bloom`, `clear_bloom`, `with_bloom_intensity`) | 493 | 20 | 16 | `src/hdr.cyr`, `src/postprocess.cyr`, `src/ssao.cyr` | MB3 | G |
 | M8 | `gpu_particles.rs` | 255 | 7 | 5 | `src/gpu_particles.cyr` | MB4 | G |
 | M8 | `screenshot.rs` | 210 | 10 | 10 | `src/screenshot.cyr` | MB3, selah (D8) | G |
-| M9 | `window.rs` (surface glue only, D5) | ≈ 120 | ≈ 6 | ≈ 4 | `src/surface.cyr` | MB5 | G |
+| M9 | `window.rs` (surface glue only, D5; 3 fns not carried) | ≈ 120 | 8 | 8 | `src/surface.cyr` | MB5 | G |
 | M9 | `drm.rs` | 141 | 5 | 9 | `src/drm.cyr` (D8) | agnodrm | C |
 
-The `shadow`, `environment` and `debug_draw` splits are estimates. `scripts/surface_parity.py` fixes them at M0.
+The `shadow`, `environment`, `debug_draw` and `window` splits were measured at M0 step 7 by `scripts/surface_parity.py` and `scripts/rust_test_ledger.py`, which fix them item by item (their `SPLITS` and `TEST_MILESTONE` tables).
 
 **Track C:** about 4,640 code lines (61 %). **Track G:** about 2,720. **Not carried:** about 150 (`egui_bridge` and the winit half of `window`). The rest is `lib.rs` and `test_support.rs`.
 
@@ -292,6 +295,7 @@ Finalized at M0 step 2. Each row says how the harness still compares the functio
 | 13 | CUBICSPLINE samplers keep each key's value and drop its tangents, so playback is linear (slerp for rotations) between keys | channels carry their interpolation mode and the in/out tangents, and CUBICSPLINE plays back as the glTF cubic Hermite spline (rotations normalized) | **class R** against the glTF spec formula, evaluated independently in f64. The 1.2.0 value-only rows stay for LINEAR and STEP, and for CUBICSPLINE at key times, where both agree |
 | 14 | glTF verdicts on malformed input: 4 inputs that 1.2.0 accepts and bayan refuses (duplicate keys and an integer above i64::MAX in `extras`, both open bayan issues; nesting deeper than 128); 4 inputs that **panic** Rust 1.2.0 (`byteStride: 4` on POSITION, an out-of-range POSITION accessor, a float index type, an unknown target path); and document refusals D6 didn't list (POSITION without min/max, non-object `extras`, an unknown semantic, `extensionsRequired`, an invalid interpolation, mode > 6) | each is a defined `SR_ERR_*`; joint TRS numbers parse correctly rounded (bayan: 4,000 of 4,000; serde_json: 3,959) | class A on every other fixture; these rows are named in the harness (P9)
 | 15 | `image` decodes up to its 512 MiB limit | chitra caps an image at 16,777,216 pixels, and the decode goes through a freeing allocator (`chitra_image_decode_budget_via`) | larger images are refused with `SR_ERR_*`; PNG/BMP class A, JPEG B-img (P10) |
+| 16 | f32 `sin`, `cos`, `powf` and `expf` come from host glibc, which misrounds 0.73 % of soorat's inputs, each by 1 ulp (probe P3, port-parity §1.3) | correctly rounded: ganita's f32 tier (widen, compute, narrow) gave the reference value on all 226,050 of soorat's inputs; `acos` through `ganita_f64_acos`; `log10` through kimiya's correctly rounded `crlog` (stand-in, L1) | class C, K = 0, against `<module>.cr.tsv` where glibc misrounds; a pass is *accepted (cr)* |
 
 ---
 
@@ -333,18 +337,45 @@ Finalized at M0 step 2. Each row says how the harness still compares the functio
    - `[lib]`: bundle order;
    - `[build] dce = true`;
    - `[test]` with `bench`.
-4. **The golden generator** (`scripts/golden/`, driving `rust-old/` by path with its lock seeded from 1.2.0's):
-   - TSV rows as tanmatra's, with a new **f32 token** `g:<8 hex>` beside `f:<16 hex>`;
-   - a header recording glibc, CPU FMA, Mesa and the adapter;
-   - `--check` refuses a corpus from another platform;
-   - `validate.py` re-derives every f64-reference row (the `.cr.tsv` files).
-5. **The parity harness:** `tests/parity_core.cyr` and `tests/ulp.cyr` from pravash, plus an **f32 ulp** on the ordered-integer line and the class-E reporter (§5).
-6. **The render-reference harness (class G):**
-   - `scripts/golden/render/` renders the reference scenes with Rust 1.2.0 on the Cezanne: a sprite grid, lines, a lit mesh, a shadowed mesh, an IBL sphere, a skinned mesh mid-animation, bloom/tonemap/SSAO, particles and every science renderer;
-   - it writes RGBA8 readbacks and a scene manifest;
-   - the Cyrius side renders the same manifest.
-7. **Tooling:** copy `surface_parity.py`, `rust_test_ledger.py`, `bench_record.py`, `doc_examples.py` and `upstream_ledger.py`, all gated in CI.
-8. **Baselines:** the Rust bench columns come from `bench-history.csv` (the 2026-11-15 final run). File the requests in §10 with soorat's numbers.
+4. ✅ **The golden generator** (done 2026-11-15): `scripts/oracle/`, driving `rust-old/` by path, its lock seeded from 1.2.0's. See `scripts/oracle/README.md`.
+   - TSV rows as tanmatra's, with a new **f32 token** `g:<8 hex>` beside `f:<16 hex>`.
+   - A header recording the platform (glibc, CPU FMA). `--check` refuses a corpus from another platform. The adapter and Mesa are recorded by the class-G corpus (step 6).
+   - Deterministic: two runs are byte-identical.
+   - M0 modules:
+     - `constants`, 18 rows;
+     - `layout`, 19 rows (P1);
+     - `math`, 1,436 rows, `math_util` on P2's grid, class E and A.
+   - `validate.py` re-derives every `math` row bit for bit without Rust, by emulating f32 in Python f64. It writes `math.e.tsv`: 1,149 rows where Rust's formula in f64, rounded once, differs from Rust's f32 outputs. It also checks `constants` against `rust-old/src`.
+5. ✅ **The parity harness** (done 2026-11-15): `tests/parity_core.cyr` and `tests/ulp.cyr` from pravash, with:
+   - the `g:` token, and `ulp32_*` on the 32-bit ordered line;
+   - class E, through `<module>.e.tsv` (pravash's `.d3.tsv` mechanism);
+   - the correctly rounded `.cr.tsv` rows (ADR 0002 #16).
+   
+   `tests/parity.tcyr` replays all 1,473 rows. At M0 every row is pending and the run exits 0. It runs in CI through `cyrius test`, and `validate.py` runs in CI too.
+6. ✅ **The render-reference harness (class G)** (done 2026-11-15): `scripts/render_ref/` renders the reference scenes with Rust 1.2.0's public API on the Cezanne and writes `tests/golden/render/`, 180 KB. See `scripts/render_ref/README.md`.
+   - **The files:**
+     - the scene definitions, `scenes.json`, which the renderer itself reads; every number is an exact f32;
+     - the call sequences and fixed state, `scenes.md`;
+     - 12 PNG readbacks (128²);
+     - `manifest.tsv`, which records the adapter, driver, Mesa, glibc, wgpu and soorat versions;
+     - `uploads.tsv`, with the size and sha256 of every CPU buffer each scene uploads, so the Cyrius side can check its uploads before comparing pixels.
+   - **Determinism:** two renders on separate devices are byte-identical. `--check` exits 1 on a difference and 2 on another adapter or stack.
+   - **Scenes:** `sprite_grid`, `debug_lines`, `pbr_lit`, `shadow_mesh`, `ibl_sphere`, `post_bloom_tonemap` (with `set_bloom`), `post_ssao`, `gpu_particles` (simulated, then drawn as sprites), and `science_acoustic`, `science_thermo`, `science_fluid` and `science_em`. **The skinned mesh was dropped:** 1.2.0 has no public pipeline that builds `pbr_skinned.wgsl` or binds `JointUniforms`.
+   - **What 1.2.0's public API forced, which M6–M8 must decide on** (each becomes an ADR 0002 fix or a class-G-matched behaviour):
+     1. no public skinned pipeline;
+     2. no particle render pipeline, since nothing draws `InstanceData`;
+     3. no SSAO normals pass, so a constant +Z normal texture is used;
+     4. camera math (`look_at`, `perspective`) is crate-private, so the scenes store the matrices, derived once by `derive_camera.py`;
+     5. `MeshPipeline::draw` always clears depth and has one model uniform (ADR 0002 #7, #8), so multi-object scenes are one concatenated mesh;
+     6. `LinePipeline` loads depth while a new `DepthBuffer` is zero-filled, so lines fail the depth test unless a draw clears depth first;
+     7. a zero-filled shadow map shadows light 0 everywhere until a shadow pass clears it to 1.0.
+   - The Cyrius side renders the same `scenes.json` once mabda's render tier lands (M6).
+7. ✅ **Tooling** (done 2026-11-15): `scripts/surface_parity.py`, `rust_test_ledger.py`, `bench_record.py`, `doc_examples.py` and `upstream_ledger.py`, adapted from pravash and impetus. They run in CI as the `port-tooling` job.
+   - A milestone counts as done when its §14 row has ✅. Every checker takes `--done Mn` to preview a gate.
+   - Ported tests are `test_group("<Rust test name>")` (`tests/README.md`).
+   - The Cyrius bench history is `bench-history.csv` at the repository root.
+   - Today: 912 public items (827 pending, 77 n/a, 8 deferred); 502 Rust tests (471 pending, 28 n/a, 3 deferred); 35 benches pending; 16 ledger rows with 14 filed paths, all present.
+8. ✅ **Baselines** (done 2026-11-15): the Rust bench column of `docs/benchmarks-rust-v-cyrius.md` is the 1.2.0 release run (`rust-old/bench-history.csv`, 2026-11-15T21:19Z), written by `bench_record.py`. The M0 corpus has no class-C rows, so there are no C bounds to set yet; each milestone sets its functions' bounds at its first replay. The §10 requests are filed.
 
 ---
 
@@ -357,7 +388,7 @@ tanmatra's classes, with selah's image classes and two additions for soorat.
 | **A — exact** | identical bits or integers | u8 colours (`to_rgba8`, `from_hex`); sRGB tables; f16 packing at every edge (subnormal, overflow, NaN, ties); index buffers, winding, counts and clamps (`MAX_SEGMENTS`, `MAX_QUADS`, `MAX_PARTICLES`, `MAX_SPRITES_PER_BATCH`); glyph lookups; `UvRect` (computed in f64 in 1.1.0); keyframe brackets; glTF accept/reject verdicts; struct layouts (P1); the u8 BRDF LUT |
 | **B — arithmetic** | ≤ 2 ulp, expected 0 | f32 paths kept bit-faithful under D4(a): batch quad generation, sprite transforms, terrain normals (sqrt only), box-filter mips, colour lerp and luminance |
 | **C — transcendental** | ≤ K ulp by tanmatra's rule (K_F = 2·S·c + 2); 0 against the correctly rounded rows | f32 sin/cos tessellation where D4(a) keeps f32; `log10`/`ln`/`exp` in the viz modules; sRGB `powf` (the table itself is class A) |
-| **E — improved** *(new)* | against Rust: ≤ K ulp, or relative ≤ 2⁻²⁰ where cancellation makes ulp meaningless. Against the f64 reference: **≤ 0.5 ulp of f32**, plus double-rounding cases listed by row | D4(b) outputs: `look_at`, `perspective`, `ortho`, `directional_light_matrix_at`, `inverse_transpose_3x3`, joint matrices, slerp, cascade splits, sphere/cylinder/balloon vertices, viz normalization. The harness prints both distances, so each row shows the gain |
+| **E — improved** *(new)* | the port evaluates Rust's formula in f64, with the f32 inputs and constants widened exactly, and rounds once. Where that differs from Rust's f32 outputs, the expectation is the row in `<module>.e.tsv` (`scripts/oracle/validate.py`), compared **bit for bit**. Elsewhere it equals Rust's, bit for bit. Each row's distance from Rust's f32 output is reported as the gain. *(Made exact at M0 step 4: the earlier draft said ≤ 0.5 ulp against an f64 reference.)* | D4(b) outputs: `look_at`, `perspective`, `ortho`, `directional_light_matrix_at`, `inverse_transpose_3x3`, joint matrices, slerp, cascade splits, sphere/cylinder/balloon vertices, viz normalization. The harness prints both distances, so each row shows the gain |
 | **G — image** *(new)* | on the same adapter and driver: **exact** where the CPU uploads are bit-identical. Where a class-E upload differs, per channel ≤ 1 LSB on ≤ 0.1 % of pixels (a provisional bound, set at M6 from measurement) | every reference scene in §4 step 6 |
 | **B-img** (selah) | against ground-truth pixels: mean ≤ Rust's + 0.05, max ≤ Rust's + 2 | JPEG-decoded textures (P10) |
 | **R — reference** | the tolerance stated in the test | winding against normals; unit normals; mip averages; white → white; slerp endpoints; joint chains against an independent f64 model; the 12 integration tests |
@@ -456,7 +487,7 @@ Large milestones go in parts, each part gated.
 | **M7 Shadows, IBL, PBR** (a–c) | shadow, environment, the PBR and skinned paths | the shadow map pass and comparison sampling; cube maps with a CPU mip chain; PBR + IBL; 4-bone skinning | class G: shadowed mesh, IBL sphere, skinned mesh at fixed times | G (MB2, MB3) |
 | **M8 Post, particles, screenshots** (a–c) | hdr, postprocess, ssao, gpu_particles, screenshot | the HDR target, bloom (composited after D2), tonemap, SSAO; the particle compute; readback and encode (D8) | class G: post chain, particles after N steps; screenshot bytes class A for PNG and BMP | G (MB3, MB4) |
 | **M9 Integration** | surface, drm, examples | the application-owned window path (D5) on a Wayland test client; the agnodrm subset; the 1.1.0 example ported | an end-to-end frame presented and read back | G (MB5) |
-| **M10 Release 2.0.0** | all | Rust-test ledger (all 479: 458 + 12 + 7 + 2); the full surface diff; `docs/benchmarks-rust-v-cyrius.md` (35 rows); the README; `docs/guides/migration-2.0.md`, led by D5; the CHANGELOG's Breaking section; doc examples compiled and run; VERSION 2.0.0 | full corpus green on 3 targets; class G green on the dev box | — |
+| **M10 Release 2.0.0** | all | Rust-test ledger (all 502: 471 to port, 28 n/a, 3 deferred; `scripts/rust_test_ledger.py`); the full surface diff; `docs/benchmarks-rust-v-cyrius.md` (35 rows); the README; `docs/guides/migration-2.0.md`, led by D5; the CHANGELOG's Breaking section; doc examples compiled and run; VERSION 2.0.0 | full corpus green on 3 targets; class G green on the dev box | — |
 
 **Order and parallelism.**
 - M0 → M1 → M2 → M3 → M4 → M5 is the CPU track. It runs while mabda does MB1–MB5.
@@ -611,7 +642,7 @@ Where the gap matters (sprite batching at scale), the remedies are the sibling o
 | Milestone | Status | Golden rows | Rust tests ported | Benches | Notes |
 |---|---|---|---|---|---|
 | D1–D9 | ✅ decided 2026-11-15 | — | — | — | |
-| M0 Prepare and initialize | ◐ steps 0–2 done (1.2.0 released; 11 probes; `cyrius port` + repairs; ADRs 0001/0002) | — | — | — | next: steps 3–8 |
+| M0 Prepare and initialize | ✅ done 2026-11-15 | 1,473 (all pending until M1); 12 class-G scenes | 0 of 471 | Rust column recorded | steps 0–8; next M1 |
 | M1 Foundation | ☐ | | | | |
 | M2 2D | ☐ | | | | |
 | M3 Geometry and animation | ☐ | | | | |

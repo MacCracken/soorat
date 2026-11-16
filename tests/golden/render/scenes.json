@@ -1,0 +1,1420 @@
+{
+  "schema": 1,
+  "about": [
+    "soorat class-G reference scenes, rendered by scripts/render_ref with the frozen Rust soorat 1.2.0 oracle.",
+    "This file is the definition: the Rust renderer reads it, and the Cyrius port renders the same scenes from it. Semantics: scenes.md.",
+    "Every number is exactly representable as an f32 (render_ref refuses the file otherwise), so a correctly rounding parser recovers the same bits.",
+    "Matrices are column-major (index = col * 4 + row). Colors are linear RGBA unless they are u8 texels.",
+    "Camera matrices were produced once by scripts/render_ref/derive_camera.py; the numbers here are the definition."
+  ],
+  "cameras": {
+    "close": {
+      "eye": [0, 0.5, 2],
+      "target": [0, 0, 0],
+      "fovy_deg": 45,
+      "near": 0.125,
+      "far": 16,
+      "view": [1, 0, 0, 0, 0, 0.97014248371124267578125, 0.2425356209278106689453125, 0, 0, -0.2425356209278106689453125, 0.97014248371124267578125, 0, 0, 0, -2.0615527629852294921875, 1],
+      "projection": [2.414213657379150390625, 0, 0, 0, 0, 2.414213657379150390625, 0, 0, 0, 0, -1.007874011993408203125, -1, 0, 0, -0.125984251499176025390625, 0],
+      "inv_projection": [0.4142135679721832275390625, 0, 0, 0, 0, 0.4142135679721832275390625, 0, 0, 0, 0, 0, -7.9375, 0, 0, -1, 8],
+      "view_proj": [2.414213657379150390625, 0, 0, 0, 0, 2.342131137847900390625, -0.2444453537464141845703125, -0.2425356209278106689453125, 0, -0.58553278446197509765625, -0.97778141498565673828125, -0.97014248371124267578125, 0, 0, 1.951801300048828125, 2.0615527629852294921875]
+    },
+    "overview": {
+      "eye": [2.5, 2.5, 3.5],
+      "target": [0, 0.25, 0],
+      "fovy_deg": 45,
+      "near": 0.125,
+      "far": 32,
+      "view": [0.81373345851898193359375, -0.2694176137447357177734375, 0.51502621173858642578125, 0, 0, 0.88608455657958984375, 0.4635235965251922607421875, 0, -0.581238210201263427734375, -0.3771846592426300048828125, 0.7210366725921630859375, 0, 0, -0.2215211391448974609375, -4.970002651214599609375, 1],
+      "projection": [2.414213657379150390625, 0, 0, 0, 0, 2.414213657379150390625, 0, 0, 0, 0, -1.00392162799835205078125, -1, 0, 0, -0.12549020349979400634765625, 0],
+      "inv_projection": [0.4142135679721832275390625, 0, 0, 0, 0, 0.4142135679721832275390625, 0, 0, 0, 0, 0, -7.96875, 0, 0, -1, 8],
+      "view_proj": [1.9645264148712158203125, -0.65043163299560546875, -0.517045915126800537109375, -0.51502621173858642578125, 0, 2.13919734954833984375, -0.4653413295745849609375, -0.4635235965251922607421875, -1.40323317050933837890625, -0.910604298114776611328125, -0.723864257335662841796875, -0.7210366725921630859375, 0, -0.5347993373870849609375, 4.864002704620361328125, 4.970002651214599609375]
+    },
+    "science": {
+      "eye": [0, 2.25, 2.25],
+      "target": [0, 0, 0],
+      "fovy_deg": 50,
+      "near": 0.125,
+      "far": 16,
+      "view": [1, 0, 0, 0, 0, 0.707106769084930419921875, 0.707106769084930419921875, 0, 0, -0.707106769084930419921875, 0.707106769084930419921875, 0, 0, 0, -3.181980609893798828125, 1],
+      "projection": [2.144506931304931640625, 0, 0, 0, 0, 2.144506931304931640625, 0, 0, 0, 0, -1.007874011993408203125, -1, 0, 0, -0.125984251499176025390625, 0],
+      "inv_projection": [0.4663076698780059814453125, 0, 0, 0, 0, 0.4663076698780059814453125, 0, 0, 0, 0, 0, -7.9375, 0, 0, -1, 8],
+      "view_proj": [2.144506931304931640625, 0, 0, 0, 0, 1.5163953304290771484375, -0.712674558162689208984375, -0.707106769084930419921875, 0, -1.5163953304290771484375, -0.712674558162689208984375, -0.707106769084930419921875, 0, 0, 3.0810511112213134765625, 3.181980609893798828125]
+    }
+  },
+  "scenes": [
+    {
+      "name": "sprite_grid",
+      "description": "6x6 tinted translucent sprites with atlas UVs, three z-sorted overlays (one rotated), 4x4 sRGB atlas, nearest sampling",
+      "width": 128,
+      "height": 128,
+      "format": "Rgba8UnormSrgb",
+      "render": {
+        "sprites": {
+          "clear": [0.125, 0.125, 0.25, 1],
+          "texture": {
+            "rgba": {
+              "width": 4,
+              "height": 4,
+              "texels": [
+                [255, 255, 255, 255],
+                [96, 96, 96, 255],
+                [255, 255, 255, 255],
+                [96, 96, 96, 255],
+                [96, 96, 96, 255],
+                [255, 255, 255, 255],
+                [96, 96, 96, 255],
+                [255, 255, 255, 255],
+                [255, 64, 64, 255],
+                [255, 224, 64, 255],
+                [64, 224, 255, 255],
+                [255, 255, 255, 96],
+                [64, 96, 255, 255],
+                [255, 255, 255, 255],
+                [96, 96, 96, 255],
+                [255, 255, 255, 255]
+              ]
+            }
+          },
+          "sprites": [
+            {
+              "x": 6,
+              "y": 6,
+              "w": 16,
+              "h": 16,
+              "color": [0.375, 1, 0.75, 1],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 0, 2, 2]
+            },
+            {
+              "x": 26,
+              "y": 6,
+              "w": 16,
+              "h": 16,
+              "color": [0.5, 1, 0.75, 0.9375],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 2, 4, 2]
+            },
+            {
+              "x": 46,
+              "y": 6,
+              "w": 16,
+              "h": 16,
+              "color": [0.625, 1, 0.75, 0.875],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": null
+            },
+            {
+              "x": 66,
+              "y": 6,
+              "w": 16,
+              "h": 16,
+              "color": [0.75, 1, 0.75, 0.8125],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 0, 2, 2]
+            },
+            {
+              "x": 86,
+              "y": 6,
+              "w": 16,
+              "h": 16,
+              "color": [0.875, 1, 0.75, 0.75],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 2, 4, 2]
+            },
+            {
+              "x": 106,
+              "y": 6,
+              "w": 16,
+              "h": 16,
+              "color": [1, 1, 0.75, 0.6875],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": null
+            },
+            {
+              "x": 6,
+              "y": 26,
+              "w": 16,
+              "h": 16,
+              "color": [0.375, 0.875, 0.75, 0.9375],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 2, 4, 2]
+            },
+            {
+              "x": 26,
+              "y": 26,
+              "w": 16,
+              "h": 16,
+              "color": [0.5, 0.875, 0.75, 0.875],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": null
+            },
+            {
+              "x": 46,
+              "y": 26,
+              "w": 16,
+              "h": 16,
+              "color": [0.625, 0.875, 0.75, 0.8125],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 0, 2, 2]
+            },
+            {
+              "x": 66,
+              "y": 26,
+              "w": 16,
+              "h": 16,
+              "color": [0.75, 0.875, 0.75, 0.75],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 2, 4, 2]
+            },
+            {
+              "x": 86,
+              "y": 26,
+              "w": 16,
+              "h": 16,
+              "color": [0.875, 0.875, 0.75, 0.6875],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": null
+            },
+            {
+              "x": 106,
+              "y": 26,
+              "w": 16,
+              "h": 16,
+              "color": [1, 0.875, 0.75, 0.625],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 0, 2, 2]
+            },
+            {
+              "x": 6,
+              "y": 46,
+              "w": 16,
+              "h": 16,
+              "color": [0.375, 0.75, 0.75, 0.875],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": null
+            },
+            {
+              "x": 26,
+              "y": 46,
+              "w": 16,
+              "h": 16,
+              "color": [0.5, 0.75, 0.75, 0.8125],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 0, 2, 2]
+            },
+            {
+              "x": 46,
+              "y": 46,
+              "w": 16,
+              "h": 16,
+              "color": [0.625, 0.75, 0.75, 0.75],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 2, 4, 2]
+            },
+            {
+              "x": 66,
+              "y": 46,
+              "w": 16,
+              "h": 16,
+              "color": [0.75, 0.75, 0.75, 0.6875],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": null
+            },
+            {
+              "x": 86,
+              "y": 46,
+              "w": 16,
+              "h": 16,
+              "color": [0.875, 0.75, 0.75, 0.625],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 0, 2, 2]
+            },
+            {
+              "x": 106,
+              "y": 46,
+              "w": 16,
+              "h": 16,
+              "color": [1, 0.75, 0.75, 0.5625],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 2, 4, 2]
+            },
+            {
+              "x": 6,
+              "y": 66,
+              "w": 16,
+              "h": 16,
+              "color": [0.375, 0.625, 0.75, 0.8125],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 0, 2, 2]
+            },
+            {
+              "x": 26,
+              "y": 66,
+              "w": 16,
+              "h": 16,
+              "color": [0.5, 0.625, 0.75, 0.75],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 2, 4, 2]
+            },
+            {
+              "x": 46,
+              "y": 66,
+              "w": 16,
+              "h": 16,
+              "color": [0.625, 0.625, 0.75, 0.6875],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": null
+            },
+            {
+              "x": 66,
+              "y": 66,
+              "w": 16,
+              "h": 16,
+              "color": [0.75, 0.625, 0.75, 0.625],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 0, 2, 2]
+            },
+            {
+              "x": 86,
+              "y": 66,
+              "w": 16,
+              "h": 16,
+              "color": [0.875, 0.625, 0.75, 0.5625],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 2, 4, 2]
+            },
+            {
+              "x": 106,
+              "y": 66,
+              "w": 16,
+              "h": 16,
+              "color": [1, 0.625, 0.75, 0.5],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": null
+            },
+            {
+              "x": 6,
+              "y": 86,
+              "w": 16,
+              "h": 16,
+              "color": [0.375, 0.5, 0.75, 0.75],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 2, 4, 2]
+            },
+            {
+              "x": 26,
+              "y": 86,
+              "w": 16,
+              "h": 16,
+              "color": [0.5, 0.5, 0.75, 0.6875],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": null
+            },
+            {
+              "x": 46,
+              "y": 86,
+              "w": 16,
+              "h": 16,
+              "color": [0.625, 0.5, 0.75, 0.625],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 0, 2, 2]
+            },
+            {
+              "x": 66,
+              "y": 86,
+              "w": 16,
+              "h": 16,
+              "color": [0.75, 0.5, 0.75, 0.5625],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 2, 4, 2]
+            },
+            {
+              "x": 86,
+              "y": 86,
+              "w": 16,
+              "h": 16,
+              "color": [0.875, 0.5, 0.75, 0.5],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": null
+            },
+            {
+              "x": 106,
+              "y": 86,
+              "w": 16,
+              "h": 16,
+              "color": [1, 0.5, 0.75, 0.4375],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 0, 2, 2]
+            },
+            {
+              "x": 6,
+              "y": 106,
+              "w": 16,
+              "h": 16,
+              "color": [0.375, 0.375, 0.75, 0.6875],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": null
+            },
+            {
+              "x": 26,
+              "y": 106,
+              "w": 16,
+              "h": 16,
+              "color": [0.5, 0.375, 0.75, 0.625],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 0, 2, 2]
+            },
+            {
+              "x": 46,
+              "y": 106,
+              "w": 16,
+              "h": 16,
+              "color": [0.625, 0.375, 0.75, 0.5625],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 2, 4, 2]
+            },
+            {
+              "x": 66,
+              "y": 106,
+              "w": 16,
+              "h": 16,
+              "color": [0.75, 0.375, 0.75, 0.5],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": null
+            },
+            {
+              "x": 86,
+              "y": 106,
+              "w": 16,
+              "h": 16,
+              "color": [0.875, 0.375, 0.75, 0.4375],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 0, 2, 2]
+            },
+            {
+              "x": 106,
+              "y": 106,
+              "w": 16,
+              "h": 16,
+              "color": [1, 0.375, 0.75, 0.375],
+              "z_order": 0,
+              "rotation": 0,
+              "uv_pixel_rect": [0, 2, 4, 2]
+            },
+            {
+              "x": 24,
+              "y": 24,
+              "w": 40,
+              "h": 40,
+              "color": [1, 0.25, 0.25, 0.5],
+              "z_order": 3,
+              "rotation": 0,
+              "uv_pixel_rect": null
+            },
+            {
+              "x": 44,
+              "y": 36,
+              "w": 40,
+              "h": 40,
+              "color": [0.25, 1, 0.25, 0.5],
+              "z_order": 1,
+              "rotation": 0.5,
+              "uv_pixel_rect": [0, 2, 4, 2]
+            },
+            {
+              "x": 34,
+              "y": 56,
+              "w": 40,
+              "h": 40,
+              "color": [0.25, 0.25, 1, 0.5],
+              "z_order": 2,
+              "rotation": 0,
+              "uv_pixel_rect": [2, 0, 2, 2]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "debug_lines",
+      "description": "grid, circle, box, sphere and axes through LinePipeline over a depth-cleared target",
+      "width": 128,
+      "height": 128,
+      "format": "Rgba8UnormSrgb",
+      "render": {
+        "lines": {
+          "camera": "overview",
+          "clear_pass": {
+            "camera": "overview",
+            "model": null,
+            "parts": [
+              {
+                "generator": {
+                  "degenerate": {}
+                },
+                "scale": null,
+                "translate": null,
+                "color": null
+              }
+            ],
+            "albedo": "white_pixel",
+            "material": {
+              "base_color_factor": [1, 1, 1, 1],
+              "metallic": 0,
+              "roughness": 0.5
+            },
+            "lighting": {
+              "ambient_color": [1, 1, 1],
+              "ambient_intensity": 0,
+              "lights": []
+            },
+            "env": {
+              "irradiance": {
+                "solid": {
+                  "rgba": [48, 48, 64, 255]
+                }
+              },
+              "prefiltered": {
+                "solid": {
+                  "rgba": [48, 48, 64, 255]
+                }
+              },
+              "brdf_lut": {
+                "rgba_linear": {
+                  "width": 1,
+                  "height": 1,
+                  "texels": [[160, 32, 0, 255]]
+                }
+              }
+            },
+            "shadow": null,
+            "clear": [0.0625, 0.0625, 0.09375, 1]
+          },
+          "ops": [
+            {
+              "grid": {
+                "half_extent": 2,
+                "spacing": 0.25,
+                "color": [0.5, 0.5, 0.5, 0.5]
+              }
+            },
+            {
+              "wire_circle": {
+                "center": [0, 0, 0],
+                "radius": 1.75,
+                "segments": 48,
+                "color": [1, 0.5, 1, 1]
+              }
+            },
+            {
+              "wire_box": {
+                "min": [-0.5, 0, -0.5],
+                "max": [0.5, 1, 0.5],
+                "color": [1, 1, 0.25, 1]
+              }
+            },
+            {
+              "wire_sphere": {
+                "center": [0, 0.5, 0],
+                "radius": 0.75,
+                "segments": 24,
+                "color": [0.25, 1, 1, 1]
+              }
+            },
+            {
+              "line": {
+                "a": [0, 0, 0],
+                "b": [1.5, 0, 0],
+                "color": [1, 0.25, 0.25, 1]
+              }
+            },
+            {
+              "line": {
+                "a": [0, 0, 0],
+                "b": [0, 1.5, 0],
+                "color": [0.25, 1, 0.25, 1]
+              }
+            },
+            {
+              "line": {
+                "a": [0, 0, 0],
+                "b": [0, 0, 1.5],
+                "color": [0.25, 0.5, 1, 1]
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "pbr_lit",
+      "description": "checker-textured ellipsoid (rotated, non-uniform scale) under directional + point + spot lights, dim IBL",
+      "width": 128,
+      "height": 128,
+      "format": "Rgba8UnormSrgb",
+      "render": {
+        "mesh": {
+          "camera": "close",
+          "model": [1.060963153839111328125, 0.09451843798160552978515625, -0.654158651828765869140625, 0, 0.075614750385284423828125, 0.962192595005035400390625, 0.2616634666919708251953125, 0, 0.654158651828765869140625, -0.3270793259143829345703125, 1.01370394229888916015625, 0, 0, 0, 0, 1],
+          "parts": [
+            {
+              "generator": {
+                "sphere": {
+                  "segments": 32,
+                  "rings": 16
+                }
+              },
+              "scale": null,
+              "translate": null,
+              "color": null
+            }
+          ],
+          "albedo": {
+            "checker": {
+              "width": 8,
+              "height": 8,
+              "a": [255, 255, 255, 255],
+              "b": [64, 160, 255, 255]
+            }
+          },
+          "material": {
+            "base_color_factor": [1, 0.875, 0.75, 1],
+            "metallic": 0.25,
+            "roughness": 0.375
+          },
+          "lighting": {
+            "ambient_color": [1, 1, 1],
+            "ambient_intensity": 0.5,
+            "lights": [
+              {
+                "directional": {
+                  "direction": [-0.5, -1, -0.75],
+                  "color": [1, 0.9375, 0.875],
+                  "intensity": 3
+                }
+              },
+              {
+                "point": {
+                  "position": [1.25, 0.75, 1.5],
+                  "color": [0.25, 0.5, 1],
+                  "intensity": 6,
+                  "range": 8
+                }
+              },
+              {
+                "spot": {
+                  "position": [-1.5, 1, 1],
+                  "direction": [1.5, -1, -1],
+                  "color": [1, 0.5, 0.25],
+                  "intensity": 8,
+                  "range": 8,
+                  "inner_cone": 0.25,
+                  "outer_cone": 0.375
+                }
+              }
+            ]
+          },
+          "env": {
+            "irradiance": {
+              "solid": {
+                "rgba": [48, 48, 64, 255]
+              }
+            },
+            "prefiltered": {
+              "solid": {
+                "rgba": [48, 48, 64, 255]
+              }
+            },
+            "brdf_lut": {
+              "rgba_linear": {
+                "width": 1,
+                "height": 1,
+                "texels": [[160, 32, 0, 255]]
+              }
+            }
+          },
+          "shadow": null,
+          "clear": [0.03125, 0.03125, 0.046875, 1]
+        }
+      }
+    },
+    {
+      "name": "shadow_mesh",
+      "description": "plane, cube and sphere with a 512 directional shadow map (PCF 3x3)",
+      "width": 128,
+      "height": 128,
+      "format": "Rgba8UnormSrgb",
+      "render": {
+        "mesh": {
+          "camera": "overview",
+          "model": null,
+          "parts": [
+            {
+              "generator": {
+                "plane": {
+                  "subdivisions": 4
+                }
+              },
+              "scale": [4, 1, 4],
+              "translate": null,
+              "color": [0.875, 0.875, 0.875, 1]
+            },
+            {
+              "generator": {
+                "cube": {}
+              },
+              "scale": [0.75, 0.75, 0.75],
+              "translate": [0, 0.375, 0],
+              "color": [1, 0.5, 0.25, 1]
+            },
+            {
+              "generator": {
+                "sphere": {
+                  "segments": 24,
+                  "rings": 12
+                }
+              },
+              "scale": [0.75, 0.75, 0.75],
+              "translate": [0.875, 0.375, 0.625],
+              "color": [0.25, 0.625, 1, 1]
+            }
+          ],
+          "albedo": "white_pixel",
+          "material": {
+            "base_color_factor": [1, 1, 1, 1],
+            "metallic": 0,
+            "roughness": 0.625
+          },
+          "lighting": {
+            "ambient_color": [1, 1, 1],
+            "ambient_intensity": 0.375,
+            "lights": [
+              {
+                "directional": {
+                  "direction": [0.5, -1, -0.25],
+                  "color": [1, 1, 1],
+                  "intensity": 3
+                }
+              }
+            ]
+          },
+          "env": {
+            "irradiance": {
+              "solid": {
+                "rgba": [48, 48, 64, 255]
+              }
+            },
+            "prefiltered": {
+              "solid": {
+                "rgba": [48, 48, 64, 255]
+              }
+            },
+            "brdf_lut": {
+              "rgba_linear": {
+                "width": 1,
+                "height": 1,
+                "texels": [[160, 32, 0, 255]]
+              }
+            }
+          },
+          "shadow": {
+            "map_size": 512,
+            "direction": [0.5, -1, -0.25],
+            "center": [0, 0, 0],
+            "extent": 2.5,
+            "near": -4,
+            "far": 4
+          },
+          "clear": [0.03125, 0.03125, 0.046875, 1]
+        }
+      }
+    },
+    {
+      "name": "ibl_sphere",
+      "description": "metallic sphere lit only by IBL: 4x4 flat irradiance, 16x16 gradient prefiltered cube (5 mips), prakash 32x32 BRDF LUT",
+      "width": 128,
+      "height": 128,
+      "format": "Rgba8UnormSrgb",
+      "render": {
+        "mesh": {
+          "camera": "close",
+          "model": [1.25, 0, 0, 0, 0, 1.25, 0, 0, 0, 0, 1.25, 0, 0, 0, 0, 1],
+          "parts": [
+            {
+              "generator": {
+                "sphere": {
+                  "segments": 48,
+                  "rings": 24
+                }
+              },
+              "scale": null,
+              "translate": null,
+              "color": null
+            }
+          ],
+          "albedo": "white_pixel",
+          "material": {
+            "base_color_factor": [1, 1, 1, 1],
+            "metallic": 0.75,
+            "roughness": 0.25
+          },
+          "lighting": {
+            "ambient_color": [1, 1, 1],
+            "ambient_intensity": 1,
+            "lights": []
+          },
+          "env": {
+            "irradiance": {
+              "flat_faces": {
+                "size": 4,
+                "colors": [[192, 64, 64, 255], [64, 192, 64, 255], [224, 224, 255, 255], [48, 32, 24, 255], [64, 64, 192, 255], [192, 192, 64, 255]]
+              }
+            },
+            "prefiltered": {
+              "gradient_faces": {
+                "size": 16,
+                "base": [[160, 32, 32], [32, 160, 32], [96, 96, 128], [24, 16, 8], [32, 32, 160], [160, 160, 32]],
+                "step": [8, 8]
+              }
+            },
+            "brdf_lut": {
+              "prakash": {
+                "size": 32,
+                "samples": 64
+              }
+            }
+          },
+          "shadow": null,
+          "clear": [0, 0, 0, 1]
+        }
+      }
+    },
+    {
+      "name": "post_bloom_tonemap",
+      "description": "glossy HDR sphere (Rgba16Float) -> bloom threshold/blur -> ACES tone map with bloom composite 1.0",
+      "width": 128,
+      "height": 128,
+      "format": "Rgba8UnormSrgb",
+      "render": {
+        "bloom_tonemap": {
+          "hdr_pass": {
+            "camera": "close",
+            "model": null,
+            "parts": [
+              {
+                "generator": {
+                  "sphere": {
+                    "segments": 32,
+                    "rings": 16
+                  }
+                },
+                "scale": null,
+                "translate": null,
+                "color": null
+              }
+            ],
+            "albedo": "white_pixel",
+            "material": {
+              "base_color_factor": [0.5, 0.25, 0.125, 1],
+              "metallic": 0,
+              "roughness": 0.125
+            },
+            "lighting": {
+              "ambient_color": [1, 1, 1],
+              "ambient_intensity": 0.25,
+              "lights": [
+                {
+                  "directional": {
+                    "direction": [-0.5, -0.75, -1],
+                    "color": [1, 1, 1],
+                    "intensity": 3
+                  }
+                },
+                {
+                  "point": {
+                    "position": [0.75, 0.5, 1.25],
+                    "color": [1, 0.75, 0.5],
+                    "intensity": 4,
+                    "range": 4
+                  }
+                }
+              ]
+            },
+            "env": {
+              "irradiance": {
+                "solid": {
+                  "rgba": [48, 48, 64, 255]
+                }
+              },
+              "prefiltered": {
+                "solid": {
+                  "rgba": [48, 48, 64, 255]
+                }
+              },
+              "brdf_lut": {
+                "rgba_linear": {
+                  "width": 1,
+                  "height": 1,
+                  "texels": [[160, 32, 0, 255]]
+                }
+              }
+            },
+            "shadow": null,
+            "clear": [0.015625, 0.015625, 0.03125, 1]
+          },
+          "threshold": 0.5,
+          "soft_threshold": 0.25,
+          "bloom_uniform_intensity": 1,
+          "exposure": 1,
+          "tone_map": "AcesFilmic",
+          "bloom_intensity": 1
+        }
+      }
+    },
+    {
+      "name": "post_ssao",
+      "description": "SSAO (16 samples) from the depth of the plane/cube/sphere scene, constant +Z normal",
+      "width": 128,
+      "height": 128,
+      "format": "Rgba8Unorm",
+      "render": {
+        "ssao": {
+          "scene_pass": {
+            "camera": "overview",
+            "model": null,
+            "parts": [
+              {
+                "generator": {
+                  "plane": {
+                    "subdivisions": 4
+                  }
+                },
+                "scale": [4, 1, 4],
+                "translate": null,
+                "color": [0.875, 0.875, 0.875, 1]
+              },
+              {
+                "generator": {
+                  "cube": {}
+                },
+                "scale": [0.75, 0.75, 0.75],
+                "translate": [0, 0.375, 0],
+                "color": [1, 0.5, 0.25, 1]
+              },
+              {
+                "generator": {
+                  "sphere": {
+                    "segments": 24,
+                    "rings": 12
+                  }
+                },
+                "scale": [0.75, 0.75, 0.75],
+                "translate": [0.875, 0.375, 0.625],
+                "color": [0.25, 0.625, 1, 1]
+              }
+            ],
+            "albedo": "white_pixel",
+            "material": {
+              "base_color_factor": [1, 1, 1, 1],
+              "metallic": 0,
+              "roughness": 0.625
+            },
+            "lighting": {
+              "ambient_color": [1, 1, 1],
+              "ambient_intensity": 0.375,
+              "lights": [
+                {
+                  "directional": {
+                    "direction": [0.5, -1, -0.25],
+                    "color": [1, 1, 1],
+                    "intensity": 3
+                  }
+                }
+              ]
+            },
+            "env": {
+              "irradiance": {
+                "solid": {
+                  "rgba": [48, 48, 64, 255]
+                }
+              },
+              "prefiltered": {
+                "solid": {
+                  "rgba": [48, 48, 64, 255]
+                }
+              },
+              "brdf_lut": {
+                "rgba_linear": {
+                  "width": 1,
+                  "height": 1,
+                  "texels": [[160, 32, 0, 255]]
+                }
+              }
+            },
+            "shadow": null,
+            "clear": [0.03125, 0.03125, 0.046875, 1]
+          },
+          "normal_texel": [128, 128, 255, 255],
+          "radius": 0.5,
+          "bias": 0.03125,
+          "intensity": 1,
+          "sample_count": 16
+        }
+      }
+    },
+    {
+      "name": "gpu_particles",
+      "description": "64 particles (xorshift32 seed) after 32 compute steps of 1/64 s, drawn as sprites",
+      "width": 128,
+      "height": 128,
+      "format": "Rgba8UnormSrgb",
+      "render": {
+        "particles": {
+          "capacity": 64,
+          "count": 64,
+          "seed": "0x2545F491",
+          "draws": [
+            {
+              "field": "position.x",
+              "lo": -0.25,
+              "hi": 0.25
+            },
+            {
+              "field": "position.y",
+              "lo": -0.125,
+              "hi": 0.125
+            },
+            {
+              "field": "position.w",
+              "lo": 0.25,
+              "hi": 1
+            },
+            {
+              "field": "velocity.x",
+              "lo": -1.25,
+              "hi": 1.25
+            },
+            {
+              "field": "velocity.y",
+              "lo": 1,
+              "hi": 3
+            },
+            {
+              "field": "velocity.w",
+              "lo": 0.0625,
+              "hi": 0.1875
+            },
+            {
+              "field": "color.g",
+              "lo": 0.25,
+              "hi": 1
+            },
+            {
+              "field": "color.a",
+              "lo": 0.5,
+              "hi": 1
+            }
+          ],
+          "constants": [
+            {
+              "field": "position.z",
+              "value": 0
+            },
+            {
+              "field": "velocity.z",
+              "value": 0
+            },
+            {
+              "field": "color.r",
+              "value": 1
+            },
+            {
+              "field": "color.b",
+              "value": 0.125
+            }
+          ],
+          "steps": 32,
+          "delta_time": 0.015625,
+          "gravity_y": -4,
+          "damping": 0.96875,
+          "pixel_origin": [64, 100],
+          "pixels_per_unit": 48,
+          "clear": [0, 0, 0, 1]
+        }
+      }
+    },
+    {
+      "name": "science_acoustic",
+      "description": "goonj room-mode pattern 9x9 as a heat-mapped height field (mode_pattern_to_mesh)",
+      "width": 128,
+      "height": 128,
+      "format": "Rgba8UnormSrgb",
+      "render": {
+        "mesh": {
+          "camera": "science",
+          "model": null,
+          "parts": [
+            {
+              "generator": {
+                "acoustic_mode_pattern": {
+                  "frequency_hz": 85.75,
+                  "mode_indices": [1, 0, 1],
+                  "pattern_dimensions": [9, 9],
+                  "pattern": [
+                    1, 0.921875, 0.703125, 0.375, 0, -0.375, -0.703125, -0.921875, -1,
+                    0.921875, 0.849853515625, 0.648193359375, 0.345703125, 0, -0.345703125, -0.648193359375, -0.849853515625, -0.921875,
+                    0.703125, 0.648193359375, 0.494384765625, 0.263671875, 0, -0.263671875, -0.494384765625, -0.648193359375, -0.703125,
+                    0.375, 0.345703125, 0.263671875, 0.140625, 0, -0.140625, -0.263671875, -0.345703125, -0.375,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    -0.375, -0.345703125, -0.263671875, -0.140625, 0, 0.140625, 0.263671875, 0.345703125, 0.375,
+                    -0.703125, -0.648193359375, -0.494384765625, -0.263671875, 0, 0.263671875, 0.494384765625, 0.648193359375, 0.703125,
+                    -0.921875, -0.849853515625, -0.648193359375, -0.345703125, 0, 0.345703125, 0.648193359375, 0.849853515625, 0.921875,
+                    -1, -0.921875, -0.703125, -0.375, 0, 0.375, 0.703125, 0.921875, 1
+                  ],
+                  "width": 2,
+                  "depth": 2,
+                  "height_scale": 0.375,
+                  "color_mode": "Pressure",
+                  "base_color": [0.25, 0.5, 1, 1],
+                  "alpha": 1
+                }
+              },
+              "scale": null,
+              "translate": null,
+              "color": null
+            }
+          ],
+          "albedo": "white_pixel",
+          "material": {
+            "base_color_factor": [1, 1, 1, 1],
+            "metallic": 0,
+            "roughness": 0.75
+          },
+          "lighting": {
+            "ambient_color": [1, 1, 1],
+            "ambient_intensity": 0.5,
+            "lights": [
+              {
+                "directional": {
+                  "direction": [-0.25, -1, -0.5],
+                  "color": [1, 1, 1],
+                  "intensity": 2
+                }
+              }
+            ]
+          },
+          "env": {
+            "irradiance": {
+              "solid": {
+                "rgba": [128, 128, 128, 255]
+              }
+            },
+            "prefiltered": {
+              "solid": {
+                "rgba": [128, 128, 128, 255]
+              }
+            },
+            "brdf_lut": {
+              "rgba_linear": {
+                "width": 1,
+                "height": 1,
+                "texels": [[128, 16, 0, 255]]
+              }
+            }
+          },
+          "shadow": null,
+          "clear": [0.0625, 0.0625, 0.0625, 1]
+        }
+      }
+    },
+    {
+      "name": "science_thermo",
+      "description": "ushma 8x8 thermal grid heat map (thermal_grid_to_mesh)",
+      "width": 128,
+      "height": 128,
+      "format": "Rgba8UnormSrgb",
+      "render": {
+        "mesh": {
+          "camera": "science",
+          "model": null,
+          "parts": [
+            {
+              "generator": {
+                "thermal_grid": {
+                  "values": [
+                    290, 300, 317.5, 330, 337.5, 340, 337.5, 330,
+                    290, 307.5, 325, 337.5, 345, 347.5, 345, 337.5,
+                    290, 310, 327.5, 340, 347.5, 350, 347.5, 340,
+                    290, 307.5, 325, 337.5, 345, 347.5, 345, 337.5,
+                    290, 300, 317.5, 330, 337.5, 340, 337.5, 330,
+                    290, 290, 305, 317.5, 325, 327.5, 325, 317.5,
+                    290, 290, 290, 300, 307.5, 310, 307.5, 300,
+                    290, 290, 290, 290, 290, 290, 290, 290
+                  ],
+                  "dimensions": [8, 8],
+                  "origin": [-1, -1],
+                  "spacing": [0.25, 0.25],
+                  "min_temp": 290,
+                  "max_temp": 350,
+                  "y_pos": 0,
+                  "color_mode": "Temperature",
+                  "base_color": [1, 0, 0, 1],
+                  "alpha": 1
+                }
+              },
+              "scale": null,
+              "translate": null,
+              "color": null
+            }
+          ],
+          "albedo": "white_pixel",
+          "material": {
+            "base_color_factor": [1, 1, 1, 1],
+            "metallic": 0,
+            "roughness": 0.75
+          },
+          "lighting": {
+            "ambient_color": [1, 1, 1],
+            "ambient_intensity": 0.5,
+            "lights": [
+              {
+                "directional": {
+                  "direction": [-0.25, -1, -0.5],
+                  "color": [1, 1, 1],
+                  "intensity": 2
+                }
+              }
+            ]
+          },
+          "env": {
+            "irradiance": {
+              "solid": {
+                "rgba": [128, 128, 128, 255]
+              }
+            },
+            "prefiltered": {
+              "solid": {
+                "rgba": [128, 128, 128, 255]
+              }
+            },
+            "brdf_lut": {
+              "rgba_linear": {
+                "width": 1,
+                "height": 1,
+                "texels": [[128, 16, 0, 255]]
+              }
+            }
+          },
+          "shadow": null,
+          "clear": [0.0625, 0.0625, 0.0625, 1]
+        }
+      }
+    },
+    {
+      "name": "science_fluid",
+      "description": "pravash 9x9 shallow-water surface with a bump and a dip (shallow_water_to_mesh)",
+      "width": 128,
+      "height": 128,
+      "format": "Rgba8UnormSrgb",
+      "render": {
+        "mesh": {
+          "camera": "science",
+          "model": null,
+          "parts": [
+            {
+              "generator": {
+                "shallow_water": {
+                  "nx": 9,
+                  "ny": 9,
+                  "dx": 0.25,
+                  "water_height": 0.5,
+                  "height": [
+                    0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+                    0.5, 0.5, 0.5, 0.5625, 0.75, 0.8125, 0.75, 0.5625, 0.5,
+                    0.5, 0.5, 0.5, 0.75, 0.9375, 1, 0.9375, 0.75, 0.5,
+                    0.5, 0.5, 0.5, 0.8125, 1, 1.0625, 1, 0.8125, 0.5,
+                    0.5, 0.5, 0.5, 0.75, 0.9375, 1, 0.9375, 0.75, 0.5,
+                    0.5, 0.40625, 0.359375, 0.46875, 0.75, 0.8125, 0.75, 0.5625, 0.5,
+                    0.5, 0.359375, 0.3125, 0.359375, 0.5, 0.5, 0.5, 0.5, 0.5,
+                    0.5, 0.40625, 0.359375, 0.40625, 0.5, 0.5, 0.5, 0.5, 0.5,
+                    0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5
+                  ],
+                  "y_scale": 1,
+                  "color": [0.25, 0.5, 1, 1]
+                }
+              },
+              "scale": null,
+              "translate": [0, -0.5, 0],
+              "color": null
+            }
+          ],
+          "albedo": "white_pixel",
+          "material": {
+            "base_color_factor": [1, 1, 1, 1],
+            "metallic": 0,
+            "roughness": 0.75
+          },
+          "lighting": {
+            "ambient_color": [1, 1, 1],
+            "ambient_intensity": 0.5,
+            "lights": [
+              {
+                "directional": {
+                  "direction": [-0.25, -1, -0.5],
+                  "color": [1, 1, 1],
+                  "intensity": 2
+                }
+              }
+            ]
+          },
+          "env": {
+            "irradiance": {
+              "solid": {
+                "rgba": [128, 128, 128, 255]
+              }
+            },
+            "prefiltered": {
+              "solid": {
+                "rgba": [128, 128, 128, 255]
+              }
+            },
+            "brdf_lut": {
+              "rgba_linear": {
+                "width": 1,
+                "height": 1,
+                "texels": [[128, 16, 0, 255]]
+              }
+            }
+          },
+          "shadow": null,
+          "clear": [0.0625, 0.0625, 0.0625, 1]
+        }
+      }
+    },
+    {
+      "name": "science_em",
+      "description": "bijli 8x8 Ez field slice, signed map (field_slice_2d_to_mesh)",
+      "width": 128,
+      "height": 128,
+      "format": "Rgba8UnormSrgb",
+      "render": {
+        "mesh": {
+          "camera": "science",
+          "model": null,
+          "parts": [
+            {
+              "generator": {
+                "em_field_slice_2d": {
+                  "values": [
+                    0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0.375, 0.5, 0.375, 0, 0, 0, 0,
+                    0.375, 0.75, 0.875, 0.75, 0, -0.5, -0.375, 0,
+                    0.5, 0.875, 1, 0.5, -0.25, -0.875, -0.75, -0.375,
+                    0.375, 0.75, 0.875, 0.25, -0.5, -1, -0.875, -0.5,
+                    0, 0.375, 0.5, 0, -0.75, -0.875, -0.75, -0.375,
+                    0, 0, 0, 0, -0.375, -0.5, -0.375, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0
+                  ],
+                  "dimensions": [8, 8],
+                  "origin": [-1, -1],
+                  "spacing": 0.25,
+                  "component": "Ez",
+                  "step": 0,
+                  "y_pos": 0,
+                  "color_mode": "Signed",
+                  "base_color": [0.25, 0.5, 1, 1],
+                  "alpha": 1
+                }
+              },
+              "scale": null,
+              "translate": null,
+              "color": null
+            }
+          ],
+          "albedo": "white_pixel",
+          "material": {
+            "base_color_factor": [1, 1, 1, 1],
+            "metallic": 0,
+            "roughness": 0.75
+          },
+          "lighting": {
+            "ambient_color": [1, 1, 1],
+            "ambient_intensity": 0.5,
+            "lights": [
+              {
+                "directional": {
+                  "direction": [-0.25, -1, -0.5],
+                  "color": [1, 1, 1],
+                  "intensity": 2
+                }
+              }
+            ]
+          },
+          "env": {
+            "irradiance": {
+              "solid": {
+                "rgba": [128, 128, 128, 255]
+              }
+            },
+            "prefiltered": {
+              "solid": {
+                "rgba": [128, 128, 128, 255]
+              }
+            },
+            "brdf_lut": {
+              "rgba_linear": {
+                "width": 1,
+                "height": 1,
+                "texels": [[128, 16, 0, 255]]
+              }
+            }
+          },
+          "shadow": null,
+          "clear": [0.0625, 0.0625, 0.0625, 1]
+        }
+      }
+    }
+  ],
+  "skipped": [
+    {
+      "name": "skinned_mesh",
+      "reason": "soorat 1.2.0 has no public skinned pipeline: no type builds pbr_skinned.wgsl (only gpu_smoke compiles it) or binds JointUniforms; SkinnedVertex3D, Skeleton and AnimationClip are CPU-only"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+[package]
+name = "soorat-oracle"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.100"
+license = "GPL-3.0-only"
+publish = false
+description = "Writes soorat's golden corpus (tests/golden/*.tsv) from the frozen Rust 1.2.0 oracle in rust-old/"
+
+# The oracle by path, never edited. Cargo.lock is seeded from rust-old/Cargo.lock, so every
+# shared dependency is the oracle's exact version. Features grow with the milestones' modules.
+[dependencies]
+soorat = { path = "../../rust-old", features = ["oracle"] }
+
+[profile.release]
+overflow-checks = true

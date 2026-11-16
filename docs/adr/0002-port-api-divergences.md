@@ -19,7 +19,7 @@ There is no Rust 2.0, so API fixes land in the Cyrius API only, as kimiya's and 
 
 The port diverges from 1.2.0 exactly where this table says, and nowhere else. Every row says how the parity
 harness still compares the function, so nothing leaves parity entirely. Rows 1–12 were seeded by the plan
-(§3.3); 13–15 were added by M0's decisions and probes (2026-11-15).
+(§3.3); 13–16 were added by M0's decisions, probes and harness (2026-11-15).
 
 | # | Rust 1.2.0 | Cyrius 2.0.0 | Comparison |
 |---|---|---|---|
@@ -38,6 +38,7 @@ harness still compares the function, so nothing leaves parity entirely. Rows 1�
 | 13 | CUBICSPLINE samplers keep each key's value and drop its tangents, so playback is linear (slerp for rotations) between keys | channels carry their interpolation mode and the in/out tangents, and CUBICSPLINE plays back as the glTF cubic Hermite spline (rotations normalized) | **class R** against the glTF spec formula, evaluated independently in f64. The 1.2.0 value-only rows stay for LINEAR and STEP, and for CUBICSPLINE at key times, where both agree |
 | 14 | glTF verdicts on malformed input: 4 inputs that 1.2.0 accepts and bayan refuses (duplicate keys and an integer above i64::MAX in `extras`, both open bayan issues; nesting deeper than 128); 4 inputs that **panic** Rust 1.2.0 (`byteStride: 4` on POSITION, an out-of-range POSITION accessor, a float index type, an unknown target path); and document refusals D6 didn't list (POSITION without min/max, non-object `extras`, an unknown semantic, `extensionsRequired`, an invalid interpolation, mode > 6) | each is a defined `SR_ERR_*`; joint TRS numbers parse correctly rounded (bayan: 4,000 of 4,000; serde_json: 3,959) | class A on every other fixture; these rows are named in the harness (P9)
 | 15 | `image` decodes up to its 512 MiB limit | chitra caps an image at 16,777,216 pixels, and the decode goes through a freeing allocator (`chitra_image_decode_budget_via`) | larger images are refused with `SR_ERR_*`; PNG/BMP class A, JPEG B-img (P10) |
+| 16 | f32 `sin`, `cos`, `powf` and `expf` come from host glibc, which misrounds 0.73 % of soorat's inputs, each by 1 ulp (probe P3, port-parity §1.3) | correctly rounded: ganita's f32 tier (widen, compute, narrow) gave the reference value on all 226,050 of soorat's inputs; `acos` through `ganita_f64_acos`; `log10` through kimiya's correctly rounded `crlog` (stand-in, L1) | class C, K = 0, against `<module>.cr.tsv` where glibc misrounds; a pass is *accepted (cr)* |
 
 ## Consequences
 

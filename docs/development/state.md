@@ -22,7 +22,7 @@ Decisions: [ADR 0001](../adr/0001-cyrius-port-with-rust-oracle.md),
 | M0 step 0: freeze the oracle | ✅ 1.2.0 (the oracle hooks, damping and bloom fixes) |
 | M0 step 1: probes P1–P11 | ✅ 2026-11-15, port-parity §1 |
 | M0 step 2: `cyrius port` + repairs | ✅ 2026-11-15 (below) |
-| M0 steps 3–8: manifest, golden generator, harness, render references, tooling, baselines | ☐ |
+| M0 steps 3–8: manifest, golden generator, harness, render references, tooling, baselines | ✅ 2026-11-15: **M0 complete** |
 | M1–M10 | ☐ |
 
 **Step 2's repairs.** `cyrius port` overwrote CLAUDE.md, the roadmap and both workflows, pinned
@@ -44,12 +44,20 @@ Decisions: [ADR 0001](../adr/0001-cyrius-port-with-rust-oracle.md),
 
 - **Rust reference:** `rust-old/`. 7,649 code lines in 44 modules, plus 9 WGSL shaders, 15,767 lines in all.
 - **Cyrius:** scaffold only (`src/main.cyr`, `tests/soorat.{tcyr,bcyr,fcyr}`). M1 adds the first modules.
+- **Port machinery (M0):**
+  - `scripts/oracle/`: the golden generator and `validate.py` (`tests/golden/`: constants, layout, math, 1,473 rows; `math.e.tsv` holds 1,149 class-E rows);
+  - `tests/parity.tcyr` with `parity_core.cyr` and `ulp.cyr`: the replay; all rows are pending until M1;
+  - `scripts/render_ref/`: the class-G corpus (`tests/golden/render/`, 12 scenes, adapter-pinned);
+  - `scripts/{surface_parity,rust_test_ledger,bench_record,doc_examples,upstream_ledger}.py`, in CI.
 
 ## Tests
 
 - **Rust oracle:** 501 tests pass with all features (460 unit, 12 integration, 9 GPU smoke, 18 oracle-hook,
   2 shader-validation). CI runs them under `rust-old/`.
-- **Cyrius:** the scaffold's smoke test passes (`cyrius test`); `cyrius audit` exits 0.
+- **Cyrius:**
+  - `cyrius test` passes: the smoke test, plus the parity replay of 1,473 rows, all pending;
+  - `cyrius audit` exits 0.
+- **Ledgers:** 912 public items, 827 to port; 502 Rust tests, 471 to port (`docs/development/rust-test-ledger.md`); 35 benches (`docs/benchmarks-rust-v-cyrius.md`).
 
 ## Dependencies
 
@@ -73,5 +81,6 @@ kiran (rendering), salai (editor viewport), joshua (visualization): all still Ru
 
 ## Next
 
-M0 step 3 onward: finish `cyrius.cyml` for M1, then build the golden generator in `scripts/golden/` and the
-parity harness.
+**M1 (foundation)**:
+- error, mathx, the correctly rounded stand-ins, generated tables, math, color, layout, lights, lod, material;
+- the first real replay: the `math` rows in class E, `layout` and `constants` in class A.
