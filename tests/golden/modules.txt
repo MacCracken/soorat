@@ -17,4 +17,7 @@ terrain
 animation
 gltf
 shadow
+env
+pbr_material
+pbr_optics
 json

@@ -1,0 +1,32 @@
+# pbr_material.cyr — Rust 1.2.0's src/pbr_material.rs, its core half (M4 part b): MaterialUniforms' constructors. The
+# layout is src/layout.cyr's (M1); the `optics` half (`from_ior`, the BRDF LUT) is src/pbr_optics.cyr.
+
+# White, non-metallic, roughness 0.5, the pads 0, into out (an SrMaterialUniforms). Mirrors
+# `impl Default for MaterialUniforms`.
+fn SrMaterialUniforms_default(out) {
+    store64(out, 0x3F8000003F800000);
+    store64(out + 8, 0x3F8000003F800000);
+    store32(out + 16, 0);
+    store32(out + 20, 0x3F000000);
+    store64(out + 24, 0);
+    return out;
+}
+
+# A material of base_color (an SrColor) with metallic (f32 bits) and roughness, the pads 0, into out.
+fn _sr_material(base_color, metallic, roughness, out) {
+    _sr_copy16(out, base_color);
+    store32(out + 16, metallic);
+    store32(out + 20, roughness & 0xFFFFFFFF);
+    store64(out + 24, 0);
+    return out;
+}
+
+# A dielectric (metallic 0). Mirrors `MaterialUniforms::dielectric`.
+fn SrMaterialUniforms_dielectric(base_color, roughness, out) {
+    return _sr_material(base_color, 0, roughness, out);
+}
+
+# A metal (metallic 1). Mirrors `MaterialUniforms::metal`.
+fn SrMaterialUniforms_metal(base_color, roughness, out) {
+    return _sr_material(base_color, 0x3F800000, roughness, out);
+}

@@ -6613,6 +6613,265 @@ fn sr_tile_uv(config, index, out) {
     return sr_tile_uv_in(sr_atlas_columns(load64(config), t), t, load64(config), index, out);
 }
 
+# --- env_cpu.cyr ---
+
+# env_cpu.cyr — Rust 1.2.0's src/environment.rs, its CPU half (M4 part b): the cube faces' codecs, the 2×2 box
+# downsample and the CPU mip chain, with mabda's `mip_level_count`. The environment map and the IBL bind group are GPU
+# objects (M7). Rust keeps these crate-private; the golden rows reach them through the oracle hooks.
+#
+# A face is RGBA8 sRGB (SR_FACE_SRGB8, 4 bytes a texel) or RGBA16 float (SR_FACE_F16, 8). Decoding reads the sRGB
+# table and the f16 conversion of src/tables.cyr (class A); the box filter is Rust's f32 sequence (class B, exact);
+# sRGB encoding is the correctly rounded `linear_to_srgb`'s bytes (class C, bound 0, ADR 0002 #16), found by threshold
+# search rather than a pow per channel (ADR 0002 #27).
+
+# A cube face's encoding. Mirrors the crate-private `FaceEncoding`.
+enum SrFaceEncoding {
+    SR_FACE_SRGB8 = 0;
+    SR_FACE_F16 = 1;
+}
+
+# The mip levels of a w × h texture: ⌊log₂ max(w, h)⌋ + 1, or 1 for a zero edge. Mirrors mabda's `mip_level_count`
+# (soorat's `texture::mip_level_count` re-exports it).
+#must_use
+fn sr_mip_level_count(width, height): i64 {
+    var w = width & 0xFFFFFFFF;
+    var h = height & 0xFFFFFFFF;
+    if (w == 0 || h == 0) { return 1; }
+    var m = w;
+    if (h > m) { m = h; }
+    var n = 0;
+    while (m > 0) {
+        n = n + 1;
+        m = m >> 1;
+    }
+    return n;
+}
+
+# Bytes per texel of the encoding enc: 4 or 8.
+#must_use
+fn sr_face_bytes_per_texel(enc): i64 {
+    if (enc == SR_FACE_F16) { return 8; }
+    return 4;
+}
+
+# Decodes the len bytes at bytes (a trailing partial texel ignored) into linear RGBA texels (4 f32 each) at out;
+# returns how many. sRGB: the colour bytes through the decode table, alpha / 255 in f32. f16: each half widened.
+# Mirrors `FaceEncoding::decode`.
+fn sr_face_decode(enc, bytes, len, out): i64 {
+    var bpt = sr_face_bytes_per_texel(enc);
+    var n = len / bpt;
+    var k = 0;
+    var f255 = 0x437F0000;
+    while (k < n) {
+        var p = bytes + k * bpt;
+        var q = out + k * 16;
+        if (enc == SR_FACE_F16) {
+            store32(q, _sr_f16_to_f32(load16(p)));
+            store32(q + 4, _sr_f16_to_f32(load16(p + 2)));
+            store32(q + 8, _sr_f16_to_f32(load16(p + 4)));
+            store32(q + 12, _sr_f16_to_f32(load16(p + 6)));
+        } else {
+            store32(q, _sr_srgb8_decode(load8(p)));
+            store32(q + 4, _sr_srgb8_decode(load8(p + 1)));
+            store32(q + 8, _sr_srgb8_decode(load8(p + 2)));
+            store32(q + 12, _sr_f32_div(_sr_gl_u8f(load8(p + 3)), f255));
+        }
+        k = k + 1;
+    }
+    return n;
+}
+
+# The f32 bits of the byte b.
+#must_use
+fn _sr_gl_u8f(b): i64 { return f32_from(f64_from(b & 0xFF)); }
+
+# The sRGB byte of the linear l (f32 bits) the direct way: `(linear_to_srgb(l).clamp(0, 1) · 255).round() as u8`, with
+# linear_to_srgb's pow correctly rounded (about 270 ns).
+#must_use
+fn _sr_srgb_byte_direct(l): i64 {
+    return _sr_color_q8(_sr_linear_to_srgb(l));
+}
+
+# The 255 encode thresholds: entry k (1 … 255) is the smallest non-negative f32 (bits) whose sRGB byte is at least k.
+# Found once, by binary search over the f32 bit patterns with the direct encoding (about 2 ms).
+var _sr_srgb_thr = 0;
+fn _sr_srgb_thresholds(): i64 {
+    if (_sr_srgb_thr != 0) { return _sr_srgb_thr; }
+    var t = alloc(256 * 8);
+    if (t == 0) { return 0; }
+    var k = 1;
+    while (k < 256) {
+        var lo = 0;
+        var hi = 0x7F800000;
+        while (lo < hi) {
+            var mid = lo + (hi - lo) / 2;
+            if (_sr_srgb_byte_direct(mid) >= k) { hi = mid; } else { lo = mid + 1; }
+        }
+        store64(t + k * 8, lo);
+        k = k + 1;
+    }
+    _sr_srgb_thr = t;
+    return t;
+}
+
+# The sRGB byte of the linear l (f32 bits), bit-identical to _sr_srgb_byte_direct without its pow: the count of
+# thresholds at or below l. Exact because the byte is a non-decreasing function of l: linear_to_srgb is monotone on
+# each side of its knee (a correctly rounded pow, then a positive scale and a constant offset), and at the knee both
+# sides encode to byte 10, far from a rounding boundary; the clamp and the rounding are monotone. NaN, −0 and the
+# negatives give 0, as the direct encoding does.
+#must_use
+fn _sr_srgb_byte(l): i64 {
+    var b = l & 0xFFFFFFFF;
+    if (b >= 0x7F800001) { return 0; }
+    var t = _sr_srgb_thresholds();
+    if (t == 0) { return _sr_srgb_byte_direct(b); }
+    var lo = 0;
+    var hi = 255;
+    while (lo < hi) {
+        var mid = (lo + hi + 1) / 2;
+        if (load64(t + mid * 8) <= b) { lo = mid; } else { hi = mid - 1; }
+    }
+    return lo;
+}
+
+# Encodes the n linear RGBA texels at texels into out; returns the bytes written. sRGB: each colour channel
+# `(linear_to_srgb(c).clamp(0, 1) · 255).round() as u8`, alpha without the transfer. f16: each channel to its half,
+# little-endian. The sRGB bytes come from the encode thresholds (_sr_srgb_byte), which give the direct encoding's bytes
+# without its pow. Mirrors `FaceEncoding::encode`.
+fn sr_face_encode(enc, texels, n, out): i64 {
+    var bpt = sr_face_bytes_per_texel(enc);
+    var k = 0;
+    while (k < n) {
+        var t = texels + k * 16;
+        var q = out + k * bpt;
+        if (enc == SR_FACE_F16) {
+            var c = 0;
+            while (c < 4) {
+                var h = _sr_f32_to_f16(load32(t + c * 4));
+                store8(q + c * 2, h & 0xFF);
+                store8(q + c * 2 + 1, (h >> 8) & 0xFF);
+                c = c + 1;
+            }
+        } else {
+            store8(q, _sr_srgb_byte(load32(t)));
+            store8(q + 1, _sr_srgb_byte(load32(t + 4)));
+            store8(q + 2, _sr_srgb_byte(load32(t + 8)));
+            store8(q + 3, _sr_color_q8(load32(t + 12)));
+        }
+        k = k + 1;
+    }
+    return n * bpt;
+}
+
+# The 2×2 box downsample of the size × size linear image src (n texels) into out: max(size / 2, 1)² texels, each
+# channel 0.25 · (((a + b) + c) + d) in f32 over the block at (2x, 2y), an odd edge clamped to the last texel. Returns
+# the texels written: 0 for size 0 or n < size². Mirrors `downsample`.
+fn sr_downsample(src, n, size, out): i64 {
+    if (size <= 0 || n < size * size) { return 0; }
+    var last = size - 1;
+    var dst = size / 2;
+    if (dst < 1) { dst = 1; }
+    var quarter = 0x3E800000;
+    var y = 0;
+    while (y < dst) {
+        var y0 = 2 * y;
+        if (y0 > last) { y0 = last; }
+        var y1 = 2 * y + 1;
+        if (y1 > last) { y1 = last; }
+        var x = 0;
+        while (x < dst) {
+            var x0 = 2 * x;
+            if (x0 > last) { x0 = last; }
+            var x1 = 2 * x + 1;
+            if (x1 > last) { x1 = last; }
+            var a = src + (y0 * size + x0) * 16;
+            var b = src + (y0 * size + x1) * 16;
+            var c = src + (y1 * size + x0) * 16;
+            var d = src + (y1 * size + x1) * 16;
+            var o = out + (y * dst + x) * 16;
+            var ch = 0;
+            while (ch < 16) {
+                var ab = _sr_f32_add(load32(a + ch), load32(b + ch));
+                var s = _sr_f32_add(_sr_f32_add(ab, load32(c + ch)), load32(d + ch));
+                store32(o + ch, _sr_f32_mul(quarter, s));
+                ch = ch + 4;
+            }
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+    return dst * dst;
+}
+
+# The CPU mip chain of one size × size face (len bytes at face, encoding enc): levels 1 … mip_count − 1, each the box
+# filter of the one before in linear space, encoded. Into out, 24 bytes a level (edge size, bytes pointer, byte
+# length), every buffer from the allocator a. Returns the level count (0 when mip_count ≤ 1), or −1 when an allocation
+# fails. A face shorter than size² texels gives empty levels, as in Rust. Mirrors `face_mip_chain`.
+fn sr_face_mip_chain(enc, face, len, size, mip_count, a, out): i64 {
+    if (mip_count <= 1) { return 0; }
+    var bpt = sr_face_bytes_per_texel(enc);
+    var n = len / bpt;
+    var level = alloc_via(a, n * 16 + 16);
+    var next = alloc_via(a, n * 16 + 16);
+    if (level == 0 || next == 0) { return 0 - 1; }
+    n = sr_face_decode(enc, face, len, level);
+    var ls = size;
+    var i = 1;
+    while (i < mip_count) {
+        var m = sr_downsample(level, n, ls, next);
+        ls = ls / 2;
+        if (ls < 1) { ls = 1; }
+        var bytes = alloc_via(a, m * bpt + 8);
+        if (bytes == 0) { return 0 - 1; }
+        var bl = sr_face_encode(enc, next, m, bytes);
+        var o = out + (i - 1) * 24;
+        store64(o, ls);
+        store64(o + 8, bytes);
+        store64(o + 16, bl);
+        var t = level;
+        level = next;
+        next = t;
+        n = m;
+        i = i + 1;
+    }
+    return mip_count - 1;
+}
+
+# --- pbr_material.cyr ---
+
+# pbr_material.cyr — Rust 1.2.0's src/pbr_material.rs, its core half (M4 part b): MaterialUniforms' constructors. The
+# layout is src/layout.cyr's (M1); the `optics` half (`from_ior`, the BRDF LUT) is src/pbr_optics.cyr.
+
+# White, non-metallic, roughness 0.5, the pads 0, into out (an SrMaterialUniforms). Mirrors
+# `impl Default for MaterialUniforms`.
+fn SrMaterialUniforms_default(out) {
+    store64(out, 0x3F8000003F800000);
+    store64(out + 8, 0x3F8000003F800000);
+    store32(out + 16, 0);
+    store32(out + 20, 0x3F000000);
+    store64(out + 24, 0);
+    return out;
+}
+
+# A material of base_color (an SrColor) with metallic (f32 bits) and roughness, the pads 0, into out.
+fn _sr_material(base_color, metallic, roughness, out) {
+    _sr_copy16(out, base_color);
+    store32(out + 16, metallic);
+    store32(out + 20, roughness & 0xFFFFFFFF);
+    store64(out + 24, 0);
+    return out;
+}
+
+# A dielectric (metallic 0). Mirrors `MaterialUniforms::dielectric`.
+fn SrMaterialUniforms_dielectric(base_color, roughness, out) {
+    return _sr_material(base_color, 0, roughness, out);
+}
+
+# A metal (metallic 1). Mirrors `MaterialUniforms::metal`.
+fn SrMaterialUniforms_metal(base_color, roughness, out) {
+    return _sr_material(base_color, 0x3F800000, roughness, out);
+}
+
 # --- color_optics.cyr ---
 
 # color_optics.cyr — Rust 1.2.0's `optics` half of src/color.rs (M1 part b2): Color ⇄ prakash.
@@ -6689,4 +6948,174 @@ fn SrColor_from_wavelength(nm, out): Option {
     if (rgb == 0) { return None(); }
     SrColor_from_prakash(rgb, 0x3F800000, out);
     return Some(out);
+}
+
+# --- pbr_optics.cyr ---
+
+# pbr_optics.cyr — Rust 1.2.0's `optics` half of src/pbr_material.rs (M4 part b): `MaterialUniforms::from_ior` and
+# the BRDF integration LUT.
+#
+# **OPTIONAL**, as Rust gates them behind `optics`: bundled by the `[lib.optics]` profile after src/color_optics.cyr.
+#
+# **Rust 1.2.0's values, not prakash 2.15.2's** (ADR 0002 #27). Rust calls prakash 1.2.0's `ior_to_f0` and
+# `integrate_brdf_lut`. Cyrius prakash 2.15.2 changed both: `pbr_ior_to_f0` returns NaN for an IOR that is not finite
+# and positive, and `pbr_integrate_brdf_lut` uses the image-based-lighting geometry remap (k = α/2) where 1.2.0 used
+# the direct-lighting one (k = (r + 1)²/8). The LUTs differ on about 3 bytes in 4, by up to 229. So these transcribe
+# prakash 1.2.0's two formulas, in f64 as it computes them; the golden rows are class A on every byte.
+
+# F0 = ((1 − ior) / (1 + ior))² in f64, for any ior (prakash 1.2.0's `ior_to_f0`).
+#must_use
+fn _sr_ior_to_f0(ior): i64 {
+    var x: f64 = ior;
+    var one: f64 = 1.0;
+    var r: f64 = (one - x) / (one + x);
+    var f: f64 = r * r;
+    return f;
+}
+
+# A dielectric of base_color (an SrColor) whose `_pad0` holds the reflectance F0 of the index of refraction ior (f64
+# bits), narrowed to f32; metallic 0. Mirrors `MaterialUniforms::from_ior`.
+fn SrMaterialUniforms_from_ior(base_color, ior, roughness, out) {
+    _sr_material(base_color, 0, roughness, out);
+    var f0: f64 = _sr_ior_to_f0(ior);
+    store32(out + 24, f32_from(f0));
+    return out;
+}
+
+# n/(n·(1 − k) + k + 1e-15), n clamped to [0, 1], k = (r + 1)²/8: prakash 1.2.0's `geometry_schlick_ggx`.
+fn _sr_ggx_g1(n: f64, r: f64): f64 {
+    var zero: f64 = 0.0;
+    var one: f64 = 1.0;
+    var eight: f64 = 8.0;
+    var eb = 0x3CD203AF9EE75616;
+    var eps: f64 = eb;
+    var rr: f64 = r + one;
+    var k: f64 = (rr * rr) / eight;
+    var nd: f64 = n;
+    if (nd < zero) { nd = zero; }
+    if (nd > one) { nd = one; }
+    return nd / (((nd * (one - k)) + k) + eps);
+}
+
+# The split-sum (scale, bias) of (n·v, roughness) over samples Hammersley points of importance-sampled GGX, into out
+# (2 f64): prakash 1.2.0's `integrate_brdf_lut`, operation for operation (the view clamped to [0.001, 1], the GGX
+# half-vector from xi1 = i / samples and the radical inverse of i, the light reflected about it, Smith with the
+# direct-lighting k, and (1 − v·h)⁵ as x·((x·x)·(x·x))). samples 0 gives NaN, as in 1.2.0.
+fn _sr_brdf_integrate(ndv0: f64, rough: f64, samples, out) {
+    var zero: f64 = 0.0;
+    var one: f64 = 1.0;
+    var two: f64 = 2.0;
+    var lob = 0x3F50624DD2F1A9FC;
+    var lo: f64 = lob;
+    var eb = 0x3CD203AF9EE75616;
+    var eps: f64 = eb;
+    var taub = 0x401921FB54442D18;
+    var tau: f64 = taub;
+    var ndv: f64 = ndv0;
+    if (ndv < lo) { ndv = lo; }
+    if (ndv > one) { ndv = one; }
+    var v0: f64 = f64_sqrt(one - (ndv * ndv));
+    var scale: f64 = zero;
+    var bias: f64 = zero;
+    var fs: f64 = f64_from(samples);
+    var inv: f64 = one / fs;
+    var a: f64 = rough * rough;
+    var a2: f64 = a * a;
+    var g1v: f64 = _sr_ggx_g1(ndv, rough);
+    var i = 0;
+    while (i < samples) {
+        var fi: f64 = f64_from(i);
+        var xi1: f64 = fi * inv;
+        var rev = 0;
+        var b = i;
+        var k = 0;
+        while (k < 32) {
+            rev = (rev << 1) | (b & 1);
+            b = b >> 1;
+            k = k + 1;
+        }
+        var frev: f64 = f64_from(rev);
+        var xsb = 0x3DF0000000000000;
+        var xscale: f64 = xsb;
+        var xi2: f64 = frev * xscale;
+        var ct: f64 = f64_sqrt((one - xi1) / (one + ((a2 - one) * xi1)));
+        var st2: f64 = one - (ct * ct);
+        var st: f64 = zero;
+        if (st2 >= zero) { st = f64_sqrt(st2); }
+        var phi: f64 = tau * xi2;
+        var h0: f64 = st * f64_cos(phi);
+        var h1: f64 = st * f64_sin(phi);
+        var vdh: f64 = ((v0 * h0) + (zero * h1)) + (ndv * ct);
+        if (vdh < zero || vdh != vdh) { vdh = zero; }
+        var l2: f64 = ((two * vdh) * ct) - ndv;
+        var ndl: f64 = l2;
+        if (ndl < zero || ndl != ndl) { ndl = zero; }
+        var ndh: f64 = ct;
+        if (ndh < zero || ndh != ndh) { ndh = zero; }
+        if (ndl > zero) {
+            var g: f64 = g1v * _sr_ggx_g1(ndl, rough);
+            var gvis: f64 = (g * vdh) / ((ndh * ndv) + eps);
+            var x: f64 = one - vdh;
+            var fc: f64 = x * ((x * x) * (x * x));
+            scale = scale + (gvis * (one - fc));
+            bias = bias + (gvis * fc);
+        }
+        i = i + 1;
+    }
+    store64(out, scale * inv);
+    store64(out + 8, bias * inv);
+    return out;
+}
+
+# (v.clamp(0, 1) · 255).round() as u8 for an f64 v: NaN gives 0, halves round away from zero (the fraction taken
+# exactly, not floor(y + 0.5), which rounds k + 0.49999999999999994 up).
+#must_use
+fn _sr_lut_q8(v: f64): i64 {
+    if (v != v) { return 0; }
+    var zero: f64 = 0.0;
+    var one: f64 = 1.0;
+    var x: f64 = v;
+    if (x < zero) { x = zero; }
+    if (x > one) { x = one; }
+    var k: f64 = 255.0;
+    var h: f64 = 0.5;
+    var y: f64 = x * k;
+    var fl: f64 = f64_floor(y);
+    var r = f64_to(fl);
+    var frac: f64 = y - fl;
+    if (frac >= h) { r = r + 1; }
+    return r;
+}
+
+# The size × size BRDF integration LUT (RGBA8: red the scale, green the bias, blue 0, alpha 255), samples samples a
+# texel, row y at roughness (y + 0.5)/size and column x at n·v (x + 0.5)/size: size²·4 bytes from the allocator a, or
+# 0 when the allocation fails. Mirrors `generate_brdf_lut`.
+fn sr_generate_brdf_lut(size, samples, a): i64 {
+    var s = size & 0xFFFFFFFF;
+    var px = alloc_via(a, s * s * 4 + 8);
+    if (px == 0) { return 0; }
+    var fs: f64 = f64_from(s);
+    var h: f64 = 0.5;
+    var r[16];
+    var y = 0;
+    while (y < s) {
+        var fy: f64 = f64_from(y);
+        var rough: f64 = (fy + h) / fs;
+        var x = 0;
+        while (x < s) {
+            var fx: f64 = f64_from(x);
+            var ndv: f64 = (fx + h) / fs;
+            _sr_brdf_integrate(ndv, rough, samples & 0xFFFFFFFF, &r);
+            var p = px + (y * s + x) * 4;
+            var sc: f64 = load64(&r);
+            var bi: f64 = load64(&r + 8);
+            store8(p, _sr_lut_q8(sc));
+            store8(p + 1, _sr_lut_q8(bi));
+            store8(p + 2, 0);
+            store8(p + 3, 255);
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+    return px;
 }

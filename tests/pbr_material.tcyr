@@ -1,0 +1,62 @@
+# pbr_material.tcyr — the ported tests of Rust 1.2.0's src/pbr_material.rs (M4 part b), all 8: five of the core, and
+# the `optics` half's three through src/pbr_optics.cyr. The golden rows (tests/golden/pbr_material.tsv and
+# pbr_optics.tsv) are replayed by tests/parity.tcyr and tests/parity_features.tcyr.
+
+include "tests/lib.cyr"
+include "src/pbr_optics.cyr"
+include "tests/support.cyr"
+
+# Runs the ported pbr_material tests.
+fn main() {
+    alloc_init();
+    var u = alloc(32);
+    var a = arena_allocator_growable(1 << 16);
+
+    test_group("material_uniforms_size");
+    assert_eq(sizeof(SrMaterialUniforms), 32, "32 bytes");
+
+    test_group("material_uniforms_default");
+    SrMaterialUniforms_default(u);
+    assert(load32(u + 16) == 0 && load32(u + 20) == 0x3F000000, "metallic 0, roughness 0.5");
+    assert(load32(u) == 0x3F800000 && load32(u + 12) == 0x3F800000, "white");
+
+    test_group("material_dielectric");
+    SrMaterialUniforms_dielectric(SR_COLOR_RED, 0x3F4CCCCD, u);
+    assert(load32(u + 16) == 0 && load32(u + 20) == 0x3F4CCCCD && load32(u) == 0x3F800000, "red, 0, 0.8");
+
+    test_group("material_metal");
+    var c = alloc(16);
+    t_set4(c, 0x3F666666, 0x3F4CCCCD, 0x3E4CCCCD, 0x3F800000);
+    SrMaterialUniforms_metal(c, 0x3E99999A, u);
+    assert(load32(u + 16) == 0x3F800000 && load32(u + 20) == 0x3E99999A, "metallic 1, roughness 0.3");
+
+    test_group("material_bytemuck");
+    assert_eq(sizeof(SrMaterialUniforms), 32, "its bytes are 32");
+
+    test_group("material_from_ior_glass");
+    var ior = 0x3FF8000000000000;
+    SrMaterialUniforms_from_ior(SR_COLOR_WHITE, ior, 0x3DCCCCCD, u);
+    assert(load32(u + 16) == 0 && load32(u + 20) == 0x3DCCCCCD, "a dielectric, roughness 0.1");
+    assert_eq(load32(u + 24), 0x3D23D70A, "F0 of glass: 0.04");
+
+    test_group("brdf_lut_generates_correct_size");
+    var px = sr_generate_brdf_lut(16, 32, a);
+    assert(px != 0, "16 × 16 × 4 bytes");
+
+    test_group("brdf_lut_values_in_range");
+    reset_via(a);
+    px = sr_generate_brdf_lut(8, 16, a);
+    var opaque = 1;
+    var i = 0;
+    while (i < 64) {
+        if (load8(px + i * 4 + 3) != 255 || load8(px + i * 4 + 2) != 0) { opaque = 0; }
+        i = i + 1;
+    }
+    assert(opaque == 1, "alpha 255, blue 0");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

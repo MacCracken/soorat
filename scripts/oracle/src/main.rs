@@ -24,6 +24,7 @@ mod m_color;
 mod m_color_optics;
 mod m_constants;
 mod m_debug;
+mod m_env;
 mod m_geom;
 mod m_gltf;
 mod m_json;
@@ -231,6 +232,9 @@ fn main() {
         m_anim::module(),
         m_gltf::module(),
         m_shadow::module(),
+        m_env::module(),
+        m_env::material_module(),
+        m_env::optics_module(),
         m_json::module(),
     ];
 

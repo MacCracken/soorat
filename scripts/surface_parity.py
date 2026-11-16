@@ -118,6 +118,8 @@ SPLITS = {
     # gltf_loader: the CPU loaders (load_gltf_meshes, MeshData) are M3; Model and load_model own GPU meshes and textures
     # (mabda), M6.
     "gltf_loader": {"Model": "M6", "load_model": "M6"},
+    # pbr_material: the constructors and the LUT bytes are M4; create_brdf_lut_texture uploads them (M6).
+    "pbr_material": {"create_brdf_lut_texture": "M6"},
 }
 # Every `#[repr(C)]` struct and its fields: §3.1's M1 row ("the 15 `#[repr(C)]` types", src/layout.cyr, probe P1).
 # Its methods and trait impls stay with its module.

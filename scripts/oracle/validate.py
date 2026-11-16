@@ -2252,6 +2252,237 @@ def check_shadow():
     return bad, erows, gains
 
 
+# ── env, pbr_material, pbr_optics (M4 part b) ─────────────────────────────────────────────────────────────────
+
+def _srgb8_table():
+    _, body = rows(os.path.join(GOLDEN, "tables.tsv"))
+    for fn, _cls, _ins, outs, _note in body:
+        if fn == "srgb8_decode_table":
+            return g_values(outs)
+    raise KeyError("srgb8_decode_table")
+
+
+def env_decode(fmt, b):
+    out = []
+    if fmt == 0:
+        tab = _srgb8_table()
+        for k in range(len(b) // 4):
+            px = b[4 * k:4 * k + 4]
+            out += [tab[px[0]], tab[px[1]], tab[px[2]], r32(px[3] / 255.0)]
+    else:
+        for k in range(len(b) // 8):
+            px = b[8 * k:8 * k + 8]
+            out += [f16_to_f32_ref(px[i] | (px[i + 1] << 8)) for i in (0, 2, 4, 6)]
+    return out
+
+
+def env_encode(fmt, t, pw=powf_cr):
+    out = []
+    for k in range(len(t) // 4):
+        px = t[4 * k:4 * k + 4]
+        if fmt == 0:
+            out += [to_u8(srgb_encode(px[0], pw)), to_u8(srgb_encode(px[1], pw)), to_u8(srgb_encode(px[2], pw)), to_u8(px[3])]
+        else:
+            for c in px:
+                h = f32_to_f16_ref(c)
+                out += [h & 0xFF, h >> 8]
+    return out
+
+
+def env_encode_glibc_ok(fmt, t, got):
+    """True when every byte of Rust's encoding equals the correctly rounded one or one made with powf 1 ulp off."""
+    cr = env_encode(fmt, t)
+    if len(cr) != len(got):
+        return False
+    lo, hi = (env_encode(fmt, t, lambda b, e, d=d: ulp_step(powf_cr(b, e), d)) for d in (-1, 1))
+    return all(g == c or g == x or g == y for g, c, x, y in zip(got, cr, lo, hi))
+
+
+def env_downsample(t, size):
+    if size == 0 or len(t) < 4 * size * size:
+        return []
+    last, dst, out = size - 1, max(size // 2, 1), []
+    for y in range(dst):
+        y0, y1 = min(2 * y, last), min(2 * y + 1, last)
+        for x in range(dst):
+            x0, x1 = min(2 * x, last), min(2 * x + 1, last)
+            for c in range(4):
+                a, b = t[4 * (y0 * size + x0) + c], t[4 * (y0 * size + x1) + c]
+                d, e = t[4 * (y1 * size + x0) + c], t[4 * (y1 * size + x1) + c]
+                out.append(r32(0.25 * r32(r32(r32(a + b) + d) + e)))
+    return out
+
+
+def mip_count(w, h):
+    return 1 if w == 0 or h == 0 else max(w, h).bit_length()
+
+
+def env_chain(fmt, face, size, pw=powf_cr):
+    levels, n = [], mip_count(size, size)
+    if n <= 1:
+        return levels
+    level, ls = env_decode(fmt, face), size
+    for _ in range(1, n):
+        level = env_downsample(level, ls)
+        ls = max(ls // 2, 1)
+        levels.append((ls, env_encode(fmt, level, pw)))
+    return levels
+
+
+def chain_toks(levels):
+    t = [len(levels)]
+    for sz, b in levels:
+        t += [sz, len(b)] + b
+    return t
+
+
+def check_env():
+    """Re-derives every `env` row; returns (rows that differ, the env.cr.tsv rows)."""
+    path = os.path.join(GOLDEN, "env.tsv")
+    if not os.path.exists(path):
+        return 0, []
+    _, body = rows(path)
+    bad, cr = 0, []
+    for fn, _cls, ins, outs, note in body:
+        rd = Rd(ins)
+        fix = None
+        if fn == "mip_level_count":
+            ok = i_values(outs) == [mip_count(rd.i(), rd.i())]
+        elif fn == "decode_face":
+            fmt = rd.i()
+            b = [rd.i() for _ in range(int(rd.tok("v")))]
+            ok = same(env_decode(fmt, b), g_values(outs))
+        elif fn == "encode_face":
+            fmt, t = rd.i(), rd.gs()
+            got = i_values(outs)
+            want = env_encode(fmt, t)
+            ok = got == want or (fmt == 0 and env_encode_glibc_ok(fmt, t, got))
+            if ok and got != want:
+                fix = " ".join(["v:%d" % len(want)] + ["i:%d" % x for x in want])
+        elif fn == "downsample":
+            size, t = rd.i(), rd.gs()
+            ok = same(env_downsample(t, size), g_values(outs))
+        elif fn == "face_mip_chain":
+            fmt, size = rd.i(), rd.i()
+            face = [rd.i() for _ in range(int(rd.tok("v")))]
+            got = [int(x[2:]) for x in outs.split(" ")]
+            want = chain_toks(env_chain(fmt, face, size))
+            ok = got == want
+            if not ok and fmt == 0 and len(got) == len(want):
+                # Rust's chain with powf 1 ulp off somewhere: each level's bytes explained one by one.
+                lo = chain_toks(env_chain(fmt, face, size, lambda b, e: ulp_step(powf_cr(b, e), -1)))
+                hi = chain_toks(env_chain(fmt, face, size, lambda b, e: ulp_step(powf_cr(b, e), 1)))
+                ok = all(g == w or g == x or g == y for g, w, x, y in zip(got, want, lo, hi))
+                if ok:
+                    fix = " ".join(("i:%d" % v) if not t.startswith("v:") else ("v:%d" % v)
+                                   for t, v in zip(outs.split(" "), want))
+        else:
+            ok = False
+            print(f"env: {fn}: no re-derivation in validate.py")
+        if not ok:
+            bad += 1
+            print(f"env: {fn} {note}: re-derived outputs differ from the corpus")
+        elif fix is not None:
+            cr.append(f"{fn}\t{ins}\t{fix}\t{note}: sRGB encoded with powf correctly rounded, where glibc's is 1 ulp off")
+    return bad, cr
+
+
+def material_ref(c, rough, metallic, pad0=0.0):
+    return list(c) + [metallic, rough, pad0, 0.0]
+
+
+def f64_div(a, b):
+    if b == 0.0:
+        if a == 0.0 or math.isnan(a):
+            return math.nan
+        return math.copysign(math.inf, a) * math.copysign(1.0, b)
+    return a / b
+
+
+def ggx_g1(ndv, rough):
+    r = rough + 1.0
+    k = (r * r) / 8.0
+    nd = min(max(ndv, 0.0), 1.0)
+    return nd / ((nd * (1.0 - k) + k) + 1e-15)
+
+
+def brdf_integrate(ndv0, rough, n):
+    """prakash 1.2.0's integrate_brdf_lut, in Python's (glibc's) f64."""
+    ndv = min(max(ndv0, 0.001), 1.0)
+    v = [math.sqrt(1.0 - ndv * ndv), 0.0, ndv]
+    scale = bias = 0.0
+    inv = f64_div(1.0, float(n))
+    for i in range(n):
+        xi1 = i * inv
+        xi2 = int(f"{i:032b}"[::-1], 2) * 2.3283064365386963e-10
+        a = rough * rough
+        a2 = a * a
+        ct = math.sqrt((1.0 - xi1) / (1.0 + (a2 - 1.0) * xi1))
+        st2 = 1.0 - ct * ct
+        st = math.sqrt(st2) if st2 >= 0 else 0.0
+        phi = math.tau * xi2
+        h = [st * math.cos(phi), st * math.sin(phi), ct]
+        vdh = max(v[0] * h[0] + v[1] * h[1] + v[2] * h[2], 0.0)
+        l2 = 2.0 * vdh * h[2] - v[2]
+        ndl, ndh = max(l2, 0.0), max(h[2], 0.0)
+        if ndl > 0.0:
+            g = ggx_g1(ndv, rough) * ggx_g1(ndl, rough)
+            gvis = (g * vdh) / (ndh * ndv + 1e-15)
+            x = 1.0 - vdh
+            fc = x * ((x * x) * (x * x))
+            scale += gvis * (1.0 - fc)
+            bias += gvis * fc
+    return scale * inv, bias * inv
+
+
+def lut_q8(v):
+    """`(v.clamp(0, 1) * 255.0).round() as u8` for an f64: halves away from zero, the fraction exact."""
+    if math.isnan(v):
+        return 0
+    v = min(max(v, 0.0), 1.0) * 255.0
+    r = math.floor(v)
+    return int(r) + (1 if v - r >= 0.5 else 0)
+
+
+def check_pbr():
+    """Re-derives every `pbr_material` and `pbr_optics` row; returns the rows that differ."""
+    bad = 0
+    for name in ("pbr_material", "pbr_optics"):
+        path = os.path.join(GOLDEN, name + ".tsv")
+        if not os.path.exists(path):
+            continue
+        _, body = rows(path)
+        for fn, _cls, ins, outs, note in body:
+            rd = Rd(ins)
+            if fn == "MaterialUniforms::default":
+                ok = same(g_values(outs), [1.0, 1.0, 1.0, 1.0, 0.0, 0.5, 0.0, 0.0])
+            elif fn in ("MaterialUniforms::dielectric", "MaterialUniforms::metal"):
+                c, rough = rd.gs(), rd.g()
+                ok = same(g_values(outs), material_ref(c, rough, 1.0 if fn.endswith("metal") else 0.0))
+            elif fn == "MaterialUniforms::from_ior":
+                c = rd.gs()
+                ior = struct.unpack("<d", struct.pack("<Q", int(rd.tok("f"), 16)))[0]
+                rough = rd.g()
+                q = f64_div(1.0 - ior, 1.0 + ior)
+                ok = same(g_values(outs), material_ref(c, rough, 0.0, r32(q * q)))
+            elif fn == "generate_brdf_lut":
+                size, n = rd.i(), rd.i()
+                want = []
+                for y in range(size):
+                    rough = (y + 0.5) / size
+                    for x in range(size):
+                        sc, bi = brdf_integrate((x + 0.5) / size, rough, n)
+                        want += [lut_q8(sc), lut_q8(bi), 0, 255]
+                ok = i_values(outs) == want
+            else:
+                ok = False
+                print(f"{name}: {fn}: no re-derivation in validate.py")
+            if not ok:
+                bad += 1
+                print(f"{name}: {fn} {note}: re-derived outputs differ from the corpus")
+    return bad
+
+
 def cube_ref():
     faces = [((0, 0, 1), [(-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]),
              ((0, 0, -1), [(1, -1, -1), (-1, -1, -1), (-1, 1, -1), (1, 1, -1)]),
@@ -2308,6 +2539,8 @@ def main():
         failures += gbad
         sides_e.append((gname + ".e.tsv", "class-E rows (ADR 0002 #4, D4 rule b): Rust's formula in f64, rounded once to "
                         "f32, where that differs from Rust's f32 outputs", gerows))
+    envbad, envcr = check_env()
+    failures += envbad + check_pbr()
     shbad, sherows, shgain = check_shadow()
     failures += shbad
     sides_e.append(("shadow.e.tsv", "class-E rows (ADR 0002 #4, D4 rule b): Rust's formula in f64 (pow correctly "
@@ -2329,6 +2562,8 @@ def main():
          "cosf correctly rounded (glibc's f64 sin/cos, rounded once), where glibc's differ by 1 ulp", dcr),
         ("debug_collider.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's collider outlines with each "
          "angle's sinf and cosf correctly rounded, where glibc's differ by 1 ulp", ccr),
+        ("env.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's sRGB face encoding with powf correctly "
+         "rounded (glibc's f64 pow, rounded once), where glibc's is 1 ulp off and a byte changes", envcr),
         ("gltf.cr.tsv", "correctly rounded rows (ADR 0002 #14): Rust 1.2.0's glTF animations with each JSON decimal read "
          "correctly rounded (the decimal's f64, narrowed), where serde_json misrounds", glcr),
     ]

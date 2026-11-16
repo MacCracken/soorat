@@ -142,6 +142,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - All 23 `shadow.rs` tests ported (`tests/shadow_math.tcyr`); the four `shadow/*` twins (`tests/shadow.bcyr`).
   - The depth maps, the pass and the cascaded and atlas textures stay in M7.
 
+- **M4 part b: environment's CPU half and the PBR material** (`src/env_cpu.cyr`, `src/pbr_material.cyr`,
+  `src/pbr_optics.cyr`; ADR 0002 #27).
+  - The cube faces' sRGB and f16 codecs, the 2×2 box downsample, the CPU mip chain and `sr_mip_level_count`.
+  - `SrMaterialUniforms_default`, `_dielectric` and `_metal`.
+  - In the `optics` profile, `SrMaterialUniforms_from_ior` and `sr_generate_brdf_lut`. Both transcribe prakash 1.2.0's
+    formulas, because Cyrius prakash 2.15.2 changed both; adopting its corrected LUT is open.
+  - 380 golden rows pass (`env` 197, `pbr_material` 69, `pbr_optics` 114 in the features harness); every LUT is
+    byte-identical.
+  - 10 Rust tests ported (`tests/env_cpu.tcyr`, `tests/pbr_material.tcyr`), with a test that threshold encoding
+    matches the direct one.
+  - Extras `env/face_mip_chain_128_srgb` and `pbr/brdf_lut_32x32_256` (`tests/env.bcyr`). `create_brdf_lut_texture`
+    moved to M6.
+
+### Performance (M4)
+- sRGB face encoding: the byte comes from 255 encode thresholds, found once with the correctly rounded path, instead of
+  a correctly rounded `pow` per channel. The bytes are identical. `env/face_mip_chain_128_srgb` 5.0 → 1.4 ms (−72 %).
+
 ### Performance (M3)
 - sphere: each column's `cos θ` and `sin θ` computed once, not once per ring (the same values).
   `primitives/sphere_32x16` 68.1 → 24.8 µs (−64 %). Every golden row is unchanged.

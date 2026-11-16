@@ -1,0 +1,74 @@
+# soorat golden corpus, format 1: pbr_material
+# recorded: soorat 1.2.0 (rust-old/, oracle feature); libm: glibc 2.44 x86_64 fma
+# regenerate: cargo run --release --locked --manifest-path scripts/oracle/Cargo.toml (never patch a row)
+# columns: fn<TAB>class<TAB>inputs<TAB>outputs<TAB>note (tokens: scripts/oracle/README.md)
+# rows: 69
+MaterialUniforms::default	A	-	v:4 g:3f800000 g:3f800000 g:3f800000 g:3f800000 g:00000000 g:3f000000 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:3f800000 g:00000000 g:00000000 g:3f800000 g:3f4ccccd	v:4 g:3f800000 g:00000000 g:00000000 g:3f800000 g:00000000 g:3f4ccccd g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:3f800000 g:00000000 g:00000000 g:3f800000 g:3f4ccccd	v:4 g:3f800000 g:00000000 g:00000000 g:3f800000 g:3f800000 g:3f4ccccd g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:3f666666 g:3f4ccccd g:3e4ccccd g:3f800000 g:3e99999a	v:4 g:3f666666 g:3f4ccccd g:3e4ccccd g:3f800000 g:00000000 g:3e99999a g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:3f666666 g:3f4ccccd g:3e4ccccd g:3f800000 g:3e99999a	v:4 g:3f666666 g:3f4ccccd g:3e4ccccd g:3f800000 g:3f800000 g:3e99999a g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:3f800000 g:3f800000 g:3f800000 g:3f800000 g:7fc00000	v:4 g:3f800000 g:3f800000 g:3f800000 g:3f800000 g:00000000 g:7fc00000 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:3f800000 g:3f800000 g:3f800000 g:3f800000 g:7fc00000	v:4 g:3f800000 g:3f800000 g:3f800000 g:3f800000 g:3f800000 g:7fc00000 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:bf800000 g:40000000 g:7fc00000 g:3f000000 g:80000000	v:4 g:bf800000 g:40000000 g:7fc00000 g:3f000000 g:00000000 g:80000000 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:bf800000 g:40000000 g:7fc00000 g:3f000000 g:80000000	v:4 g:bf800000 g:40000000 g:7fc00000 g:3f000000 g:3f800000 g:80000000 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:4073d704 g:40284e94 g:c03af768 g:40e71958 g:bfa5e408	v:4 g:4073d704 g:40284e94 g:c03af768 g:40e71958 g:00000000 g:bfa5e408 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:4073d704 g:40284e94 g:c03af768 g:40e71958 g:bfa5e408	v:4 g:4073d704 g:40284e94 g:c03af768 g:40e71958 g:3f800000 g:bfa5e408 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:c036c058 g:40d68b1a g:40043680 g:4017b9a0 g:c0daecc8	v:4 g:c036c058 g:40d68b1a g:40043680 g:4017b9a0 g:00000000 g:c0daecc8 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:c036c058 g:40d68b1a g:40043680 g:4017b9a0 g:c0daecc8	v:4 g:c036c058 g:40d68b1a g:40043680 g:4017b9a0 g:3f800000 g:c0daecc8 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:3dd0ba00 g:befca940 g:40c2a708 g:3fdb2e20 g:409d7c98	v:4 g:3dd0ba00 g:befca940 g:40c2a708 g:3fdb2e20 g:00000000 g:409d7c98 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:3dd0ba00 g:befca940 g:40c2a708 g:3fdb2e20 g:409d7c98	v:4 g:3dd0ba00 g:befca940 g:40c2a708 g:3fdb2e20 g:3f800000 g:409d7c98 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:40ce0838 g:3f95e250 g:c066cd80 g:409993ce g:c0c80270	v:4 g:40ce0838 g:3f95e250 g:c066cd80 g:409993ce g:00000000 g:c0c80270 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:40ce0838 g:3f95e250 g:c066cd80 g:409993ce g:c0c80270	v:4 g:40ce0838 g:3f95e250 g:c066cd80 g:409993ce g:3f800000 g:c0c80270 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:c031cf74 g:40514298 g:becd0480 g:c0bcab06 g:40a911ec	v:4 g:c031cf74 g:40514298 g:becd0480 g:c0bcab06 g:00000000 g:40a911ec g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:c031cf74 g:40514298 g:becd0480 g:c0bcab06 g:40a911ec	v:4 g:c031cf74 g:40514298 g:becd0480 g:c0bcab06 g:3f800000 g:40a911ec g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:c093cff8 g:3fc8bd88 g:c07b324c g:c0130620 g:c0d0da06	v:4 g:c093cff8 g:3fc8bd88 g:c07b324c g:c0130620 g:00000000 g:c0d0da06 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:c093cff8 g:3fc8bd88 g:c07b324c g:c0130620 g:c0d0da06	v:4 g:c093cff8 g:3fc8bd88 g:c07b324c g:c0130620 g:3f800000 g:c0d0da06 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:3fd70b30 g:c04ce734 g:400fb710 g:401537bc g:40e41930	v:4 g:3fd70b30 g:c04ce734 g:400fb710 g:401537bc g:00000000 g:40e41930 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:3fd70b30 g:c04ce734 g:400fb710 g:401537bc g:40e41930	v:4 g:3fd70b30 g:c04ce734 g:400fb710 g:401537bc g:3f800000 g:40e41930 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:c080deb4 g:c04c7e1c g:c0ef5360 g:c0bd14c2 g:40c1f178	v:4 g:c080deb4 g:c04c7e1c g:c0ef5360 g:c0bd14c2 g:00000000 g:40c1f178 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:c080deb4 g:c04c7e1c g:c0ef5360 g:c0bd14c2 g:40c1f178	v:4 g:c080deb4 g:c04c7e1c g:c0ef5360 g:c0bd14c2 g:3f800000 g:40c1f178 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:3f9f5758 g:400bf12c g:c05fbd28 g:40d0427e g:c0a44ef8	v:4 g:3f9f5758 g:400bf12c g:c05fbd28 g:40d0427e g:00000000 g:c0a44ef8 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:3f9f5758 g:400bf12c g:c05fbd28 g:40d0427e g:c0a44ef8	v:4 g:3f9f5758 g:400bf12c g:c05fbd28 g:40d0427e g:3f800000 g:c0a44ef8 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:3ff7ecd0 g:c066c380 g:c0e0482c g:c083b044 g:c087afc8	v:4 g:3ff7ecd0 g:c066c380 g:c0e0482c g:c083b044 g:00000000 g:c087afc8 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:3ff7ecd0 g:c066c380 g:c0e0482c g:c083b044 g:c087afc8	v:4 g:3ff7ecd0 g:c066c380 g:c0e0482c g:c083b044 g:3f800000 g:c087afc8 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:40e76d44 g:bfa31918 g:c042d5c4 g:3f976570 g:40c778fc	v:4 g:40e76d44 g:bfa31918 g:c042d5c4 g:3f976570 g:00000000 g:40c778fc g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:40e76d44 g:bfa31918 g:c042d5c4 g:3f976570 g:40c778fc	v:4 g:40e76d44 g:bfa31918 g:c042d5c4 g:3f976570 g:3f800000 g:40c778fc g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:3eaa7ce0 g:c0de3fc8 g:404e553c g:c0ba9ca0 g:c015e654	v:4 g:3eaa7ce0 g:c0de3fc8 g:404e553c g:c0ba9ca0 g:00000000 g:c015e654 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:3eaa7ce0 g:c0de3fc8 g:404e553c g:c0ba9ca0 g:c015e654	v:4 g:3eaa7ce0 g:c0de3fc8 g:404e553c g:c0ba9ca0 g:3f800000 g:c015e654 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:c03d92f8 g:c0eacede g:40c06d32 g:40360de4 g:c0c1abca	v:4 g:c03d92f8 g:c0eacede g:40c06d32 g:40360de4 g:00000000 g:c0c1abca g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:c03d92f8 g:c0eacede g:40c06d32 g:40360de4 g:c0c1abca	v:4 g:c03d92f8 g:c0eacede g:40c06d32 g:40360de4 g:3f800000 g:c0c1abca g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:40df99c4 g:40657b68 g:40414d0c g:c0d3fb08 g:c07ec3f0	v:4 g:40df99c4 g:40657b68 g:40414d0c g:c0d3fb08 g:00000000 g:c07ec3f0 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:40df99c4 g:40657b68 g:40414d0c g:c0d3fb08 g:c07ec3f0	v:4 g:40df99c4 g:40657b68 g:40414d0c g:c0d3fb08 g:3f800000 g:c07ec3f0 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:c0a2f7e6 g:c00ed6e0 g:bff2e3c0 g:40cc4ea2 g:4058fd78	v:4 g:c0a2f7e6 g:c00ed6e0 g:bff2e3c0 g:40cc4ea2 g:00000000 g:4058fd78 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:c0a2f7e6 g:c00ed6e0 g:bff2e3c0 g:40cc4ea2 g:4058fd78	v:4 g:c0a2f7e6 g:c00ed6e0 g:bff2e3c0 g:40cc4ea2 g:3f800000 g:4058fd78 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:bf3ff560 g:3ebc3720 g:bf1dd780 g:c09a3430 g:bfbc2d28	v:4 g:bf3ff560 g:3ebc3720 g:bf1dd780 g:c09a3430 g:00000000 g:bfbc2d28 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:bf3ff560 g:3ebc3720 g:bf1dd780 g:c09a3430 g:bfbc2d28	v:4 g:bf3ff560 g:3ebc3720 g:bf1dd780 g:c09a3430 g:3f800000 g:bfbc2d28 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:3ffa5a18 g:3fcd8e98 g:c0fef5bc g:3fd80860 g:c069803c	v:4 g:3ffa5a18 g:3fcd8e98 g:c0fef5bc g:3fd80860 g:00000000 g:c069803c g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:3ffa5a18 g:3fcd8e98 g:c0fef5bc g:3fd80860 g:c069803c	v:4 g:3ffa5a18 g:3fcd8e98 g:c0fef5bc g:3fd80860 g:3f800000 g:c069803c g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:c06b7414 g:bfed17e0 g:c0ede55a g:40a5382c g:3f6819e0	v:4 g:c06b7414 g:bfed17e0 g:c0ede55a g:40a5382c g:00000000 g:3f6819e0 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:c06b7414 g:bfed17e0 g:c0ede55a g:40a5382c g:3f6819e0	v:4 g:c06b7414 g:bfed17e0 g:c0ede55a g:40a5382c g:3f800000 g:3f6819e0 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:bf9c8b80 g:40e52b08 g:c056f38c g:40bfb7e0 g:c09ba53a	v:4 g:bf9c8b80 g:40e52b08 g:c056f38c g:40bfb7e0 g:00000000 g:c09ba53a g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:bf9c8b80 g:40e52b08 g:c056f38c g:40bfb7e0 g:c09ba53a	v:4 g:bf9c8b80 g:40e52b08 g:c056f38c g:40bfb7e0 g:3f800000 g:c09ba53a g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:bfeae860 g:40f32f2e g:40ce11bc g:3fddf368 g:40e1ed34	v:4 g:bfeae860 g:40f32f2e g:40ce11bc g:3fddf368 g:00000000 g:40e1ed34 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:bfeae860 g:40f32f2e g:40ce11bc g:3fddf368 g:40e1ed34	v:4 g:bfeae860 g:40f32f2e g:40ce11bc g:3fddf368 g:3f800000 g:40e1ed34 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:c0d6b544 g:c0665c34 g:c0a84e9e g:40931af8 g:40b9557a	v:4 g:c0d6b544 g:c0665c34 g:c0a84e9e g:40931af8 g:00000000 g:40b9557a g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:c0d6b544 g:c0665c34 g:c0a84e9e g:40931af8 g:40b9557a	v:4 g:c0d6b544 g:c0665c34 g:c0a84e9e g:40931af8 g:3f800000 g:40b9557a g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:4029e278 g:3e55ca80 g:40c9e668 g:c09b5b36 g:c0782500	v:4 g:4029e278 g:3e55ca80 g:40c9e668 g:c09b5b36 g:00000000 g:c0782500 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:4029e278 g:3e55ca80 g:40c9e668 g:c09b5b36 g:c0782500	v:4 g:4029e278 g:3e55ca80 g:40c9e668 g:c09b5b36 g:3f800000 g:c0782500 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:40c91c72 g:be8fd280 g:bcf0e600 g:3ec0a420 g:40ee6910	v:4 g:40c91c72 g:be8fd280 g:bcf0e600 g:3ec0a420 g:00000000 g:40ee6910 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:40c91c72 g:be8fd280 g:bcf0e600 g:3ec0a420 g:40ee6910	v:4 g:40c91c72 g:be8fd280 g:bcf0e600 g:3ec0a420 g:3f800000 g:40ee6910 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:c08c7626 g:be0e0600 g:4032df9c g:c080e16e g:bed95d60	v:4 g:c08c7626 g:be0e0600 g:4032df9c g:c080e16e g:00000000 g:bed95d60 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:c08c7626 g:be0e0600 g:4032df9c g:c080e16e g:bed95d60	v:4 g:c08c7626 g:be0e0600 g:4032df9c g:c080e16e g:3f800000 g:bed95d60 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:40a89f9e g:3ff4cd70 g:4014da10 g:c00587ec g:40d211ac	v:4 g:40a89f9e g:3ff4cd70 g:4014da10 g:c00587ec g:00000000 g:40d211ac g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:40a89f9e g:3ff4cd70 g:4014da10 g:c00587ec g:40d211ac	v:4 g:40a89f9e g:3ff4cd70 g:4014da10 g:c00587ec g:3f800000 g:40d211ac g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:3fd1bd80 g:c0cecdb2 g:3f8fe5f0 g:400558e0 g:bf7af240	v:4 g:3fd1bd80 g:c0cecdb2 g:3f8fe5f0 g:400558e0 g:00000000 g:bf7af240 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:3fd1bd80 g:c0cecdb2 g:3f8fe5f0 g:400558e0 g:bf7af240	v:4 g:3fd1bd80 g:c0cecdb2 g:3f8fe5f0 g:400558e0 g:3f800000 g:bf7af240 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:c0737580 g:bfcb52a8 g:c0f8a85a g:40a491f4 g:402b0040	v:4 g:c0737580 g:bfcb52a8 g:c0f8a85a g:40a491f4 g:00000000 g:402b0040 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:c0737580 g:bfcb52a8 g:c0f8a85a g:40a491f4 g:402b0040	v:4 g:c0737580 g:bfcb52a8 g:c0f8a85a g:40a491f4 g:3f800000 g:402b0040 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:40bf0462 g:40f5da32 g:3fc10b40 g:c08931c4 g:c0b7e6a0	v:4 g:40bf0462 g:40f5da32 g:3fc10b40 g:c08931c4 g:00000000 g:c0b7e6a0 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:40bf0462 g:40f5da32 g:3fc10b40 g:c08931c4 g:c0b7e6a0	v:4 g:40bf0462 g:40f5da32 g:3fc10b40 g:c08931c4 g:3f800000 g:c0b7e6a0 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:c02e06fc g:40fcfe66 g:3fb11580 g:40464690 g:c0f51ec2	v:4 g:c02e06fc g:40fcfe66 g:3fb11580 g:40464690 g:00000000 g:c0f51ec2 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:c02e06fc g:40fcfe66 g:3fb11580 g:40464690 g:c0f51ec2	v:4 g:c02e06fc g:40fcfe66 g:3fb11580 g:40464690 g:3f800000 g:c0f51ec2 g:00000000 g:00000000	
+MaterialUniforms::dielectric	A	v:4 g:408b039e g:3f973388 g:3ff692b8 g:c061754c g:3fe5ffc8	v:4 g:408b039e g:3f973388 g:3ff692b8 g:c061754c g:00000000 g:3fe5ffc8 g:00000000 g:00000000	
+MaterialUniforms::metal	A	v:4 g:408b039e g:3f973388 g:3ff692b8 g:c061754c g:3fe5ffc8	v:4 g:408b039e g:3f973388 g:3ff692b8 g:c061754c g:3f800000 g:3fe5ffc8 g:00000000 g:00000000	

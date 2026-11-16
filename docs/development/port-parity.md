@@ -885,7 +885,7 @@ Over the 65,537 points k/65536 of [0, 1], against glibc 2.44:
   372 KB of that is bayan's tables, which a binary carries as soon as it includes bayan; the rest is parser and loader
   code. Rust's loader is unconditional; here it is opt-in, as serde is (ADR 0002 #25).
 
-## 5. M4: lighting math and infrastructure (part a, 2026-11-15)
+## 5. M4: lighting math and infrastructure (parts a and b, 2026-11-15)
 
 ### 5.1 Part a: shadow math
 
@@ -921,4 +921,44 @@ How far Rust's f32 sits from the f64-once value:
   splits make three calls: 600 of the 679 ns. Rust's `powf` is about 10 ns, and Rust's 40.5 ns includes a `Vec`
   allocation. The only bit-identical speed-up is a faster correctly rounded `pow` (kimiya's runs its `sin` in 81 ns),
   at the binary cost above. Splits run once per frame per cascaded light, so this is a performance item, not a fix.
+
+### 5.3 Part b: environment's CPU half, the PBR material and the BRDF LUT
+
+| Module | Rows | Classes | Result |
+|---|---|---|---|
+| `env` | 197 | A, B, C | all identical. Decoding every byte and f16 special; the box filter on every size to 9, then 16, 33, 64, a short input, overflow and NaN; sRGB encoding at every byte's rounding boundary ± 3 ulps, where no glibc misround changed a byte (`env.cr.tsv` is empty); mip chains for both encodings and sizes 1 … 64 |
+| `pbr_material` | 69 | A | identical |
+| `pbr_optics` | 114 | A | identical, including all 64 BRDF LUTs (sizes 0 … 32, 0 … 128 samples), replayed by the features harness |
+
+- **prakash 1.2.0 against 2.15.2.** Rust calls prakash 1.2.0's `ior_to_f0` and `integrate_brdf_lut`, and Cyrius
+  prakash 2.15.2 changed both:
+  - `pbr_ior_to_f0` returns NaN unless the IOR is finite and positive. 1.2.0 returns `((1−ior)/(1+ior))²` for any IOR:
+    1 for 0, +∞ for −1.
+  - `pbr_integrate_brdf_lut` uses the image-based-lighting remap k = α/2, where 1.2.0 used the direct-lighting
+    k = (r + 1)²/8. prakash's own notes call that a split-sum correctness fix. It also returns zeros for 0 samples,
+    where 1.2.0 produces NaN, which quantizes to 0.
+
+  On a 32² LUT at 256 samples, the two differ on 1,557 of 2,048 channel bytes, by up to 229. To keep Rust 1.2.0's
+  values, `src/pbr_optics.cyr` transcribes 1.2.0's formulas, which `validate.py` also reproduces bit for bit in
+  Python. Whether to adopt the corrected LUT is a maintainer decision (ADR 0002 #27).
+- **The LUT's trigonometry.** The port uses ganita's f64 `sin`/`cos`, which differ from glibc's on about 2.6 % of
+  inputs. All 64 LUTs still quantize to Rust's bytes: a 1-ulp difference in a sum of hundreds of samples moves a
+  channel by about 1e-16, nowhere near a byte boundary.
+- **Rounding a LUT channel.** Rust's `round` is half away from zero. `floor(v + 0.5)` rounds k + 0.49999999999999994 up,
+  so the port takes the fraction exactly, and so does the Python reference.
+
+### 5.4 Part b speed
+
+| Bench (extra: no Rust twin) | Cyrius | Notes |
+|---|---|---|
+| `env/face_mip_chain_128_srgb` | 1.40 ms | decode 16,384 texels, then 7 box filters and encodes |
+| `pbr/brdf_lut_32x32_256` | 60.8 ms | 262,144 samples, about 232 ns each (`sqrt`, `sin`, `cos`, divisions) |
+
+- **sRGB encoding, first cut against final.** M1 left this to M4 (§2.2): a correctly rounded `pow` costs about 270 ns,
+  and encoding calls it three times a texel. M4 chose the threshold search. Each byte is the count of 255 thresholds
+  at or below the input. Each threshold is the smallest f32 encoding to at least that byte, found once by binary
+  search over the f32 bit patterns with the correctly rounded path (255 × 31 steps, about 2 ms, lazily). The byte is
+  monotone in the input, so the result is exact. `tests/env_cpu.tcyr` compares it with the direct path over every
+  threshold ± 4 ulps, every 2¹⁶th non-negative float, the knee ± 64 ulps, NaN, ±0 and ±∞. The 128² mip chain went
+  from 4.97 to 1.40 ms. Scaled by texel count, six 512² faces now take about 0.13 s, down from M1's estimated 1.2 s.
 

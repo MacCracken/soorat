@@ -86,6 +86,8 @@ modules = [
     "src/terrain.cyr",
     "src/animation.cyr",
     "src/shadow_math.cyr",
+    "src/env_cpu.cyr",
+    "src/pbr_material.cyr",
 ]
 
 # The `optics` feature's bundle, dist/soorat-optics.cyr: the library plus Color's prakash conversions.
@@ -112,7 +114,10 @@ modules = [
     "src/terrain.cyr",
     "src/animation.cyr",
     "src/shadow_math.cyr",
+    "src/env_cpu.cyr",
+    "src/pbr_material.cyr",
     "src/color_optics.cyr",
+    "src/pbr_optics.cyr",
 ]
 
 # The `serde` bundle, dist/soorat-serde.cyr: the library plus Color's serde_json documents (src/json.cyr, on bayan).
@@ -141,6 +146,8 @@ modules = [
     "src/terrain.cyr",
     "src/animation.cyr",
     "src/shadow_math.cyr",
+    "src/env_cpu.cyr",
+    "src/pbr_material.cyr",
     "src/json.cyr",
 ]
 
@@ -169,6 +176,8 @@ modules = [
     "src/terrain.cyr",
     "src/animation.cyr",
     "src/shadow_math.cyr",
+    "src/env_cpu.cyr",
+    "src/pbr_material.cyr",
     "src/gltf.cyr",
 ]
 
@@ -196,5 +205,7 @@ modules = [
     "src/terrain.cyr",
     "src/animation.cyr",
     "src/shadow_math.cyr",
+    "src/env_cpu.cyr",
+    "src/pbr_material.cyr",
     "src/debug_collider.cyr",
 ]

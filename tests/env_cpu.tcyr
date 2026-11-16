@@ -1,0 +1,117 @@
+# env_cpu.tcyr — the ported CPU tests of Rust 1.2.0's src/environment.rs (M4 part b): the box downsample and the mip
+# chain (its f16 and sRGB tests are tests/tables.tcyr, M1; its two GPU tests are M7). The golden rows
+# (tests/golden/env.tsv) are replayed by tests/parity.tcyr.
+
+include "tests/lib.cyr"
+include "tests/support.cyr"
+
+# The f32 bits of the integer k.
+fn f(k): i64 { return f32_from(f64_from(k)); }
+
+# 1 when the 4 f32 at p are (a, b, c, d).
+fn is4(p, a, b, c, d): i64 {
+    if (load32(p) == a && load32(p + 4) == b && load32(p + 8) == c && load32(p + 12) == d) { return 1; }
+    return 0;
+}
+
+# Runs the ported env tests.
+fn main() {
+    alloc_init();
+    var one = 0x3F800000;
+    var out = alloc(256);
+
+    test_group("downsample_box_filters_and_handles_odd_sizes");
+    var src = alloc(64);
+    t_set4(src, 0, 0, 0, one);
+    t_set4(src + 16, one, 0, 0, one);
+    t_set4(src + 32, 0, one, 0, one);
+    t_set4(src + 48, one, one, 0, one);
+    assert_eq(sr_downsample(src, 4, 2, out), 1, "2×2 → 1 texel");
+    assert(is4(out, 0x3F000000, 0x3F000000, 0, one) == 1, "(0.5, 0.5, 0, 1)");
+    var s3 = alloc(144);
+    var i = 0;
+    while (i < 9) {
+        t_set4(s3 + i * 16, f(i), 0, 0, one);
+        i = i + 1;
+    }
+    assert_eq(sr_downsample(s3, 9, 3, out), 1, "3×3 → 1 texel");
+    assert(is4(out, 0x40000000, 0, 0, one) == 1, "the clamped top-left block: (2, 0, 0, 1)");
+    var seven = alloc(16);
+    t_set4(seven, 0x40E00000, 0x40E00000, 0x40E00000, 0x40E00000);
+    assert_eq(sr_downsample(seven, 1, 1, out), 1, "1×1 → 1 texel");
+    assert(is4(out, 0x40E00000, 0x40E00000, 0x40E00000, 0x40E00000) == 1, "7 kept");
+
+    test_group("mip_chain_preserves_average_color");
+    var enc = 0;
+    var ok = 1;
+    var tex = alloc(256);
+    var bytes = alloc(128);
+    var level = alloc(256);
+    var next = alloc(256);
+    while (enc < 2) {
+        i = 0;
+        while (i < 16) {
+            var v = 0;
+            if (((i % 4) + (i / 4)) % 2 == 0) { v = one; }
+            t_set4(tex + i * 16, v, v, v, one);
+            i = i + 1;
+        }
+        var nb = sr_face_encode(enc, tex, 16, bytes);
+        if (nb != 16 * sr_face_bytes_per_texel(enc)) { ok = 0; }
+        var n = sr_face_decode(enc, bytes, nb, level);
+        var size = 4;
+        while (size > 1) {
+            n = sr_downsample(level, n, size, next);
+            var t = level;
+            level = next;
+            next = t;
+            size = size / 2;
+        }
+        var half: f64 = 0.5;
+        var fone: f64 = 1.0;
+        var r: f64 = f32_to(load32(level));
+        var al: f64 = f32_to(load32(level + 12));
+        var tol3: f64 = 0.001;
+        var tol6: f64 = 0.000001;
+        if (t_near(r, half, tol3) == 0 || t_near(al, fone, tol6) == 0) { ok = 0; }
+        enc = enc + 1;
+    }
+    assert(ok == 1, "a 4×4 checkerboard averages to mid-grey in linear space, sRGB and f16");
+
+    # ── Cyrius-only ──
+
+    test_group("srgb_threshold_encoding_matches_the_direct_one");
+    # Every threshold ± 4 ulps, every 2^16th non-negative f32, the knee and the specials: the same byte as
+    # linear_to_srgb's, pow and all.
+    var same = 1;
+    var k = 1;
+    while (k < 256) {
+        var t = load64(_sr_srgb_thresholds() + k * 8);
+        var d = 0 - 4;
+        while (d <= 4) {
+            if (_sr_srgb_byte(t + d) != _sr_srgb_byte_direct(t + d)) { same = 0; }
+            d = d + 1;
+        }
+        k = k + 1;
+    }
+    var b = 0;
+    while (b <= 0x7F800000) {
+        if (_sr_srgb_byte(b) != _sr_srgb_byte_direct(b)) { same = 0; }
+        b = b + 65536;
+    }
+    var kn = 0x3B4D2E1C - 64;
+    while (kn < 0x3B4D2E1C + 64) {
+        if (_sr_srgb_byte(kn) != _sr_srgb_byte_direct(kn)) { same = 0; }
+        kn = kn + 1;
+    }
+    assert(same == 1, "identical bytes");
+    assert(_sr_srgb_byte(0x7FC00000) == 0 && _sr_srgb_byte(0x80000000) == 0, "NaN, -0: 0");
+    assert_eq(_sr_srgb_byte(0xBF800000), 0, "-1: 0");
+    assert(_sr_srgb_byte(0x7F800000) == 255 && _sr_srgb_byte(0x3F800000) == 255, "inf, 1: 255");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

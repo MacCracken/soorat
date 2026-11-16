@@ -9,6 +9,7 @@
 
 include "tests/lib.cyr"
 include "src/color_optics.cyr"
+include "src/pbr_optics.cyr"
 include "src/debug_collider.cyr"
 include "tests/ulp.cyr"
 
@@ -74,9 +75,43 @@ fn _par_collider(fp, fl): i64 {
 }
 
 # Fills the got list for one row: 1 handled, 0 pending.
+var _par_pbr_arena = 0;
+
+# Fills the got list for one `pbr_optics` row.
+fn _par_pbr_optics(fp, fl): i64 {
+    if (_par_pbr_arena == 0) { _par_pbr_arena = arena_allocator_growable(1 << 16); }
+    reset_via(_par_pbr_arena);
+    if (_par_eq(fp, fl, "MaterialUniforms::from_ior") == 1) {
+        var c[16];
+        var k = _par_in_g32s(0, &c);
+        var u[32];
+        SrMaterialUniforms_from_ior(&c, _par_in(k), _par_in(k + 1), &u);
+        _par_got_g32s(&u, 4);
+        _par_got_g(load32(&u + 16));
+        _par_got_g(load32(&u + 20));
+        _par_got_g(load32(&u + 24));
+        _par_got_g(load32(&u + 28));
+        return 1;
+    }
+    if (_par_eq(fp, fl, "generate_brdf_lut") == 1) {
+        var s = _par_in(0);
+        var px = sr_generate_brdf_lut(s, _par_in(1), _par_pbr_arena);
+        var n = s * s * 4;
+        _par_got_seq(n);
+        var i = 0;
+        while (i < n) {
+            _par_got_i(load8(px + i));
+            i = i + 1;
+        }
+        return 1;
+    }
+    return 0;
+}
+
 fn _par_dispatch(mp, ml, fp, fl): i64 {
     _par_got_n = 0;
     if (_par_eq(mp, ml, "debug_collider") == 1) { return _par_collider(fp, fl); }
+    if (_par_eq(mp, ml, "pbr_optics") == 1) { return _par_pbr_optics(fp, fl); }
     if (_par_eq(fp, fl, "Color::from_prakash") == 1) {
         Rgb_set_r(_par_rgb, _par_in(0));
         Rgb_set_g(_par_rgb, _par_in(1));
@@ -137,6 +172,7 @@ fn _par_module_done(mp, ml) {
 #must_use
 fn _par_skip(mp, ml): i64 {
     if (_par_eq(mp, ml, "color_optics") == 1 || _par_eq(mp, ml, "debug_collider") == 1) { return 0; }
+    if (_par_eq(mp, ml, "pbr_optics") == 1) { return 0; }
     return 1;
 }
 

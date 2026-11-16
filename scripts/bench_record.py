@@ -80,6 +80,9 @@ TWINS = {
 REASONS = {}
 # Cyrius benches that twin no Rust bench -> what they measure.
 EXTRA = {
+    # environment's CPU half and the BRDF LUT (M4 part b) have no Rust bench; M7's image-based lighting runs them at load.
+    "env/face_mip_chain_128_srgb": "M4: a 128 × 128 sRGB face's CPU mip chain (decode, 7 box filters, encodes); no Rust bench",
+    "pbr/brdf_lut_32x32_256": "M4 (`optics`): a 32 × 32 BRDF LUT at 256 samples a texel (prakash 1.2.0's formula); no Rust bench",
     # The glTF loader (M3 part c, the `gltf` profile) has no Rust bench.
     "gltf/load_rich": "M3: both glTF loaders on rich.glb (4.8 KB of JSON, every feature read); no Rust bench",
     "gltf/load_float_stress": "M3: both glTF loaders on float_stress.glb (125 KB of JSON, 400 joints); no Rust bench",

@@ -32,7 +32,8 @@ Decisions: [ADR 0001](../adr/0001-cyrius-port-with-rust-oracle.md),
 | M3 part b: animation (no loader), crmath | ✅ 2026-11-15 (below) |
 | M3 part c: the glTF loader (`gltf` profile) | ✅ 2026-11-15: **M3 complete** |
 | M4 part a: shadow math | ✅ 2026-11-15 (below) |
-| M4 parts b, c; M5–M10 | ☐ |
+| M4 part b: environment CPU, PBR material and LUT | ✅ 2026-11-15 (below) |
+| M4 part c; M5–M10 | ☐ |
 
 **M1.** 13,793 golden rows over nine modules pass:
 - 1,149 class-E rows are bit-identical to Rust's formula in f64 rounded once;
@@ -76,6 +77,16 @@ field by field. 292 golden rows over 146 fixtures:
 and splits are up to 29 ulp from the f64-once values, and turn infinite or NaN where an intermediate overflows f32.
 ganita's `pow` agreed with a correctly rounded one on every split. All 23 `shadow.rs` tests are ported. The twins run
 5.1–5.9× Rust; the splits run 16.8×, held back by `pow` at 200 ns. Measurements: `port-parity.md` §5.
+
+**M4 part b.** `src/env_cpu.cyr`, `src/pbr_material.cyr` and the `optics` profile's `src/pbr_optics.cyr` (ADR 0002 #27):
+- **Corpus:** 380 golden rows pass. Every BRDF LUT matches Rust's byte for byte.
+- **LUT and F0:** soorat transcribes prakash 1.2.0's formulas, because Cyrius prakash 2.15.2 changed both. Adopting
+  2.15.2's corrected LUT is an open decision.
+- **sRGB encoding** uses encode thresholds in place of a `pow` per channel (identical bytes; a 128² mip chain 5.0 →
+  1.4 ms).
+- **Tests:** all 10 M4 tests of these modules are ported.
+
+Measurements: `port-parity.md` §5.3.
 
 **Optional features.**
 - `optics` (prakash), `physics-debug` (impetus), `serde` (JSON on bayan) and `gltf` (the glTF loader, on bayan) are
@@ -153,8 +164,8 @@ kiran (rendering), salai (editor viewport), joshua (visualization): all still Ru
 
 ## Next
 
-**M4 part b**: environment's CPU half (box-filter downsample, mip chains, face encoding over the M1 tables) and the
-PBR BRDF LUT (prakash). Then **part c**: the render graph, profiler and capabilities over mabda.
+**M4 part c**: the render graph, profiler and capabilities over mabda (`rg_*`, `profiler_*`, `gpu_caps_*`). Open
+from part b: whether to adopt Cyrius prakash 2.15.2's corrected BRDF LUT (ADR 0002 #27).
 
 **Performance items carried forward:** `mul_mat4` at about 120 ns (M4's shadow matrices call it); the correctly
 rounded sRGB `pow` at 200–285 ns a call (M4's face encoding calls it three times a texel). port-parity §2.2 has the
