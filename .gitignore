@@ -25,5 +25,5 @@ Thumbs.db
 /.cargo/
 
 # Cyrius port
-/rust-old/**/__pycache__/
+__pycache__/
 /build/
