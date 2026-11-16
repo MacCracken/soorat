@@ -1,0 +1,1549 @@
+# gltf.cyr — Rust 1.2.0's src/gltf_loader.rs `load_gltf_meshes` and src/animation.rs `load_gltf_animations` (M3 part
+# c, D6): binary glTF (GLB) and JSON-text glTF on bayan's JSON tree.
+#
+# **OPTIONAL** (ADR 0002 #25). Rust's `gltf` dependency is unconditional; here the loader is the `[lib.gltf]` profile
+# (dist/soorat-gltf.cyr), outside `[lib]`, because bayan carries ~372 KB of tables into any binary that includes it
+# (#19). A consumer that loads glTF takes the bundle and adds "bayan" to its stdlib leaves.
+#
+# **What it reproduces.** Rust's loaders call `gltf::Gltf::from_slice` (gltf 1.4.1, default features: `names` on,
+# `extras` and `extensions` off), so their verdict is gltf-json's: serde's types (a missing required field, `null` where
+# the field is not an `Option`, a float where an integer goes, an index as `value as u32`) and the derived `validate()`
+# (index bounds, enum values, the accessor, primitive, camera, texture and root hooks). `_sr_gv_*` transcribe those
+# structs field by field. Then the loaders read the accessors as gltf's reader does: views and strides, sparse
+# accessors (a base view or zeros, then gltf's peek-ahead merge), the normalized integer formats (`x as f32 · (1 /
+# 255)` and so on, `max(−1)` for the signed ones), a node's matrix decomposed in f32 as `Transform::decomposed` does.
+#
+# **Where it can't copy Rust** (ADR 0002 #14), the row is named in the harness:
+# - Rust 1.2.0 panics on 11 of the corpus's inputs (a stride below the element size, a POSITION accessor out of range,
+#   a float or u32 index or rotation type, an i16 UV, an unknown target path on a joint, a channel's node out of range,
+#   an image with a view and no MIME type or with neither view nor URI, and, under overflow checks, a header length
+#   below 12 or an accessor count of 0). Here each is Err(SR_ERR_MODEL), or a skipped primitive for the count of 0.
+# - bayan refuses 3 documents serde accepts: a duplicate key, an integer above i64::MAX, nesting deeper than 128.
+# - An object written as a JSON array (serde reads a struct's fields by position) is refused here.
+# - A decimal in the JSON reads correctly rounded (bayan's f64, then f32); serde_json misrounds about 1 % of
+#   adversarial 20-digit decimals (tests/golden/gltf.cr.tsv).
+#
+# **API.** `sr_load_gltf_meshes(bytes, len, a, out)` and `sr_load_gltf_animations(bytes, len, a, out)` return 0, or
+# SR_ERR_MODEL with the reason in `sr_gltf_last_error()`. Their results (`SrGltfMeshes`, `SrGltfAnimations`) and
+# every array in them come from the caller's allocator a: images are copies, keyframe values and tangents point into
+# a too. The JSON tree lives on a decode arena, module state reset by each call: not thread-safe. A tree takes about
+# 20× its document's size, so cap an untrusted document's size before loading it.
+
+struct SrGltfMeshes { meshes; mesh_count; images; image_count; }
+struct SrGltfAnimations { skeletons; skeleton_count; clips; clip_count; }
+
+# ── state ────────────────────────────────────────────────────────────────────────────
+
+var _sr_gl_arena = 0;
+var _sr_gl_err = 0;
+var _sr_gl_root = 0;
+var _sr_gl_bin = 0;
+var _sr_gl_bin_len = 0;
+# The 13 top-level arrays (tree nodes, 0 when absent) and their lengths, by SR_GL_C_*.
+var _sr_gl_coll = 0;
+var _sr_gl_clen = 0;
+
+enum SrGltfCollection {
+    SR_GL_C_ACCESSORS = 0;
+    SR_GL_C_ANIMATIONS = 1;
+    SR_GL_C_BUFFERS = 2;
+    SR_GL_C_VIEWS = 3;
+    SR_GL_C_CAMERAS = 4;
+    SR_GL_C_IMAGES = 5;
+    SR_GL_C_MATERIALS = 6;
+    SR_GL_C_MESHES = 7;
+    SR_GL_C_NODES = 8;
+    SR_GL_C_SAMPLERS = 9;
+    SR_GL_C_SCENES = 10;
+    SR_GL_C_SKINS = 11;
+    SR_GL_C_TEXTURES = 12;
+}
+
+# Why the last load failed (a C string), or 0 after a success.
+#must_use
+fn sr_gltf_last_error(): i64 { return _sr_gl_err; }
+
+# Records the first failure's reason; returns 0.
+fn _sr_gl_fail(msg): i64 {
+    if (_sr_gl_err == 0) { _sr_gl_err = msg; }
+    return 0;
+}
+
+# ── JSON tree helpers ────────────────────────────────────────────────────────────────
+
+#must_use
+fn _sr_jg(obj, key): i64 { return bayan_json_v_obj_get_by_cstr(obj, key); }
+#must_use
+fn _sr_jlen(a): i64 { return bayan_json_v_arr_len(a); }
+#must_use
+fn _sr_jat(a, i): i64 { return bayan_json_v_arr_get(a, i); }
+#must_use
+fn _sr_jtag(v): i64 { return bayan_json_v_tag(v); }
+
+# obj's member key unless absent or null: the node, or 0 (Rust's `Option` reads null as None).
+#must_use
+fn _sr_jopt(obj, key): i64 {
+    var v = _sr_jg(obj, key);
+    if (v == 0) { return 0; }
+    if (_sr_jtag(v) == JTAG_NULL) { return 0; }
+    return v;
+}
+
+# An integer member read as gltf reads it (validated already): its value, or dflt when absent or null.
+#must_use
+fn _sr_jint_or(obj, key, dflt): i64 {
+    var v = _sr_jopt(obj, key);
+    if (v == 0) { return dflt; }
+    return bayan_json_v_int(v);
+}
+
+# An index member: its value as u32 (`value as u32`, as gltf's Index reads one), or −1 when absent or null.
+#must_use
+fn _sr_jidx(obj, key): i64 {
+    var v = _sr_jopt(obj, key);
+    if (v == 0) { return 0 - 1; }
+    return bayan_json_v_int(v) & 0xFFFFFFFF;
+}
+
+# 1 when the string node s holds the C string lit.
+#must_use
+fn _sr_jstr_is(s, lit): i64 {
+    if (s == 0) { return 0; }
+    if (_sr_jtag(s) != JTAG_STR) { return 0; }
+    var t = bayan_json_v_str(s);
+    var n = strlen(lit);
+    if (str_len(t) != n) { return 0; }
+    return memeq(str_data(t), lit, n);
+}
+
+# Collection c's array node (0 when absent) and length.
+#must_use
+fn _sr_gl_arr(c): i64 { return load64(_sr_gl_coll + c * 8); }
+#must_use
+fn _sr_gl_n(c): i64 { return load64(_sr_gl_clen + c * 8); }
+#must_use
+fn _sr_gl_item(c, i): i64 { return _sr_jat(_sr_gl_arr(c), i); }
+
+# ── the schema (gltf-json 1.4.1) ─────────────────────────────────────────────────────
+
+# How a field may be missing: required, an `Option` (missing or null is None), or `#[serde(default)]` (missing is the
+# default, null is refused).
+enum SrGltfPresence {
+    _SR_F_REQ = 0;
+    _SR_F_OPT = 1;
+    _SR_F_DEF = 2;
+}
+
+# What a field holds.
+enum SrGltfKind {
+    _SR_K_U64 = 1;
+    _SR_K_U32 = 2;
+    _SR_K_IDX = 3;
+    _SR_K_IDXN = 4;
+    _SR_K_IDXS = 5;
+    _SR_K_F32 = 6;
+    _SR_K_F32N = 7;
+    _SR_K_F32S = 8;
+    _SR_K_BOOL = 9;
+    _SR_K_STR = 10;
+    _SR_K_STRS = 11;
+    _SR_K_ENUMU = 12;
+    _SR_K_ENUMS = 13;
+    _SR_K_OBJ = 14;
+    _SR_K_OBJS = 15;
+    _SR_K_ANY = 16;
+    _SR_K_VOID = 17;
+    _SR_K_EMPTY = 18;
+    _SR_K_ATTRS = 19;
+}
+
+# The integer enums (`Checked<_>` read through `visit_u64`, then `value as u32`).
+enum SrGltfEnumU {
+    _SR_EU_MODE = 1;
+    _SR_EU_COMPONENT = 2;
+    _SR_EU_INDEX_COMPONENT = 3;
+    _SR_EU_MAG = 4;
+    _SR_EU_MIN = 5;
+    _SR_EU_WRAP = 6;
+    _SR_EU_TARGET = 7;
+}
+
+# The string enums.
+enum SrGltfEnumS {
+    _SR_ES_TYPE = 1;
+    _SR_ES_INTERP = 2;
+    _SR_ES_ALPHA = 3;
+    _SR_ES_CAMERA = 4;
+}
+
+# 1 when the u32 v is a valid value of the integer enum e.
+#must_use
+fn _sr_gl_enum_u(e, v): i64 {
+    if (e == _SR_EU_MODE) { if (v <= 6) { return 1; } return 0; }
+    if (e == _SR_EU_COMPONENT) {
+        if (v >= 5120 && v <= 5123) { return 1; }
+        if (v == 5125 || v == 5126) { return 1; }
+        return 0;
+    }
+    if (e == _SR_EU_INDEX_COMPONENT) {
+        if (v == 5121 || v == 5123 || v == 5125) { return 1; }
+        return 0;
+    }
+    if (e == _SR_EU_MAG) { if (v == 9728 || v == 9729) { return 1; } return 0; }
+    if (e == _SR_EU_MIN) {
+        if (v == 9728 || v == 9729) { return 1; }
+        if (v >= 9984 && v <= 9987) { return 1; }
+        return 0;
+    }
+    if (e == _SR_EU_WRAP) {
+        if (v == 33071 || v == 33648 || v == 10497) { return 1; }
+        return 0;
+    }
+    if (v == 34962 || v == 34963) { return 1; }
+    return 0;
+}
+
+# 1 when the string node s is a valid value of the string enum e.
+#must_use
+fn _sr_gl_enum_s(e, s): i64 {
+    if (e == _SR_ES_TYPE) {
+        if (_sr_jstr_is(s, "SCALAR") == 1 || _sr_jstr_is(s, "VEC2") == 1 || _sr_jstr_is(s, "VEC3") == 1) { return 1; }
+        if (_sr_jstr_is(s, "VEC4") == 1 || _sr_jstr_is(s, "MAT2") == 1 || _sr_jstr_is(s, "MAT3") == 1) { return 1; }
+        return _sr_jstr_is(s, "MAT4");
+    }
+    if (e == _SR_ES_INTERP) {
+        if (_sr_jstr_is(s, "LINEAR") == 1 || _sr_jstr_is(s, "STEP") == 1) { return 1; }
+        return _sr_jstr_is(s, "CUBICSPLINE");
+    }
+    if (e == _SR_ES_ALPHA) {
+        if (_sr_jstr_is(s, "OPAQUE") == 1 || _sr_jstr_is(s, "MASK") == 1) { return 1; }
+        return _sr_jstr_is(s, "BLEND");
+    }
+    if (_sr_jstr_is(s, "perspective") == 1) { return 1; }
+    return _sr_jstr_is(s, "orthographic");
+}
+
+# 1 when v is a JSON number serde reads into an f32: an integer, or a float whose f64 is finite (serde_json refuses
+# `1e400`; `1e300` is fine, and `as f32` makes it +∞).
+#must_use
+fn _sr_gl_is_num(v): i64 {
+    var t = _sr_jtag(v);
+    if (t == JTAG_INT) { return 1; }
+    if (t != JTAG_FLOAT) { return 0; }
+    var x: f64 = bayan_json_v_float(v);
+    return _sr_f64_finite(x);
+}
+
+# 1 when v is a JSON integer in 0 … 2^63 − 1 (serde's u64; bayan refuses larger ones).
+#must_use
+fn _sr_gl_is_uint(v): i64 {
+    if (_sr_jtag(v) != JTAG_INT) { return 0; }
+    if (bayan_json_v_int(v) < 0) { return 0; }
+    return 1;
+}
+
+# Checks an index value v into collection c (u32 by truncation, then in bounds): 1, or 0 with the reason recorded.
+fn _sr_gl_chk_idx(v, c, bound): i64 {
+    if (_sr_gl_is_uint(v) == 0) { return _sr_gl_fail("an index is not a non-negative integer"); }
+    if (bound == 1 && (bayan_json_v_int(v) & 0xFFFFFFFF) >= _sr_gl_n(c)) {
+        return _sr_gl_fail("an index is out of bounds");
+    }
+    return 1;
+}
+
+# A Rust u32 parse of [p + i, p + l) (an optional '+', then digits, below 2^32): 1 when it parses.
+#must_use
+fn _sr_gl_u32_ok(p, i, l): i64 {
+    var k = i;
+    if (k < l && load8(p + k) == 43) { k = k + 1; }
+    if (k >= l) { return 0; }
+    var n = 0;
+    while (k < l) {
+        var c = load8(p + k);
+        if (c < 48 || c > 57) { return 0; }
+        n = n * 10 + (c - 48);
+        if (n > 4294967295) { return 0; }
+        k = k + 1;
+    }
+    return 1;
+}
+
+# A semantic name (an attribute key, a Str): 1 POSITION, 2 NORMAL, 3 TANGENT, 4 COLOR_n, 5 TEXCOORD_n, 6 JOINTS_n,
+# 7 WEIGHTS_n, or 0 (Invalid: `_` names are Invalid too, without gltf's `extras` feature). The set n is in
+# _sr_gl_sem_set.
+var _sr_gl_sem_set = 0;
+fn _sr_gl_semantic(s): i64 {
+    var p = str_data(s);
+    var l = str_len(s);
+    _sr_gl_sem_set = 0;
+    if (l == 8 && memeq(p, "POSITION", 8) == 1) { return 1; }
+    if (l == 6 && memeq(p, "NORMAL", 6) == 1) { return 2; }
+    if (l == 7 && memeq(p, "TANGENT", 7) == 1) { return 3; }
+    var kind = 0;
+    var pre = 0;
+    if (l >= 6 && memeq(p, "COLOR_", 6) == 1) { kind = 4; pre = 6; }
+    if (l >= 9 && memeq(p, "TEXCOORD_", 9) == 1) { kind = 5; pre = 9; }
+    if (l >= 7 && memeq(p, "JOINTS_", 7) == 1) { kind = 6; pre = 7; }
+    if (l >= 8 && memeq(p, "WEIGHTS_", 8) == 1) { kind = 7; pre = 8; }
+    if (kind == 0) { return 0; }
+    if (_sr_gl_u32_ok(p, pre, l) == 0) { return 0; }
+    var k = pre;
+    if (load8(p + k) == 43) { k = k + 1; }
+    var n = 0;
+    while (k < l) {
+        n = n * 10 + (load8(p + k) - 48);
+        k = k + 1;
+    }
+    _sr_gl_sem_set = n;
+    return kind;
+}
+
+# Checks obj's member key: kind (_SR_K_*), presence (_SR_F_*), and arg (a collection, an enum, a length, or a struct
+# validator's address). Returns the member's node, or 0 when it is absent or null (or a failure was recorded).
+fn _sr_gf(obj, key, kind, presence, arg): i64 {
+    var v = _sr_jg(obj, key);
+    if (v == 0) {
+        if (presence == _SR_F_REQ) { return _sr_gl_fail("a required field is missing"); }
+        return 0;
+    }
+    var t = _sr_jtag(v);
+    if (t == JTAG_NULL) {
+        if (presence == _SR_F_OPT) { return 0; }
+        return _sr_gl_fail("a field that is not optional is null");
+    }
+    var i = 0;
+    var n = 0;
+    if (kind == _SR_K_U64) {
+        if (_sr_gl_is_uint(v) == 0) { return _sr_gl_fail("an unsigned integer field is not one"); }
+    } elif (kind == _SR_K_U32) {
+        if (_sr_gl_is_uint(v) == 0 || bayan_json_v_int(v) > 4294967295) {
+            return _sr_gl_fail("a u32 field is not one");
+        }
+    } elif (kind == _SR_K_IDX) {
+        if (_sr_gl_chk_idx(v, arg, 1) == 0) { return 0; }
+    } elif (kind == _SR_K_IDXN) {
+        if (_sr_gl_chk_idx(v, arg, 0) == 0) { return 0; }
+    } elif (kind == _SR_K_IDXS) {
+        if (t != JTAG_ARR) { return _sr_gl_fail("an index list is not an array"); }
+        n = _sr_jlen(v);
+        while (i < n) {
+            if (_sr_gl_chk_idx(_sr_jat(v, i), arg, 1) == 0) { return 0; }
+            i = i + 1;
+        }
+    } elif (kind == _SR_K_F32) {
+        if (_sr_gl_is_num(v) == 0) { return _sr_gl_fail("a number field is not a number"); }
+    } elif (kind == _SR_K_F32N || kind == _SR_K_F32S) {
+        if (t != JTAG_ARR) { return _sr_gl_fail("a number list is not an array"); }
+        n = _sr_jlen(v);
+        if (kind == _SR_K_F32N && n != arg) { return _sr_gl_fail("a fixed-length number list has the wrong length"); }
+        while (i < n) {
+            if (_sr_gl_is_num(_sr_jat(v, i)) == 0) { return _sr_gl_fail("a number list holds a non-number"); }
+            i = i + 1;
+        }
+    } elif (kind == _SR_K_BOOL) {
+        if (t != JTAG_BOOL) { return _sr_gl_fail("a boolean field is not a boolean"); }
+    } elif (kind == _SR_K_STR) {
+        if (t != JTAG_STR) { return _sr_gl_fail("a string field is not a string"); }
+    } elif (kind == _SR_K_STRS) {
+        if (t != JTAG_ARR) { return _sr_gl_fail("a string list is not an array"); }
+        n = _sr_jlen(v);
+        while (i < n) {
+            if (_sr_jtag(_sr_jat(v, i)) != JTAG_STR) { return _sr_gl_fail("a string list holds a non-string"); }
+            i = i + 1;
+        }
+    } elif (kind == _SR_K_ENUMU) {
+        if (_sr_gl_is_uint(v) == 0) { return _sr_gl_fail("an enum field is not an unsigned integer"); }
+        if (_sr_gl_enum_u(arg, bayan_json_v_int(v) & 0xFFFFFFFF) == 0) {
+            return _sr_gl_fail("an enum value is invalid");
+        }
+    } elif (kind == _SR_K_ENUMS) {
+        if (t != JTAG_STR) { return _sr_gl_fail("an enum field is not a string"); }
+        if (_sr_gl_enum_s(arg, v) == 0) { return _sr_gl_fail("an enum value is invalid"); }
+    } elif (kind == _SR_K_OBJ) {
+        if (t != JTAG_OBJ) { return _sr_gl_fail("an object field is not an object"); }
+        fncall1(arg, v);
+    } elif (kind == _SR_K_OBJS) {
+        if (t != JTAG_ARR) { return _sr_gl_fail("an object list is not an array"); }
+        n = _sr_jlen(v);
+        while (i < n) {
+            var e = _sr_jat(v, i);
+            if (_sr_jtag(e) != JTAG_OBJ) { return _sr_gl_fail("an object list holds a non-object"); }
+            fncall1(arg, e);
+            i = i + 1;
+        }
+    } elif (kind == _SR_K_VOID) {
+        # `extras` without gltf's `extras` feature: a struct of one defaulted unit field. serde reads it from an
+        # object (members ignored), or from an array of none or one null.
+        if (t == JTAG_ARR) {
+            n = _sr_jlen(v);
+            if (n == 0) { return v; }
+            if (n == 1 && _sr_jtag(_sr_jat(v, 0)) == JTAG_NULL) { return v; }
+            return _sr_gl_fail("extras is an array of values");
+        }
+        if (t != JTAG_OBJ) { return _sr_gl_fail("extras is not an object"); }
+    } elif (kind == _SR_K_EMPTY) {
+        # `extensions` without the `extensions` feature: a struct with no fields, from an object or an empty array.
+        if (t == JTAG_ARR && _sr_jlen(v) == 0) { return v; }
+        if (t != JTAG_OBJ) { return _sr_gl_fail("extensions is not an object"); }
+    } elif (kind == _SR_K_ATTRS) {
+        if (t != JTAG_OBJ) { return _sr_gl_fail("attributes is not an object"); }
+        n = bayan_json_v_obj_len(v);
+        while (i < n) {
+            if (_sr_gl_semantic(bayan_json_v_obj_key(v, i)) == 0) {
+                return _sr_gl_fail("an attribute's semantic is invalid");
+            }
+            if (_sr_gl_chk_idx(bayan_json_v_obj_val(v, i), SR_GL_C_ACCESSORS, 1) == 0) { return 0; }
+            i = i + 1;
+        }
+    }
+    return v;
+}
+
+# The `extensions` and `extras` every gltf-json struct carries.
+fn _sr_gv_ext(o) {
+    _sr_gf(o, "extensions", _SR_K_EMPTY, _SR_F_OPT, 0);
+    _sr_gf(o, "extras", _SR_K_VOID, _SR_F_DEF, 0);
+    return 0;
+}
+
+fn _sr_gv_asset(o) {
+    _sr_gf(o, "copyright", _SR_K_STR, _SR_F_OPT, 0);
+    _sr_gf(o, "generator", _SR_K_STR, _SR_F_OPT, 0);
+    _sr_gf(o, "minVersion", _SR_K_STR, _SR_F_OPT, 0);
+    _sr_gf(o, "version", _SR_K_STR, _SR_F_REQ, 0);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_buffer(o) {
+    _sr_gf(o, "byteLength", _SR_K_U64, _SR_F_DEF, 0);
+    _sr_gf(o, "name", _SR_K_STR, _SR_F_OPT, 0);
+    _sr_gf(o, "uri", _SR_K_STR, _SR_F_OPT, 0);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_view(o) {
+    _sr_gf(o, "buffer", _SR_K_IDX, _SR_F_REQ, SR_GL_C_BUFFERS);
+    _sr_gf(o, "byteLength", _SR_K_U64, _SR_F_REQ, 0);
+    _sr_gf(o, "byteOffset", _SR_K_U64, _SR_F_OPT, 0);
+    var st = _sr_gf(o, "byteStride", _SR_K_U64, _SR_F_OPT, 0);
+    if (st != 0) {
+        var s = bayan_json_v_int(st);
+        if (s < 4 || s > 252) { _sr_gl_fail("byteStride is outside 4 … 252"); }
+    }
+    _sr_gf(o, "name", _SR_K_STR, _SR_F_OPT, 0);
+    _sr_gf(o, "target", _SR_K_ENUMU, _SR_F_OPT, _SR_EU_TARGET);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_sparse_indices(o) {
+    _sr_gf(o, "bufferView", _SR_K_IDX, _SR_F_REQ, SR_GL_C_VIEWS);
+    _sr_gf(o, "byteOffset", _SR_K_U64, _SR_F_DEF, 0);
+    _sr_gf(o, "componentType", _SR_K_ENUMU, _SR_F_REQ, _SR_EU_INDEX_COMPONENT);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_sparse_values(o) {
+    _sr_gf(o, "bufferView", _SR_K_IDX, _SR_F_REQ, SR_GL_C_VIEWS);
+    _sr_gf(o, "byteOffset", _SR_K_U64, _SR_F_DEF, 0);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_sparse(o) {
+    _sr_gf(o, "count", _SR_K_U64, _SR_F_REQ, 0);
+    _sr_gf(o, "indices", _SR_K_OBJ, _SR_F_REQ, &_sr_gv_sparse_indices);
+    _sr_gf(o, "values", _SR_K_OBJ, _SR_F_REQ, &_sr_gv_sparse_values);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_accessor(o) {
+    var bv = _sr_gf(o, "bufferView", _SR_K_IDX, _SR_F_OPT, SR_GL_C_VIEWS);
+    _sr_gf(o, "byteOffset", _SR_K_U64, _SR_F_OPT, 0);
+    _sr_gf(o, "count", _SR_K_U64, _SR_F_REQ, 0);
+    _sr_gf(o, "componentType", _SR_K_ENUMU, _SR_F_REQ, _SR_EU_COMPONENT);
+    _sr_gf(o, "type", _SR_K_ENUMS, _SR_F_REQ, _SR_ES_TYPE);
+    _sr_gf(o, "min", _SR_K_ANY, _SR_F_OPT, 0);
+    _sr_gf(o, "max", _SR_K_ANY, _SR_F_OPT, 0);
+    _sr_gf(o, "name", _SR_K_STR, _SR_F_OPT, 0);
+    _sr_gf(o, "normalized", _SR_K_BOOL, _SR_F_DEF, 0);
+    var sp = _sr_gf(o, "sparse", _SR_K_OBJ, _SR_F_OPT, &_sr_gv_sparse);
+    if (bv == 0 && sp == 0) { _sr_gl_fail("an accessor has neither a bufferView nor sparse"); }
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_target(o) {
+    _sr_gf(o, "node", _SR_K_IDXN, _SR_F_REQ, SR_GL_C_NODES);
+    _sr_gf(o, "path", _SR_K_STR, _SR_F_REQ, 0);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_channel(o) {
+    _sr_gf(o, "sampler", _SR_K_IDXN, _SR_F_REQ, 0);
+    _sr_gf(o, "target", _SR_K_OBJ, _SR_F_REQ, &_sr_gv_target);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_anim_sampler(o) {
+    _sr_gf(o, "input", _SR_K_IDX, _SR_F_REQ, SR_GL_C_ACCESSORS);
+    _sr_gf(o, "interpolation", _SR_K_ENUMS, _SR_F_DEF, _SR_ES_INTERP);
+    _sr_gf(o, "output", _SR_K_IDX, _SR_F_REQ, SR_GL_C_ACCESSORS);
+    return _sr_gv_ext(o);
+}
+
+# An animation: gltf-json validates its samplers and each channel's sampler bound, not the channels' targets (they
+# are read, and a bad one panics Rust, only when animations load).
+fn _sr_gv_animation(o) {
+    var cs = _sr_gf(o, "channels", _SR_K_OBJS, _SR_F_REQ, &_sr_gv_channel);
+    _sr_gf(o, "name", _SR_K_STR, _SR_F_OPT, 0);
+    var ss = _sr_gf(o, "samplers", _SR_K_OBJS, _SR_F_REQ, &_sr_gv_anim_sampler);
+    if (cs != 0 && ss != 0) {
+        var i = 0;
+        while (i < _sr_jlen(cs)) {
+            var si = _sr_jg(_sr_jat(cs, i), "sampler");
+            if (si != 0 && _sr_jtag(si) == JTAG_INT && (bayan_json_v_int(si) & 0xFFFFFFFF) >= _sr_jlen(ss)) {
+                _sr_gl_fail("a channel's sampler is out of bounds");
+            }
+            i = i + 1;
+        }
+    }
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_ortho(o) {
+    _sr_gf(o, "xmag", _SR_K_F32, _SR_F_REQ, 0);
+    _sr_gf(o, "ymag", _SR_K_F32, _SR_F_REQ, 0);
+    _sr_gf(o, "zfar", _SR_K_F32, _SR_F_REQ, 0);
+    _sr_gf(o, "znear", _SR_K_F32, _SR_F_REQ, 0);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_persp(o) {
+    _sr_gf(o, "aspectRatio", _SR_K_F32, _SR_F_OPT, 0);
+    _sr_gf(o, "yfov", _SR_K_F32, _SR_F_REQ, 0);
+    _sr_gf(o, "zfar", _SR_K_F32, _SR_F_OPT, 0);
+    _sr_gf(o, "znear", _SR_K_F32, _SR_F_REQ, 0);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_camera(o) {
+    _sr_gf(o, "name", _SR_K_STR, _SR_F_OPT, 0);
+    var or = _sr_gf(o, "orthographic", _SR_K_OBJ, _SR_F_OPT, &_sr_gv_ortho);
+    var pe = _sr_gf(o, "perspective", _SR_K_OBJ, _SR_F_OPT, &_sr_gv_persp);
+    _sr_gf(o, "type", _SR_K_ENUMS, _SR_F_REQ, _SR_ES_CAMERA);
+    if (or == 0 && pe == 0) { _sr_gl_fail("a camera has neither projection"); }
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_image(o) {
+    _sr_gf(o, "bufferView", _SR_K_IDX, _SR_F_OPT, SR_GL_C_VIEWS);
+    _sr_gf(o, "mimeType", _SR_K_STR, _SR_F_OPT, 0);
+    _sr_gf(o, "name", _SR_K_STR, _SR_F_OPT, 0);
+    _sr_gf(o, "uri", _SR_K_STR, _SR_F_OPT, 0);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_tex_info(o) {
+    _sr_gf(o, "index", _SR_K_IDX, _SR_F_REQ, SR_GL_C_TEXTURES);
+    _sr_gf(o, "texCoord", _SR_K_U32, _SR_F_DEF, 0);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_normal_tex(o) {
+    _sr_gf(o, "scale", _SR_K_F32, _SR_F_DEF, 0);
+    return _sr_gv_tex_info(o);
+}
+
+fn _sr_gv_occlusion_tex(o) {
+    _sr_gf(o, "strength", _SR_K_F32, _SR_F_DEF, 0);
+    return _sr_gv_tex_info(o);
+}
+
+fn _sr_gv_pbr(o) {
+    _sr_gf(o, "baseColorFactor", _SR_K_F32N, _SR_F_DEF, 4);
+    _sr_gf(o, "baseColorTexture", _SR_K_OBJ, _SR_F_OPT, &_sr_gv_tex_info);
+    _sr_gf(o, "metallicFactor", _SR_K_F32, _SR_F_DEF, 0);
+    _sr_gf(o, "roughnessFactor", _SR_K_F32, _SR_F_DEF, 0);
+    _sr_gf(o, "metallicRoughnessTexture", _SR_K_OBJ, _SR_F_OPT, &_sr_gv_tex_info);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_material(o) {
+    _sr_gf(o, "alphaCutoff", _SR_K_F32, _SR_F_OPT, 0);
+    _sr_gf(o, "alphaMode", _SR_K_ENUMS, _SR_F_DEF, _SR_ES_ALPHA);
+    _sr_gf(o, "doubleSided", _SR_K_BOOL, _SR_F_DEF, 0);
+    _sr_gf(o, "name", _SR_K_STR, _SR_F_OPT, 0);
+    _sr_gf(o, "pbrMetallicRoughness", _SR_K_OBJ, _SR_F_DEF, &_sr_gv_pbr);
+    _sr_gf(o, "normalTexture", _SR_K_OBJ, _SR_F_OPT, &_sr_gv_normal_tex);
+    _sr_gf(o, "occlusionTexture", _SR_K_OBJ, _SR_F_OPT, &_sr_gv_occlusion_tex);
+    _sr_gf(o, "emissiveTexture", _SR_K_OBJ, _SR_F_OPT, &_sr_gv_tex_info);
+    _sr_gf(o, "emissiveFactor", _SR_K_F32N, _SR_F_DEF, 3);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_morph(o) {
+    _sr_gf(o, "POSITION", _SR_K_IDX, _SR_F_OPT, SR_GL_C_ACCESSORS);
+    _sr_gf(o, "NORMAL", _SR_K_IDX, _SR_F_OPT, SR_GL_C_ACCESSORS);
+    _sr_gf(o, "TANGENT", _SR_K_IDX, _SR_F_OPT, SR_GL_C_ACCESSORS);
+    return 0;
+}
+
+# [f32; 3] from a serde_json Value (the POSITION accessor's min and max): an array of exactly three numbers.
+#must_use
+fn _sr_gl_is_f32x3(v): i64 {
+    if (v == 0) { return 0; }
+    if (_sr_jtag(v) != JTAG_ARR || _sr_jlen(v) != 3) { return 0; }
+    var i = 0;
+    while (i < 3) {
+        if (_sr_gl_is_num(_sr_jat(v, i)) == 0) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+# A primitive, and gltf-json's hook: POSITION is required, and its accessor needs `min` and `max` as [f32; 3]. Rust
+# indexes `accessors[POSITION]` before the bound is reported, so a POSITION out of range panics it (ADR 0002 #14).
+fn _sr_gv_primitive(o) {
+    var at = _sr_gf(o, "attributes", _SR_K_ATTRS, _SR_F_REQ, 0);
+    _sr_gf(o, "indices", _SR_K_IDX, _SR_F_OPT, SR_GL_C_ACCESSORS);
+    _sr_gf(o, "material", _SR_K_IDX, _SR_F_OPT, SR_GL_C_MATERIALS);
+    _sr_gf(o, "mode", _SR_K_ENUMU, _SR_F_DEF, _SR_EU_MODE);
+    _sr_gf(o, "targets", _SR_K_OBJS, _SR_F_OPT, &_sr_gv_morph);
+    _sr_gv_ext(o);
+    if (at == 0 || _sr_jtag(at) != JTAG_OBJ) { return 0; }
+    var pv = _sr_jg(at, "POSITION");
+    if (pv == 0) { return _sr_gl_fail("a primitive has no POSITION"); }
+    if (_sr_jtag(pv) != JTAG_INT) { return 0; }
+    var pi = bayan_json_v_int(pv) & 0xFFFFFFFF;
+    if (pi >= _sr_gl_n(SR_GL_C_ACCESSORS)) { return _sr_gl_fail("POSITION's accessor is out of bounds"); }
+    var pa = _sr_gl_item(SR_GL_C_ACCESSORS, pi);
+    if (_sr_gl_is_f32x3(_sr_jopt(pa, "min")) == 0) { return _sr_gl_fail("POSITION's accessor has no [f32; 3] min"); }
+    if (_sr_gl_is_f32x3(_sr_jopt(pa, "max")) == 0) { return _sr_gl_fail("POSITION's accessor has no [f32; 3] max"); }
+    return 0;
+}
+
+fn _sr_gv_mesh(o) {
+    _sr_gf(o, "name", _SR_K_STR, _SR_F_OPT, 0);
+    _sr_gf(o, "primitives", _SR_K_OBJS, _SR_F_REQ, &_sr_gv_primitive);
+    _sr_gf(o, "weights", _SR_K_F32S, _SR_F_OPT, 0);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_node(o) {
+    _sr_gf(o, "camera", _SR_K_IDX, _SR_F_OPT, SR_GL_C_CAMERAS);
+    _sr_gf(o, "children", _SR_K_IDXS, _SR_F_OPT, SR_GL_C_NODES);
+    _sr_gf(o, "matrix", _SR_K_F32N, _SR_F_OPT, 16);
+    _sr_gf(o, "mesh", _SR_K_IDX, _SR_F_OPT, SR_GL_C_MESHES);
+    _sr_gf(o, "name", _SR_K_STR, _SR_F_OPT, 0);
+    _sr_gf(o, "rotation", _SR_K_F32N, _SR_F_OPT, 4);
+    _sr_gf(o, "scale", _SR_K_F32N, _SR_F_OPT, 3);
+    _sr_gf(o, "translation", _SR_K_F32N, _SR_F_OPT, 3);
+    _sr_gf(o, "skin", _SR_K_IDX, _SR_F_OPT, SR_GL_C_SKINS);
+    _sr_gf(o, "weights", _SR_K_F32S, _SR_F_OPT, 0);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_tex_sampler(o) {
+    _sr_gf(o, "magFilter", _SR_K_ENUMU, _SR_F_OPT, _SR_EU_MAG);
+    _sr_gf(o, "minFilter", _SR_K_ENUMU, _SR_F_OPT, _SR_EU_MIN);
+    _sr_gf(o, "name", _SR_K_STR, _SR_F_OPT, 0);
+    _sr_gf(o, "wrapS", _SR_K_ENUMU, _SR_F_DEF, _SR_EU_WRAP);
+    _sr_gf(o, "wrapT", _SR_K_ENUMU, _SR_F_DEF, _SR_EU_WRAP);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_scene(o) {
+    _sr_gf(o, "name", _SR_K_STR, _SR_F_OPT, 0);
+    _sr_gf(o, "nodes", _SR_K_IDXS, _SR_F_REQ, SR_GL_C_NODES);
+    return _sr_gv_ext(o);
+}
+
+fn _sr_gv_skin(o) {
+    _sr_gf(o, "inverseBindMatrices", _SR_K_IDX, _SR_F_OPT, SR_GL_C_ACCESSORS);
+    _sr_gf(o, "joints", _SR_K_IDXS, _SR_F_REQ, SR_GL_C_NODES);
+    _sr_gf(o, "name", _SR_K_STR, _SR_F_OPT, 0);
+    _sr_gf(o, "skeleton", _SR_K_IDX, _SR_F_OPT, SR_GL_C_NODES);
+    return _sr_gv_ext(o);
+}
+
+# A texture: its source defaults to u32::MAX, which validates as Missing (no `allow_empty_texture`).
+fn _sr_gv_texture(o) {
+    _sr_gf(o, "name", _SR_K_STR, _SR_F_OPT, 0);
+    _sr_gf(o, "sampler", _SR_K_IDX, _SR_F_OPT, SR_GL_C_SAMPLERS);
+    _sr_gf(o, "source", _SR_K_IDX, _SR_F_REQ, SR_GL_C_IMAGES);
+    return _sr_gv_ext(o);
+}
+
+# The root's 13 arrays by SR_GL_C_*, in key order.
+var _SR_GL_KEYS = 0;
+fn _sr_gl_keys(): i64 {
+    if (_SR_GL_KEYS != 0) { return _SR_GL_KEYS; }
+    var k = alloc(13 * 8);
+    store64(k, "accessors");
+    store64(k + 8, "animations");
+    store64(k + 16, "buffers");
+    store64(k + 24, "bufferViews");
+    store64(k + 32, "cameras");
+    store64(k + 40, "images");
+    store64(k + 48, "materials");
+    store64(k + 56, "meshes");
+    store64(k + 64, "nodes");
+    store64(k + 72, "samplers");
+    store64(k + 80, "scenes");
+    store64(k + 88, "skins");
+    store64(k + 96, "textures");
+    _SR_GL_KEYS = k;
+    return k;
+}
+
+# The validators of the 13 arrays' elements, by SR_GL_C_*.
+fn _sr_gl_validator(c): i64 {
+    if (c == SR_GL_C_ACCESSORS) { return &_sr_gv_accessor; }
+    if (c == SR_GL_C_ANIMATIONS) { return &_sr_gv_animation; }
+    if (c == SR_GL_C_BUFFERS) { return &_sr_gv_buffer; }
+    if (c == SR_GL_C_VIEWS) { return &_sr_gv_view; }
+    if (c == SR_GL_C_CAMERAS) { return &_sr_gv_camera; }
+    if (c == SR_GL_C_IMAGES) { return &_sr_gv_image; }
+    if (c == SR_GL_C_MATERIALS) { return &_sr_gv_material; }
+    if (c == SR_GL_C_MESHES) { return &_sr_gv_mesh; }
+    if (c == SR_GL_C_NODES) { return &_sr_gv_node; }
+    if (c == SR_GL_C_SAMPLERS) { return &_sr_gv_tex_sampler; }
+    if (c == SR_GL_C_SCENES) { return &_sr_gv_scene; }
+    if (c == SR_GL_C_SKINS) { return &_sr_gv_skin; }
+    return &_sr_gv_texture;
+}
+
+# Validates the document at _sr_gl_root as gltf-json's deserialize and validate() do: 1, or 0 with the reason.
+fn _sr_gl_validate(): i64 {
+    var root = _sr_gl_root;
+    if (_sr_jtag(root) != JTAG_OBJ) { return _sr_gl_fail("the document is not a JSON object"); }
+    var keys = _sr_gl_keys();
+    var c = 0;
+    while (c < 13) {
+        var v = _sr_jg(root, load64(keys + c * 8));
+        store64(_sr_gl_coll + c * 8, 0);
+        store64(_sr_gl_clen + c * 8, 0);
+        if (v != 0 && _sr_jtag(v) == JTAG_ARR) {
+            store64(_sr_gl_coll + c * 8, v);
+            store64(_sr_gl_clen + c * 8, _sr_jlen(v));
+        }
+        c = c + 1;
+    }
+    _sr_gf(root, "asset", _SR_K_OBJ, _SR_F_REQ, &_sr_gv_asset);
+    c = 0;
+    while (c < 13) {
+        _sr_gf(root, load64(keys + c * 8), _SR_K_OBJS, _SR_F_DEF, _sr_gl_validator(c));
+        c = c + 1;
+    }
+    _sr_gf(root, "scene", _SR_K_IDX, _SR_F_OPT, SR_GL_C_SCENES);
+    _sr_gf(root, "extensionsUsed", _SR_K_STRS, _SR_F_DEF, 0);
+    var er = _sr_gf(root, "extensionsRequired", _SR_K_STRS, _SR_F_DEF, 0);
+    # No extension is enabled (gltf's default features), so any required one is Unsupported.
+    if (er != 0 && _sr_jlen(er) > 0) { _sr_gl_fail("an extension is required"); }
+    _sr_gv_ext(root);
+    if (_sr_gl_err != 0) { return 0; }
+    return 1;
+}
+
+# ── the container ────────────────────────────────────────────────────────────────────
+
+# Parses [buf, buf + n) as gltf's `Gltf::from_slice` does (GLB when it starts with "glTF", else JSON text) into
+# _sr_gl_root on the decode arena, then validates it: 1, or 0 with the reason. A GLB's JSON chunk must come first, and
+# a second chunk, when there is one, must be BIN; the header's length must not pass the data, and the chunks are read
+# from the rest of the data (as gltf does), not from the header's length.
+fn _sr_gl_load(buf, n): i64 {
+    _sr_gl_err = 0;
+    _sr_gl_root = 0;
+    _sr_gl_bin = 0;
+    _sr_gl_bin_len = 0;
+    if (_sr_gl_arena == 0) { _sr_gl_arena = arena_allocator_growable(65536); }
+    if (_sr_gl_coll == 0) { _sr_gl_coll = alloc(13 * 8); }
+    if (_sr_gl_clen == 0) { _sr_gl_clen = alloc(13 * 8); }
+    if (_sr_gl_arena == 0 || _sr_gl_coll == 0 || _sr_gl_clen == 0) { return _sr_gl_fail("out of memory"); }
+    reset_via(_sr_gl_arena);
+    var jp = buf;
+    var jl = n;
+    if (n >= 4 && memeq(buf, "glTF", 4) == 1) {
+        if (n < 12) { return _sr_gl_fail("the GLB header is truncated"); }
+        var version = load32(buf + 4) & 0xFFFFFFFF;
+        var length = load32(buf + 8) & 0xFFFFFFFF;
+        if (length < 12) { return _sr_gl_fail("the GLB header's length is below 12"); }
+        if (length - 12 > n - 12) { return _sr_gl_fail("the GLB header's length passes the data"); }
+        if (version != 2) { return _sr_gl_fail("the GLB version is not 2"); }
+        var d = buf + 12;
+        var dl = n - 12;
+        if (dl < 8) { return _sr_gl_fail("the JSON chunk header is truncated"); }
+        jl = load32(d) & 0xFFFFFFFF;
+        if (memeq(d + 4, "JSON", 4) == 0) { return _sr_gl_fail("the first chunk is not JSON"); }
+        if (jl > dl - 8) { return _sr_gl_fail("the JSON chunk passes the data"); }
+        jp = d + 8;
+        var r = jp + jl;
+        var rl = dl - 8 - jl;
+        if (rl > 0) {
+            if (rl < 8) { return _sr_gl_fail("the BIN chunk header is truncated"); }
+            var bl = load32(r) & 0xFFFFFFFF;
+            if (memeq(r + 4, "BIN", 4) == 0) { return _sr_gl_fail("the second chunk is not BIN"); }
+            if (bl > rl - 8) { return _sr_gl_fail("the BIN chunk passes the data"); }
+            _sr_gl_bin = r + 8;
+            _sr_gl_bin_len = bl;
+        }
+    }
+    _sr_gl_root = bayan_json_v_parse_buf_a(_sr_gl_arena, jp, jl);
+    if (_sr_gl_root == 0) { return _sr_gl_fail("the JSON does not parse (bayan)"); }
+    return _sr_gl_validate();
+}
+
+# ── accessors ────────────────────────────────────────────────────────────────────────
+
+# The bytes of view vi within its buffer's data (the BIN chunk for a buffer without a URI, nothing for one with a
+# URI): pointer and length at out, and 1; 0 when the view passes the data.
+fn _sr_gl_view_slice(vi, out): i64 {
+    var v = _sr_gl_item(SR_GL_C_VIEWS, vi);
+    var b = _sr_gl_item(SR_GL_C_BUFFERS, _sr_jidx(v, "buffer"));
+    var dp = 0;
+    var dl = 0;
+    if (_sr_jopt(b, "uri") == 0) {
+        dp = _sr_gl_bin;
+        dl = _sr_gl_bin_len;
+    }
+    var off = _sr_jint_or(v, "byteOffset", 0);
+    var len = bayan_json_v_int(_sr_jg(v, "byteLength"));
+    if (off > dl || len > dl - off) { return 0; }
+    store64(out, dp + off);
+    store64(out + 8, len);
+    return 1;
+}
+
+# count items of esize bytes from view vi at byte offset start (gltf's ItemIter: the view's stride, or esize), packed
+# into a new buffer on the decode arena: 1 with the buffer in _sr_gl_items_at; 0 when the range passes the view
+# (gltf's `get` gives None) or count is 0 (Rust's `count − 1` underflows: a panic under overflow checks); −4 when
+# the stride is below esize (Rust's item read asserts: a panic).
+var _sr_gl_items_at = 0;
+fn _sr_gl_items(vi, start, count, esize): i64 {
+    var sl[16];
+    if (_sr_gl_view_slice(vi, &sl) == 0) { return 0; }
+    if (count <= 0) { return 0; }
+    var stride = _sr_jint_or(_sr_gl_item(SR_GL_C_VIEWS, vi), "byteStride", 0);
+    if (stride == 0) { stride = esize; }
+    var len = load64(&sl + 8);
+    if (count - 1 > (2147483647 * 2147483647) / stride) { return 0; }
+    var span = stride * (count - 1) + esize;
+    if (start > len || span > len - start) { return 0; }
+    if (stride < esize) { return 0 - 4; }
+    var dst = alloc_via(_sr_gl_arena, count * esize + 8);
+    if (dst == 0) { return 0; }
+    var src = load64(&sl) + start;
+    var k = 0;
+    while (k < count) {
+        var p = src + k * stride;
+        var q = dst + k * esize;
+        var i = 0;
+        while (i < esize) {
+            store8(q + i, load8(p + i));
+            i = i + 1;
+        }
+        k = k + 1;
+    }
+    _sr_gl_items_at = dst;
+    return 1;
+}
+
+# Accessor ai's elements of esize bytes, as gltf's accessor Iter yields them, packed: 1 with the buffer in
+# _sr_gl_rd and the count in _sr_gl_rn; 0 for None; −4 where Rust panics. A sparse accessor starts from its view's
+# items (or count zeros without a view) and replaces the item at each sparse index with the next sparse value as
+# gltf merges them: in order, each index compared with the item counter once (an unsorted or repeated index is
+# passed by, as in gltf).
+var _sr_gl_rd = 0;
+var _sr_gl_rn = 0;
+fn _sr_gl_read(ai, esize): i64 {
+    var acc = _sr_gl_item(SR_GL_C_ACCESSORS, ai);
+    var count = bayan_json_v_int(_sr_jg(acc, "count"));
+    var bv = _sr_jidx(acc, "bufferView");
+    var off = _sr_jint_or(acc, "byteOffset", 0);
+    var sp = _sr_jopt(acc, "sparse");
+    var r = 0;
+    if (sp == 0) {
+        if (bv < 0) { return 0; }
+        r = _sr_gl_items(bv, off, count, esize);
+        if (r != 1) { return r; }
+        _sr_gl_rd = _sr_gl_items_at;
+        _sr_gl_rn = count;
+        return 1;
+    }
+    var base = 0;
+    if (bv >= 0) {
+        r = _sr_gl_items(bv, off, count, esize);
+        if (r != 1) { return r; }
+        base = _sr_gl_items_at;
+    } else {
+        if (count > 268435456) { return 0; }
+        base = alloc_via(_sr_gl_arena, count * esize + 8);
+        if (base == 0) { return 0; }
+        var z = 0;
+        while (z < count * esize) {
+            store8(base + z, 0);
+            z = z + 1;
+        }
+    }
+    var sc = bayan_json_v_int(_sr_jg(sp, "count"));
+    var si = _sr_jg(sp, "indices");
+    var sv = _sr_jg(sp, "values");
+    var ict = bayan_json_v_int(_sr_jg(si, "componentType")) & 0xFFFFFFFF;
+    var isz = 4;
+    if (ict == 5121) { isz = 1; }
+    if (ict == 5123) { isz = 2; }
+    r = _sr_gl_items(_sr_jidx(si, "bufferView"), _sr_jint_or(si, "byteOffset", 0), sc, isz);
+    if (r != 1) { return r; }
+    var ib = _sr_gl_items_at;
+    r = _sr_gl_items(_sr_jidx(sv, "bufferView"), _sr_jint_or(sv, "byteOffset", 0), sc, esize);
+    if (r != 1) { return r; }
+    var vb = _sr_gl_items_at;
+    var next = 0;
+    var c = 0;
+    while (c < count) {
+        if (next < sc) {
+            var ix = load32(ib + next * 4) & 0xFFFFFFFF;
+            if (isz == 1) { ix = load8(ib + next); }
+            if (isz == 2) { ix = load16(ib + next * 2); }
+            if (ix == (c & 0xFFFFFFFF)) {
+                var i = 0;
+                while (i < esize) {
+                    store8(base + c * esize + i, load8(vb + next * esize + i));
+                    i = i + 1;
+                }
+                next = next + 1;
+            }
+        }
+        c = c + 1;
+    }
+    _sr_gl_rd = base;
+    _sr_gl_rn = count;
+    return 1;
+}
+
+# Accessor ai's componentType.
+#must_use
+fn _sr_gl_ctype(ai): i64 {
+    return bayan_json_v_int(_sr_jg(_sr_gl_item(SR_GL_C_ACCESSORS, ai), "componentType")) & 0xFFFFFFFF;
+}
+
+# The f32 reciprocals gltf normalizes by (`255.0_f32.recip()` and so on), and −1.
+var _sr_gl_r255 = 0;
+var _sr_gl_r65535 = 0;
+var _sr_gl_r127 = 0;
+var _sr_gl_r32767 = 0;
+
+# The f32 of the small integer k.
+#must_use
+fn _sr_gl_i2f(k): i64 { return f32_from(f64_from(k)); }
+
+# Rust's f32::max(a, b): a NaN operand gives the other.
+#must_use
+fn _sr_gl_max32(a, b): i64 {
+    if (_sr_f32_is_nan(a) == 1) { return b; }
+    if (_sr_f32_is_nan(b) == 1) { return a; }
+    if (_sr_f32_lt(a, b) == 1) { return b; }
+    return a;
+}
+
+# Component c of an item at p of componentType ct as f32 bits, normalized as gltf's `into_f32` does: f32 as is,
+# u8 · (1/255), u16 · (1/65535), i8 · (1/127) and i16 · (1/32767) each at least −1.
+#must_use
+fn _sr_gl_norm(ct, p, c): i64 {
+    if (_sr_gl_r255 == 0) {
+        var one = 0x3F800000;
+        _sr_gl_r255 = _sr_f32_div(one, _sr_gl_i2f(255));
+        _sr_gl_r65535 = _sr_f32_div(one, _sr_gl_i2f(65535));
+        _sr_gl_r127 = _sr_f32_div(one, _sr_gl_i2f(127));
+        _sr_gl_r32767 = _sr_f32_div(one, _sr_gl_i2f(32767));
+    }
+    var m1 = 0xBF800000;
+    if (ct == 5126) { return load32(p + c * 4) & 0xFFFFFFFF; }
+    if (ct == 5121) { return _sr_f32_mul(_sr_gl_i2f(load8(p + c)), _sr_gl_r255); }
+    if (ct == 5123) { return _sr_f32_mul(_sr_gl_i2f(load16(p + c * 2)), _sr_gl_r65535); }
+    if (ct == 5120) {
+        var b = load8(p + c);
+        if (b >= 128) { b = b - 256; }
+        return _sr_gl_max32(_sr_f32_mul(_sr_gl_i2f(b), _sr_gl_r127), m1);
+    }
+    var h = load16(p + c * 2);
+    if (h >= 32768) { h = h - 65536; }
+    return _sr_gl_max32(_sr_f32_mul(_sr_gl_i2f(h), _sr_gl_r32767), m1);
+}
+
+# The accessor of the primitive attribute whose semantic is (kind, set), the last such key winning (gltf keeps the
+# attributes in a BTreeMap, which a later equal key replaces), or −1.
+fn _sr_gl_attr(at, kind, set): i64 {
+    var found = 0 - 1;
+    var i = 0;
+    while (i < bayan_json_v_obj_len(at)) {
+        if (_sr_gl_semantic(bayan_json_v_obj_key(at, i)) == kind && _sr_gl_sem_set == set) {
+            found = bayan_json_v_int(bayan_json_v_obj_val(at, i)) & 0xFFFFFFFF;
+        }
+        i = i + 1;
+    }
+    return found;
+}
+
+# ── load_gltf_meshes ─────────────────────────────────────────────────────────────────
+
+# The meshes and embedded images of the glTF in [bytes, bytes + len), into out (an SrGltfMeshes) from the allocator a:
+# 0, or SR_ERR_MODEL (sr_gltf_last_error() says why). A primitive that is not a triangle list, or whose index is out
+# of range, is skipped with a WARN event; one with no positions is skipped. Missing normals are (0, 1, 0), missing UVs
+# (0, 0), every colour white, and a mesh's material_index its primitive's material or SR_MATERIAL_NONE. An image is the
+# bytes of its view (copied), or empty for a URI or a view outside the data. Mirrors `load_gltf_meshes`.
+fn sr_load_gltf_meshes(bytes, len, a, out): i64 {
+    store64(out, 0);
+    store64(out + 8, 0);
+    store64(out + 16, 0);
+    store64(out + 24, 0);
+    _sr_debug("soorat::gltf_loader: loading gltf meshes");
+    if (_sr_gl_load(bytes, len) == 0) { return SR_ERR_MODEL; }
+    var sl[16];
+    var ni = _sr_gl_n(SR_GL_C_IMAGES);
+    var imgs = alloc_via(a, ni * 16 + 8);
+    if (imgs == 0) { _sr_gl_fail("out of memory"); return SR_ERR_MODEL; }
+    var k = 0;
+    while (k < ni) {
+        var im = _sr_gl_item(SR_GL_C_IMAGES, k);
+        var iv = _sr_jidx(im, "bufferView");
+        store64(imgs + k * 16, 0);
+        store64(imgs + k * 16 + 8, 0);
+        if (iv >= 0) {
+            if (_sr_jopt(im, "mimeType") == 0) {
+                _sr_gl_fail("an image has a bufferView and no mimeType");
+                return SR_ERR_MODEL;
+            }
+            if (_sr_gl_view_slice(iv, &sl) == 1 && load64(&sl + 8) > 0) {
+                var n = load64(&sl + 8);
+                var cp = alloc_via(a, n);
+                if (cp == 0) { _sr_gl_fail("out of memory"); return SR_ERR_MODEL; }
+                var q = 0;
+                while (q < n) {
+                    store8(cp + q, load8(load64(&sl) + q));
+                    q = q + 1;
+                }
+                store64(imgs + k * 16, cp);
+                store64(imgs + k * 16 + 8, n);
+            }
+        } elif (_sr_jopt(im, "uri") == 0) {
+            _sr_gl_fail("an image has neither a bufferView nor a uri");
+            return SR_ERR_MODEL;
+        }
+        k = k + 1;
+    }
+    var total = 0;
+    var mi = 0;
+    while (mi < _sr_gl_n(SR_GL_C_MESHES)) {
+        total = total + _sr_jlen(_sr_jg(_sr_gl_item(SR_GL_C_MESHES, mi), "primitives"));
+        mi = mi + 1;
+    }
+    var ms = alloc_via(a, total * 40 + 8);
+    if (ms == 0) { _sr_gl_fail("out of memory"); return SR_ERR_MODEL; }
+    var mc = 0;
+    mi = 0;
+    while (mi < _sr_gl_n(SR_GL_C_MESHES)) {
+        var prims = _sr_jg(_sr_gl_item(SR_GL_C_MESHES, mi), "primitives");
+        var pj = 0;
+        while (pj < _sr_jlen(prims)) {
+            var r = _sr_gl_primitive(_sr_jat(prims, pj), a, ms + mc * 40);
+            if (r < 0) { return SR_ERR_MODEL; }
+            mc = mc + r;
+            pj = pj + 1;
+        }
+        mi = mi + 1;
+    }
+    store64(out, ms);
+    store64(out + 8, mc);
+    store64(out + 16, imgs);
+    store64(out + 24, ni);
+    return 0;
+}
+
+# One primitive of load_gltf_meshes into m (an SrMeshData) from a: 1 kept, 0 skipped, −1 an error (where Rust panics).
+fn _sr_gl_primitive(p, a, m): i64 {
+    if ((_sr_jint_or(p, "mode", 4) & 0xFFFFFFFF) != 4) {
+        _sr_warn("soorat::gltf_loader: skipping non-triangle-list glTF primitive");
+        return 0;
+    }
+    var at = _sr_jg(p, "attributes");
+    var r = _sr_gl_read(_sr_gl_attr(at, 1, 0), 12);
+    if (r == 0 - 4) { _sr_gl_fail("POSITION's byteStride is below its element size"); return 0 - 1; }
+    if (r == 0 || _sr_gl_rn == 0) { return 0; }
+    var pos = _sr_gl_rd;
+    var n = _sr_gl_rn;
+    if (n > 4294967295) {
+        _sr_warn("soorat::gltf_loader: skipping glTF primitive: too many vertices");
+        return 0;
+    }
+    var ix = 0;
+    var ni = n;
+    var ii = _sr_jidx(p, "indices");
+    var have = 0;
+    if (ii >= 0) {
+        var ct = _sr_gl_ctype(ii);
+        var isz = 0;
+        if (ct == 5121) { isz = 1; }
+        if (ct == 5123) { isz = 2; }
+        if (ct == 5125) { isz = 4; }
+        if (isz == 0) { _sr_gl_fail("an index accessor's componentType is not u8, u16 or u32"); return 0 - 1; }
+        r = _sr_gl_read(ii, isz);
+        if (r == 0 - 4) { _sr_gl_fail("an index view's byteStride is below its element size"); return 0 - 1; }
+        if (r == 1) {
+            have = 1;
+            ni = _sr_gl_rn;
+            ix = alloc_via(a, ni * 4 + 4);
+            if (ix == 0) { _sr_gl_fail("out of memory"); return 0 - 1; }
+            var q = 0;
+            while (q < ni) {
+                var v = load32(_sr_gl_rd + q * 4) & 0xFFFFFFFF;
+                if (isz == 1) { v = load8(_sr_gl_rd + q); }
+                if (isz == 2) { v = load16(_sr_gl_rd + q * 2); }
+                store32(ix + q * 4, v);
+                q = q + 1;
+            }
+        }
+    }
+    if (have == 0) {
+        ix = alloc_via(a, n * 4 + 4);
+        if (ix == 0) { _sr_gl_fail("out of memory"); return 0 - 1; }
+        var g = 0;
+        while (g < n) {
+            store32(ix + g * 4, g);
+            g = g + 1;
+        }
+    }
+    var b = 0;
+    while (b < ni) {
+        if ((load32(ix + b * 4) & 0xFFFFFFFF) >= n) {
+            _sr_warn("soorat::gltf_loader: skipping glTF primitive: index out of range");
+            return 0;
+        }
+        b = b + 1;
+    }
+    var nn = 0;
+    var nrm = 0;
+    var na = _sr_gl_attr(at, 2, 0);
+    if (na >= 0) {
+        r = _sr_gl_read(na, 12);
+        if (r == 0 - 4) { _sr_gl_fail("NORMAL's byteStride is below its element size"); return 0 - 1; }
+        if (r == 1) {
+            nn = _sr_gl_rn;
+            nrm = _sr_gl_rd;
+        }
+    }
+    var nu = 0;
+    var uv = 0;
+    var uct = 0;
+    var ua = _sr_gl_attr(at, 5, 0);
+    if (ua >= 0) {
+        uct = _sr_gl_ctype(ua);
+        var usz = 0;
+        if (uct == 5126) { usz = 8; }
+        if (uct == 5121) { usz = 2; }
+        if (uct == 5123) { usz = 4; }
+        if (usz == 0) { _sr_gl_fail("TEXCOORD_0's componentType is not f32, u8 or u16"); return 0 - 1; }
+        r = _sr_gl_read(ua, usz);
+        if (r == 0 - 4) { _sr_gl_fail("TEXCOORD_0's byteStride is below its element size"); return 0 - 1; }
+        if (r == 1) {
+            nu = _sr_gl_rn;
+            uv = _sr_gl_rd;
+        }
+    }
+    var vb = alloc_via(a, n * 48 + 8);
+    if (vb == 0) { _sr_gl_fail("out of memory"); return 0 - 1; }
+    var usz2 = 8;
+    if (uct == 5121) { usz2 = 2; }
+    if (uct == 5123) { usz2 = 4; }
+    var j = 0;
+    while (j < n) {
+        var v = vb + j * 48;
+        store64(v, load64(pos + j * 12));
+        store32(v + 8, load32(pos + j * 12 + 8));
+        if (j < nn) {
+            store64(v + 12, load64(nrm + j * 12));
+            store32(v + 20, load32(nrm + j * 12 + 8));
+        } else {
+            store32(v + 12, 0);
+            store32(v + 16, 0x3F800000);
+            store32(v + 20, 0);
+        }
+        if (j < nu) {
+            store32(v + 24, _sr_gl_norm(uct, uv + j * usz2, 0));
+            store32(v + 28, _sr_gl_norm(uct, uv + j * usz2, 1));
+        } else {
+            store64(v + 24, 0);
+        }
+        store64(v + 32, 0x3F8000003F800000);
+        store64(v + 40, 0x3F8000003F800000);
+        j = j + 1;
+    }
+    var mat = _sr_jidx(p, "material");
+    if (mat < 0) { mat = SR_MATERIAL_NONE; }
+    store64(m, vb);
+    store64(m + 8, n);
+    store64(m + 16, ix);
+    store64(m + 24, ni);
+    store64(m + 32, mat);
+    return 1;
+}
+
+# ── load_gltf_animations ─────────────────────────────────────────────────────────────
+
+# The f32 bits of a JSON number serde reads into an f32: an integer `as f32` (one rounding), a float's f64 narrowed.
+#must_use
+fn _sr_gl_f32(v): i64 {
+    if (_sr_jtag(v) == JTAG_INT) { return _sr_i64_to_f32(bayan_json_v_int(v)); }
+    var x: f64 = bayan_json_v_float(v);
+    return f32_from(x);
+}
+
+# √x for the f32 x (bits), correctly rounded (f32's sqrt, through f64).
+#must_use
+fn _sr_gl_sqrt32(x): i64 {
+    var w: f64 = f32_to(x & 0xFFFFFFFF);
+    return f32_from(f64_sqrt(w));
+}
+
+# Rust's f32::signum: NaN for NaN, else ±1 with x's sign (−0 gives −1).
+#must_use
+fn _sr_gl_signum32(x): i64 {
+    if (_sr_f32_is_nan(x) == 1) { return 0x7FC00000; }
+    return 0x3F800000 | (x & 0x80000000);
+}
+
+# a·a + b·b + c·c in f32, left to right, then its sqrt: gltf's Vector3::magnitude.
+#must_use
+fn _sr_gl_mag(x, y, z): i64 {
+    return _sr_gl_sqrt32(_sr_f32_add(_sr_f32_add(_sr_f32_mul(x, x), _sr_f32_mul(y, y)), _sr_f32_mul(z, z)));
+}
+
+# The node matrix m (16 f32, column-major) decomposed into the joint j's translation, rotation and scale in f32, as
+# gltf's `Transform::decomposed` does: scale = the columns' lengths (the third signed by the determinant), the columns
+# divided by them (times the f32 reciprocal), then `Quaternion::from_matrix`'s four trace branches.
+fn _sr_gl_decompose(m, j) {
+    store32(j + 72, load32(m + 48));
+    store32(j + 76, load32(m + 52));
+    store32(j + 80, load32(m + 56));
+    var xx = load32(m) & 0xFFFFFFFF;
+    var xy = load32(m + 4) & 0xFFFFFFFF;
+    var xz = load32(m + 8) & 0xFFFFFFFF;
+    var yx = load32(m + 16) & 0xFFFFFFFF;
+    var yy = load32(m + 20) & 0xFFFFFFFF;
+    var yz = load32(m + 24) & 0xFFFFFFFF;
+    var zx = load32(m + 32) & 0xFFFFFFFF;
+    var zy = load32(m + 36) & 0xFFFFFFFF;
+    var zz = load32(m + 40) & 0xFFFFFFFF;
+    var sx = _sr_gl_mag(xx, xy, xz);
+    var sy = _sr_gl_mag(yx, yy, yz);
+    var c1 = _sr_f32_sub(_sr_f32_mul(yy, zz), _sr_f32_mul(zy, yz));
+    var c2 = _sr_f32_sub(_sr_f32_mul(xy, zz), _sr_f32_mul(zy, xz));
+    var c3 = _sr_f32_sub(_sr_f32_mul(xy, yz), _sr_f32_mul(yy, xz));
+    var det = _sr_f32_add(_sr_f32_sub(_sr_f32_mul(xx, c1), _sr_f32_mul(yx, c2)), _sr_f32_mul(zx, c3));
+    var sz = _sr_f32_mul(_sr_gl_signum32(det), _sr_gl_mag(zx, zy, zz));
+    var one = 0x3F800000;
+    var half = 0x3F000000;
+    var rx = _sr_f32_div(one, sx);
+    var ry = _sr_f32_div(one, sy);
+    var rz = _sr_f32_div(one, sz);
+    xx = _sr_f32_mul(xx, rx);
+    xy = _sr_f32_mul(xy, rx);
+    xz = _sr_f32_mul(xz, rx);
+    yx = _sr_f32_mul(yx, ry);
+    yy = _sr_f32_mul(yy, ry);
+    yz = _sr_f32_mul(yz, ry);
+    zx = _sr_f32_mul(zx, rz);
+    zy = _sr_f32_mul(zy, rz);
+    zz = _sr_f32_mul(zz, rz);
+    var tr = _sr_f32_add(_sr_f32_add(xx, yy), zz);
+    var qx = 0;
+    var qy = 0;
+    var qz = 0;
+    var qw = 0;
+    var s = 0;
+    var s2 = 0;
+    if (_sr_f32_le(0, tr) == 1) {
+        s = _sr_gl_sqrt32(_sr_f32_add(one, tr));
+        qw = _sr_f32_mul(half, s);
+        s2 = _sr_f32_div(half, s);
+        qx = _sr_f32_mul(_sr_f32_sub(yz, zy), s2);
+        qy = _sr_f32_mul(_sr_f32_sub(zx, xz), s2);
+        qz = _sr_f32_mul(_sr_f32_sub(xy, yx), s2);
+    } elif (_sr_f32_lt(yy, xx) == 1 && _sr_f32_lt(zz, xx) == 1) {
+        s = _sr_gl_sqrt32(_sr_f32_add(_sr_f32_sub(_sr_f32_sub(xx, yy), zz), one));
+        qx = _sr_f32_mul(half, s);
+        s2 = _sr_f32_div(half, s);
+        qy = _sr_f32_mul(_sr_f32_add(yx, xy), s2);
+        qz = _sr_f32_mul(_sr_f32_add(xz, zx), s2);
+        qw = _sr_f32_mul(_sr_f32_sub(yz, zy), s2);
+    } elif (_sr_f32_lt(zz, yy) == 1) {
+        s = _sr_gl_sqrt32(_sr_f32_add(_sr_f32_sub(_sr_f32_sub(yy, xx), zz), one));
+        qy = _sr_f32_mul(half, s);
+        s2 = _sr_f32_div(half, s);
+        qz = _sr_f32_mul(_sr_f32_add(zy, yz), s2);
+        qx = _sr_f32_mul(_sr_f32_add(yx, xy), s2);
+        qw = _sr_f32_mul(_sr_f32_sub(zx, xz), s2);
+    } else {
+        s = _sr_gl_sqrt32(_sr_f32_add(_sr_f32_sub(_sr_f32_sub(zz, xx), yy), one));
+        qz = _sr_f32_mul(half, s);
+        s2 = _sr_f32_div(half, s);
+        qx = _sr_f32_mul(_sr_f32_add(xz, zx), s2);
+        qy = _sr_f32_mul(_sr_f32_add(zy, yz), s2);
+        qw = _sr_f32_mul(_sr_f32_sub(xy, yx), s2);
+    }
+    store32(j + 84, qx);
+    store32(j + 88, qy);
+    store32(j + 92, qz);
+    store32(j + 96, qw);
+    store32(j + 100, sx);
+    store32(j + 104, sy);
+    store32(j + 108, sz);
+    return j;
+}
+
+# Fills the f32 slots [p, p + 4·n) from the node's member key (a number array), or from the n f32 at dflt when the
+# member is absent or null.
+fn _sr_gl_node_f32s(nd, key, n, dflt, p) {
+    var v = _sr_jopt(nd, key);
+    var i = 0;
+    while (i < n) {
+        if (v == 0) {
+            store32(p + i * 4, load32(dflt + i * 4));
+        } else {
+            store32(p + i * 4, _sr_gl_f32(_sr_jat(v, i)));
+        }
+        i = i + 1;
+    }
+    return p;
+}
+
+# The joint j from node nd (its parent set by the caller): the inverse bind ib (16 f32), and the node's matrix
+# decomposed, or its translation, rotation and scale (defaults (0, 0, 0), (0, 0, 0, 1), (1, 1, 1)).
+fn _sr_gl_joint(nd, ib, j) {
+    _sr_copy_words(j + 8, ib, 64);
+    var mv = _sr_jopt(nd, "matrix");
+    if (mv != 0) {
+        var m[64];
+        _sr_gl_node_f32s(nd, "matrix", 16, 0, &m);
+        return _sr_gl_decompose(&m, j);
+    }
+    var d[16];
+    store64(&d, 0);
+    store64(&d + 8, 0x3F80000000000000);
+    _sr_gl_node_f32s(nd, "translation", 3, &d, j + 72);
+    _sr_gl_node_f32s(nd, "rotation", 4, &d, j + 84);
+    var one[16];
+    store64(&one, 0x3F8000003F800000);
+    store64(&one + 8, 0x3F8000003F800000);
+    _sr_gl_node_f32s(nd, "scale", 3, &one, j + 100);
+    return j;
+}
+
+# The skeletons and animation clips of the glTF in [bytes, bytes + len), into out (an SrGltfAnimations) from the
+# allocator a: 0, or SR_ERR_MODEL (sr_gltf_last_error() says why).
+# - Each skin is a skeleton: its joints' parents from the node hierarchy (only joints of the same skin count), their
+#   transforms from the nodes, their inverse binds from the skin's accessor (the identity past its end). More than
+#   SR_MAX_JOINTS joints are all loaded, with a WARN event.
+# - Each animation is a clip (named "unnamed" when it has no name) over the first skin's joints: a channel whose node is
+#   not one of them is skipped (DEBUG), as is a `weights` channel and one whose output can't be read. Its keyframes
+#   are sr_build_keyframes' pairing, CUBICSPLINE tangents kept (ADR 0002 #13); its duration the largest finite last
+#   input time.
+# Mirrors `load_gltf_animations`.
+fn sr_load_gltf_animations(bytes, len, a, out): i64 {
+    store64(out, 0);
+    store64(out + 8, 0);
+    store64(out + 16, 0);
+    store64(out + 24, 0);
+    if (_sr_gl_load(bytes, len) == 0) { return SR_ERR_MODEL; }
+    var nn = _sr_gl_n(SR_GL_C_NODES);
+    var ns = _sr_gl_n(SR_GL_C_SKINS);
+    var skels = alloc_via(a, ns * 16 + 8);
+    if (skels == 0) { _sr_gl_fail("out of memory"); return SR_ERR_MODEL; }
+    var ident = alloc_via(_sr_gl_arena, 64);
+    _sr_copy_words(ident, SR_IDENTITY_MAT4, 64);
+    var first = 0;
+    var s = 0;
+    while (s < ns) {
+        var sk = _sr_gl_item(SR_GL_C_SKINS, s);
+        var nib = 0;
+        var ibm = 0;
+        var bi = _sr_jidx(sk, "inverseBindMatrices");
+        if (bi >= 0) {
+            var r = _sr_gl_read(bi, 64);
+            if (r == 0 - 4) { _sr_gl_fail("the inverse binds' byteStride is below 64"); return SR_ERR_MODEL; }
+            if (r == 1) {
+                nib = _sr_gl_rn;
+                ibm = _sr_gl_rd;
+            }
+        }
+        var js = _sr_jg(sk, "joints");
+        var nj = _sr_jlen(js);
+        if (nj > SR_MAX_JOINTS) {
+            _sr_warn("soorat::animation: glTF skin exceeds MAX_JOINTS — extra joints will not be posed");
+        }
+        var jon = alloc_via(_sr_gl_arena, nn * 8 + 8);
+        var par = alloc_via(_sr_gl_arena, nj * 8 + 8);
+        var joints = alloc_via(a, nj * 112 + 8);
+        if (jon == 0 || par == 0 || joints == 0) { _sr_gl_fail("out of memory"); return SR_ERR_MODEL; }
+        var q = 0;
+        while (q < nn) {
+            store64(jon + q * 8, 0 - 1);
+            q = q + 1;
+        }
+        q = 0;
+        while (q < nj) {
+            store64(jon + (bayan_json_v_int(_sr_jat(js, q)) & 0xFFFFFFFF) * 8, q);
+            store64(par + q * 8, 0 - 1);
+            q = q + 1;
+        }
+        q = 0;
+        while (q < nj) {
+            var ch = _sr_jopt(_sr_gl_item(SR_GL_C_NODES, bayan_json_v_int(_sr_jat(js, q)) & 0xFFFFFFFF), "children");
+            var c = 0;
+            while (ch != 0 && c < _sr_jlen(ch)) {
+                var cj = load64(jon + (bayan_json_v_int(_sr_jat(ch, c)) & 0xFFFFFFFF) * 8);
+                if (cj >= 0) { store64(par + cj * 8, q); }
+                c = c + 1;
+            }
+            q = q + 1;
+        }
+        q = 0;
+        while (q < nj) {
+            var jp = joints + q * 112;
+            var ib = ident;
+            if (q < nib) { ib = ibm + q * 64; }
+            _sr_gl_joint(_sr_gl_item(SR_GL_C_NODES, bayan_json_v_int(_sr_jat(js, q)) & 0xFFFFFFFF), ib, jp);
+            store64(jp, load64(par + q * 8));
+            q = q + 1;
+        }
+        store64(skels + s * 16, joints);
+        store64(skels + s * 16 + 8, nj);
+        if (first == 0) { first = jon; }
+        s = s + 1;
+    }
+    var nc = _sr_gl_n(SR_GL_C_ANIMATIONS);
+    var clips = alloc_via(a, nc * 40 + 8);
+    if (clips == 0) { _sr_gl_fail("out of memory"); return SR_ERR_MODEL; }
+    var ci = 0;
+    while (ci < nc) {
+        if (_sr_gl_clip(_sr_gl_item(SR_GL_C_ANIMATIONS, ci), first, nn, a, clips + ci * 40) == 0) {
+            return SR_ERR_MODEL;
+        }
+        ci = ci + 1;
+    }
+    store64(out, skels);
+    store64(out + 8, ns);
+    store64(out + 16, clips);
+    store64(out + 24, nc);
+    _sr_debug("soorat::animation: loaded gltf animations");
+    return 0;
+}
+
+# One animation of sr_load_gltf_animations into the clip cl from a (jon: the first skin's node → joint map, or 0): 1,
+# or 0 on an error (where Rust panics, or out of memory).
+fn _sr_gl_clip(an, jon, nn, a, cl): i64 {
+    var cs = _sr_jg(an, "channels");
+    var ss = _sr_jg(an, "samplers");
+    var chs = alloc_via(a, _sr_jlen(cs) * 40 + 8);
+    if (chs == 0) { return _sr_gl_fail("out of memory"); }
+    var nch = 0;
+    var dur = 0;
+    var k = 0;
+    while (k < _sr_jlen(cs)) {
+        var c = _sr_jat(cs, k);
+        k = k + 1;
+        var tg = _sr_jg(c, "target");
+        var node = bayan_json_v_int(_sr_jg(tg, "node")) & 0xFFFFFFFF;
+        if (node >= nn) { return _sr_gl_fail("a channel's target node is out of bounds"); }
+        var ji = 0 - 1;
+        if (jon != 0) { ji = load64(jon + node * 8); }
+        if (ji < 0) {
+            _sr_debug("soorat::animation: animation channel targets a non-joint node — skipped");
+            continue;
+        }
+        var path = _sr_jg(tg, "path");
+        var prop = 0 - 1;
+        if (_sr_jstr_is(path, "translation") == 1) { prop = SR_ANIMATION_PROPERTY_TRANSLATION; }
+        if (_sr_jstr_is(path, "rotation") == 1) { prop = SR_ANIMATION_PROPERTY_ROTATION; }
+        if (_sr_jstr_is(path, "scale") == 1) { prop = SR_ANIMATION_PROPERTY_SCALE; }
+        if (prop < 0) {
+            if (_sr_jstr_is(path, "weights") == 1) { continue; }
+            return _sr_gl_fail("a channel's target path is not translation, rotation, scale or weights");
+        }
+        var sm = _sr_jat(ss, bayan_json_v_int(_sr_jg(c, "sampler")) & 0xFFFFFFFF);
+        var r = _sr_gl_read(_sr_jidx(sm, "input"), 4);
+        if (r == 0 - 4) { return _sr_gl_fail("an input view's byteStride is below 4"); }
+        var nt = 0;
+        var times = 0;
+        if (r == 1) {
+            nt = _sr_gl_rn;
+            times = _sr_gl_rd;
+        }
+        var oa = _sr_jidx(sm, "output");
+        var oct = 5126;
+        var width = 3;
+        var osz = 12;
+        if (prop == SR_ANIMATION_PROPERTY_ROTATION) {
+            width = 4;
+            oct = _sr_gl_ctype(oa);
+            osz = 0;
+            if (oct == 5126) { osz = 16; }
+            if (oct == 5120 || oct == 5121) { osz = 4; }
+            if (oct == 5122 || oct == 5123) { osz = 8; }
+            if (osz == 0) { return _sr_gl_fail("a rotation output's componentType is u32"); }
+        }
+        r = _sr_gl_read(oa, osz);
+        if (r == 0 - 4) { return _sr_gl_fail("an output view's byteStride is below its element size"); }
+        if (r == 0) { continue; }
+        var nv = _sr_gl_rn;
+        var vals = alloc_via(a, nv * width * 4 + 8);
+        var tcopy = alloc_via(a, nt * 4 + 8);
+        if (vals == 0 || tcopy == 0) { return _sr_gl_fail("out of memory"); }
+        var e = 0;
+        while (e < nv) {
+            var w = 0;
+            while (w < width) {
+                store32(vals + (e * width + w) * 4, _sr_gl_norm(oct, _sr_gl_rd + e * osz, w));
+                w = w + 1;
+            }
+            e = e + 1;
+        }
+        e = 0;
+        while (e < nt) {
+            store32(tcopy + e * 4, load32(times + e * 4));
+            e = e + 1;
+        }
+        if (nt > 0) {
+            var last = load32(tcopy + (nt - 1) * 4) & 0xFFFFFFFF;
+            if ((last & 0x7F800000) != 0x7F800000) { dur = _sr_gl_max32(dur, last); }
+        }
+        var mode = SR_INTERPOLATION_LINEAR;
+        var ip = _sr_jopt(sm, "interpolation");
+        if (_sr_jstr_is(ip, "STEP") == 1) { mode = SR_INTERPOLATION_STEP; }
+        if (_sr_jstr_is(ip, "CUBICSPLINE") == 1) { mode = SR_INTERPOLATION_CUBICSPLINE; }
+        var cp = chs + nch * 40;
+        store64(cp, ji);
+        store64(cp + 8, prop);
+        if (sr_build_keyframes(cp, tcopy, nt, vals, nv, width, mode, a) == 0) { return _sr_gl_fail("out of memory"); }
+        nch = nch + 1;
+    }
+    var nm = _sr_jopt(an, "name");
+    var np = "unnamed";
+    var nl = 7;
+    if (nm != 0) {
+        var st = bayan_json_v_str(nm);
+        nl = str_len(st);
+        np = alloc_via(a, nl + 1);
+        if (np == 0) { return _sr_gl_fail("out of memory"); }
+        var i = 0;
+        while (i < nl) {
+            store8(np + i, load8(str_data(st) + i));
+            i = i + 1;
+        }
+        store8(np + nl, 0);
+    }
+    store64(cl, np);
+    store64(cl + 8, nl);
+    store64(cl + 16, dur);
+    store64(cl + 24, chs);
+    store64(cl + 32, nch);
+    return 1;
+}

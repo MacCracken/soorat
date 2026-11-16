@@ -116,6 +116,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   f32 trigonometry within 1 ulp. Its f64 reference now uses its own correctly rounded `sin` and `acos` (80-digit
   decimal arithmetic) rather than glibc's.
 
+- **M3 part c: the glTF loader**, the opt-in `gltf` profile (`src/gltf.cyr`, `dist/soorat-gltf.cyr`; ADR 0002 #25). M3
+  is complete.
+  - `sr_load_gltf_meshes` and `sr_load_gltf_animations` load GLB and JSON-text glTF on bayan's tree into the caller's
+    allocator. They decode through an arena reset per call, so the global heap does not grow across loads.
+  - Every verdict is gltf-json 1.4.1's, its schema transcribed field by field. That includes serde's `null` and
+    default rules, indices taken `as u32`, every enum, and the accessor, primitive, camera, texture and root hooks.
+  - The reader follows gltf's: views and strides, sparse accessors (gltf's merge), normalized integers, and a matrix
+    joint decomposed in f32. CUBICSPLINE keys keep their tangents.
+  - 292 golden rows over 146 fixtures (`tests/golden/gltf/`): 266 identical, 1 correctly rounded, 25 named under
+    ADR 0002 #14 (where Rust panics, or bayan's verdict differs from serde_json's).
+  - `scripts/oracle/validate.py` re-derives all 117 accepted documents from the fixture bytes.
+  - All 5 `gltf_loader.rs` tests and `animation.rs`'s 2 loader tests ported (`tests/gltf.tcyr`, `tests/animation.tcyr`),
+    with tests for each ADR #14 input. `gltf/*` load-time benches (`tests/gltf.bcyr`).
+  - `Model` and `load_model` moved to M6 (GPU). bayan's differences are noted on its open issues, and its nesting cap
+    is filed (ledger L23).
+  - The profile costs a binary ~479 KB (bayan's tables 372 KB): opt-in, as serde is.
+
 ### Performance (M3)
 - sphere: each column's `cos θ` and `sin θ` computed once, not once per ring (the same values).
   `primitives/sphere_32x16` 68.1 → 24.8 µs (−64 %). Every golden row is unchanged.

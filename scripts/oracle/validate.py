@@ -1777,6 +1777,352 @@ def check_anim(plat):
     return bad, erows, gains
 
 
+# ── gltf (M3 part c): the accepted documents re-derived from the fixture bytes ──────────────────────────────
+
+def f32_div(a, b):
+    if b == 0.0:
+        if a == 0.0 or math.isnan(a):
+            return math.nan
+        return math.copysign(math.inf, a) * math.copysign(1.0, b)
+    return r32(a / b)
+
+
+def f32_sqrt(x):
+    return math.nan if math.isnan(x) or x < 0 else r32(math.sqrt(x))
+
+
+def f32_max(a, b):
+    if math.isnan(a):
+        return b
+    if math.isnan(b):
+        return a
+    return b if a < b else a
+
+
+class Glb:
+    """A fixture's JSON document (Python's json: decimals correctly rounded to f64) and BIN chunk."""
+
+    def __init__(self, data):
+        self.bin = b""
+        text = data
+        if data[:4] == b"glTF":
+            jl = struct.unpack_from("<I", data, 12)[0]
+            text = data[20:20 + jl]
+            rest = data[20 + jl:]
+            if len(rest) >= 8:
+                bl = struct.unpack_from("<I", rest, 0)[0]
+                self.bin = rest[8:8 + bl]
+        self.doc = _json.loads(text.decode("utf-8").rstrip("\x00 \t\r\n"))
+
+    def coll(self, key):
+        v = self.doc.get(key)
+        return v if isinstance(v, list) else []
+
+    def view_slice(self, vi):
+        v = self.coll("bufferViews")[vi]
+        b = self.coll("buffers")[v["buffer"] & 0xFFFFFFFF]
+        data = self.bin if b.get("uri") is None else b""
+        off = v.get("byteOffset") or 0
+        ln = v["byteLength"]
+        if off > len(data) or ln > len(data) - off:
+            return None
+        return data[off:off + ln]
+
+    def items(self, vi, start, count, esize):
+        sl = self.view_slice(vi)
+        if sl is None or count <= 0:
+            return None
+        stride = self.coll("bufferViews")[vi].get("byteStride") or esize
+        span = stride * (count - 1) + esize
+        if start > len(sl) or span > len(sl) - start:
+            return None
+        if stride < esize:
+            raise RuntimeError("stride below the element size")
+        return [sl[start + k * stride:start + k * stride + esize] for k in range(count)]
+
+    def read(self, ai, esize):
+        a = self.coll("accessors")[ai]
+        count, bv, off, sp = a["count"], a.get("bufferView"), a.get("byteOffset") or 0, a.get("sparse")
+        if sp is None:
+            return None if bv is None else self.items(bv & 0xFFFFFFFF, off, count, esize)
+        base = self.items(bv & 0xFFFFFFFF, off, count, esize) if bv is not None else [bytes(esize)] * count
+        if base is None:
+            return None
+        si, sv, sc = sp["indices"], sp["values"], sp["count"]
+        isz = {5121: 1, 5123: 2, 5125: 4}[si["componentType"] & 0xFFFFFFFF]
+        ix = self.items(si["bufferView"] & 0xFFFFFFFF, si.get("byteOffset") or 0, sc, isz)
+        vals = self.items(sv["bufferView"] & 0xFFFFFFFF, sv.get("byteOffset") or 0, sc, esize)
+        if ix is None or vals is None:
+            return None
+        nxt = 0
+        out = list(base)
+        for c in range(count):
+            if nxt < sc and int.from_bytes(ix[nxt], "little") == c:
+                out[c] = vals[nxt]
+                nxt += 1
+        return out
+
+
+R255, R65535, R127, R32767 = (r32(1.0 / k) for k in (255.0, 65535.0, 127.0, 32767.0))
+
+
+def gl_norm(ct, item, c):
+    if ct == 5126:
+        return struct.unpack_from("<f", item, 4 * c)[0]
+    if ct == 5121:
+        return r32(item[c] * R255)
+    if ct == 5123:
+        return r32(struct.unpack_from("<H", item, 2 * c)[0] * R65535)
+    if ct == 5120:
+        return f32_max(r32(struct.unpack_from("<b", item, c)[0] * R127), -1.0)
+    return f32_max(r32(struct.unpack_from("<h", item, 2 * c)[0] * R32767), -1.0)
+
+
+def gl_semantic(k):
+    for pre, kind in (("COLOR_", 4), ("TEXCOORD_", 5), ("JOINTS_", 6), ("WEIGHTS_", 7)):
+        if k.startswith(pre):
+            d = k[len(pre):]
+            d = d[1:] if d.startswith("+") else d
+            return (kind, int(d)) if d.isdigit() and int(d) < 2 ** 32 else (0, 0)
+    return ({"POSITION": 1, "NORMAL": 2, "TANGENT": 3}.get(k, 0), 0)
+
+
+def gl_attr(at, kind, sset=0):
+    found = None
+    for k, v in at.items():
+        if gl_semantic(k) == (kind, sset):
+            found = v & 0xFFFFFFFF
+    return found
+
+
+def gltf_meshes_ref(g):
+    images = []
+    for im in g.coll("images"):
+        if im.get("bufferView") is not None:
+            sl = g.view_slice(im["bufferView"] & 0xFFFFFFFF)
+            images.append(list(sl) if sl is not None else [])
+        else:
+            images.append([])
+    meshes = []
+    for mesh in g.coll("meshes"):
+        for p in mesh["primitives"]:
+            if (p.get("mode", 4) & 0xFFFFFFFF) != 4:
+                continue
+            at = p["attributes"]
+            pos = g.read(gl_attr(at, 1), 12)
+            if not pos:
+                continue
+            n = len(pos)
+            ix = None
+            if p.get("indices") is not None:
+                ii = p["indices"] & 0xFFFFFFFF
+                isz = {5121: 1, 5123: 2, 5125: 4}[g.coll("accessors")[ii]["componentType"]]
+                r = g.read(ii, isz)
+                if r is not None:
+                    ix = [int.from_bytes(x, "little") for x in r]
+            if ix is None:
+                ix = list(range(n))
+            if any(i >= n for i in ix):
+                continue
+            na = gl_attr(at, 2)
+            nrm = g.read(na, 12) if na is not None else None
+            ua = gl_attr(at, 5, 0)
+            uv, uct = None, 0
+            if ua is not None:
+                uct = g.coll("accessors")[ua]["componentType"]
+                uv = g.read(ua, {5126: 8, 5121: 2, 5123: 4}[uct])
+            vs = []
+            for j in range(n):
+                vs += list(struct.unpack("<3f", pos[j]))
+                vs += list(struct.unpack("<3f", nrm[j])) if nrm and j < len(nrm) else [0.0, 1.0, 0.0]
+                vs += [gl_norm(uct, uv[j], 0), gl_norm(uct, uv[j], 1)] if uv and j < len(uv) else [0.0, 0.0]
+                vs += [1.0, 1.0, 1.0, 1.0]
+            mat = p.get("material")
+            meshes.append((vs, ix, None if mat is None else mat & 0xFFFFFFFF))
+    return meshes, images
+
+
+def gl_f32(v):
+    return r32(float(v))
+
+
+def gl_decompose(m):
+    t = m[12:15]
+    xx, xy, xz, yx, yy, yz, zx, zy, zz = m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]
+
+    def mag(a, b, c):
+        return f32_sqrt(r32(r32(r32(a * a) + r32(b * b)) + r32(c * c)))
+    sx, sy = mag(xx, xy, xz), mag(yx, yy, yz)
+    c1 = r32(r32(yy * zz) - r32(zy * yz))
+    c2 = r32(r32(xy * zz) - r32(zy * xz))
+    c3 = r32(r32(xy * yz) - r32(yy * xz))
+    det = r32(r32(r32(xx * c1) - r32(yx * c2)) + r32(zx * c3))
+    sg = math.nan if math.isnan(det) else math.copysign(1.0, det)
+    sz = r32(sg * mag(zx, zy, zz))
+    rx, ry, rz = f32_div(1.0, sx), f32_div(1.0, sy), f32_div(1.0, sz)
+
+    def mul(a, b):
+        return math.nan if (a == 0 and math.isinf(b)) or (b == 0 and math.isinf(a)) else r32(a * b)
+    xx, xy, xz = mul(xx, rx), mul(xy, rx), mul(xz, rx)
+    yx, yy, yz = mul(yx, ry), mul(yy, ry), mul(yz, ry)
+    zx, zy, zz = mul(zx, rz), mul(zy, rz), mul(zz, rz)
+    tr = r32(r32(xx + yy) + zz)
+    if tr >= 0:
+        s = f32_sqrt(r32(1.0 + tr))
+        w, s2 = r32(0.5 * s), f32_div(0.5, s)
+        x, y, z = r32(r32(yz - zy) * s2), r32(r32(zx - xz) * s2), r32(r32(xy - yx) * s2)
+    elif xx > yy and xx > zz:
+        s = f32_sqrt(r32(r32(r32(xx - yy) - zz) + 1.0))
+        x, s2 = r32(0.5 * s), f32_div(0.5, s)
+        y, z, w = r32(r32(yx + xy) * s2), r32(r32(xz + zx) * s2), r32(r32(yz - zy) * s2)
+    elif yy > zz:
+        s = f32_sqrt(r32(r32(r32(yy - xx) - zz) + 1.0))
+        y, s2 = r32(0.5 * s), f32_div(0.5, s)
+        z, x, w = r32(r32(zy + yz) * s2), r32(r32(yx + xy) * s2), r32(r32(zx - xz) * s2)
+    else:
+        s = f32_sqrt(r32(r32(r32(zz - xx) - yy) + 1.0))
+        z, s2 = r32(0.5 * s), f32_div(0.5, s)
+        x, y, w = r32(r32(xz + zx) * s2), r32(r32(zy + yz) * s2), r32(r32(xy - yx) * s2)
+    return list(t), [x, y, z, w], [sx, sy, sz]
+
+
+def gltf_anims_ref(g):
+    nodes = g.coll("nodes")
+    ident = [1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 1.0]
+    skels, first = [], None
+    for sk in g.coll("skins"):
+        ibm = []
+        if sk.get("inverseBindMatrices") is not None:
+            r = g.read(sk["inverseBindMatrices"] & 0xFFFFFFFF, 64)
+            ibm = [list(struct.unpack("<16f", x)) for x in r] if r else []
+        js = [j & 0xFFFFFFFF for j in sk["joints"]]
+        jon = {}
+        for q, nd in enumerate(js):
+            jon[nd] = q
+        par = [-1] * len(js)
+        for q, nd in enumerate(js):
+            for c in nodes[nd].get("children") or []:
+                if (c & 0xFFFFFFFF) in jon:
+                    par[jon[c & 0xFFFFFFFF]] = q
+        joints = []
+        for q, nd in enumerate(js):
+            node = nodes[nd]
+            if node.get("matrix") is not None:
+                t, r, s_ = gl_decompose([gl_f32(v) for v in node["matrix"]])
+            else:
+                t = [gl_f32(v) for v in node.get("translation") or [0, 0, 0]]
+                r = [gl_f32(v) for v in node.get("rotation") or [0, 0, 0, 1]]
+                s_ = [gl_f32(v) for v in node.get("scale") or [1, 1, 1]]
+            joints.append((par[q], ibm[q] if q < len(ibm) else ident, t, r, s_))
+        skels.append(joints)
+        if first is None:
+            first = jon
+    clips = []
+    for an in g.coll("animations"):
+        chans, dur = [], 0.0
+        for c in an["channels"]:
+            node = c["target"]["node"] & 0xFFFFFFFF
+            ji = (first or {}).get(node)
+            if ji is None:
+                continue
+            prop = {"translation": 0, "rotation": 1, "scale": 2}.get(c["target"]["path"])
+            if prop is None:
+                continue
+            sm = an["samplers"][c["sampler"] & 0xFFFFFFFF]
+            ti = g.read(sm["input"] & 0xFFFFFFFF, 4)
+            times = [struct.unpack("<f", x)[0] for x in ti] if ti else []
+            oa = sm["output"] & 0xFFFFFFFF
+            oct_, width = (g.coll("accessors")[oa]["componentType"], 4) if prop == 1 else (5126, 3)
+            osz = {5126: 4 * width, 5120: 4, 5121: 4, 5122: 8, 5123: 8}[oct_]
+            ro = g.read(oa, osz)
+            if ro is None:
+                continue
+            vals = [[gl_norm(oct_, x, k) for k in range(width)] for x in ro]
+            if times and math.isfinite(times[-1]):
+                dur = f32_max(dur, times[-1])
+            mode = {"STEP": 1, "CUBICSPLINE": 2}.get(sm.get("interpolation"), 0)
+            chans.append((ji, prop, build_ref(mode, times, width, [v for x in vals for v in x])))
+        clips.append((an.get("name") or "unnamed", dur, chans))
+    return skels, clips
+
+
+def pct_decode(s):
+    out, i = bytearray(), 0
+    while i < len(s):
+        if s[i] == "%":
+            out.append(int(s[i + 1:i + 3], 16))
+            i += 3
+        else:
+            out += s[i].encode()
+            i += 1
+    return out.decode("utf-8")
+
+
+def check_gltf():
+    """Re-derives the accepted glTF documents; returns (rows that differ, the gltf.cr.tsv rows, {verdict: rows})."""
+    path = os.path.join(GOLDEN, "gltf.tsv")
+    if not os.path.exists(path):
+        return 0, [], {}
+    _, body = rows(path)
+    bad, cr, tally = 0, [], {}
+    for fn, _cls, ins, outs, note in body:
+        name = pct_decode(ins[2:])
+        verdict = "refused" if outs.startswith("E:") else ("panics" if outs.startswith("s:panic") else "re-derived")
+        tally[verdict] = tally.get(verdict, 0) + 1
+        if verdict != "re-derived":
+            continue
+        with open(os.path.join(GOLDEN, "gltf", name), "rb") as f:
+            g = Glb(f.read())
+        want = Rd(outs)
+        mine = []
+        try:
+            if fn == "load_gltf_meshes":
+                meshes, images = gltf_meshes_ref(g)
+                ok = want.i() == len(meshes)
+                for vs, ix, mat in meshes:
+                    got_v = want.gs()
+                    mine += vs
+                    ok = ok and same(got_v, vs) and [want.i() for _ in range(int(want.tok("v")))] == ix
+                    t = want.t[want.k]
+                    want.k += 1
+                    ok = ok and (t == "n:" if mat is None else t == f"i:{mat}")
+                ok = ok and want.i() == len(images)
+                for im in images:
+                    ok = ok and [want.i() for _ in range(int(want.tok("v")))] == im
+            else:
+                skels, clips = gltf_anims_ref(g)
+                ok = want.i() == len(skels)
+                for joints in skels:
+                    ok = ok and want.i() == len(joints)
+                    for par, ib, t, r, s_ in joints:
+                        ok = ok and want.i() == par
+                        for part in (ib, t, r, s_):
+                            mine += part
+                            got = want.gs()
+                            if not same(got, part):
+                                ok = ok and (name == "float_stress.glb" and len(got) == len(part))
+                ok = ok and want.i() == len(clips)
+                for cname, dur, chans in clips:
+                    ok = ok and pct_decode(want.tok("s")) == cname and same([want.g()], [dur]) and want.i() == len(chans)
+                    mine.append(dur)
+                    for ji, prop, keys in chans:
+                        ok = ok and want.i() == ji and want.i() == prop and want.i() == len(keys)
+                        for tm, val in keys:
+                            mine.append(tm)
+                            mine += val
+                            ok = ok and same([want.g()], [tm]) and same(want.gs(), val)
+        except (KeyError, IndexError, ValueError, TypeError, RuntimeError, AssertionError) as e:
+            ok = False
+            print(f"gltf: {fn} {name}: the re-derivation failed ({e!r})")
+        if not ok:
+            bad += 1
+            print(f"gltf: {fn} {note}: re-derived outputs differ from the corpus")
+        elif not same(mine, g_values(outs)):
+            cr.append(f"{fn}\t{ins}\t{g_tokens(outs, mine)}\t{note}: joint TRS decimals correctly rounded (bayan) where "
+                      "serde_json misrounds")
+    return bad, cr, tally
+
+
 def cube_ref():
     faces = [((0, 0, 1), [(-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]),
              ((0, 0, -1), [(1, -1, -1), (-1, -1, -1), (-1, 1, -1), (1, 1, -1)]),
@@ -1833,6 +2179,8 @@ def main():
         failures += gbad
         sides_e.append((gname + ".e.tsv", "class-E rows (ADR 0002 #4, D4 rule b): Rust's formula in f64, rounded once to "
                         "f32, where that differs from Rust's f32 outputs", gerows))
+    glbad, glcr, gltally = check_gltf()
+    failures += glbad
     abad, aerows, again = check_anim(plat)
     failures += abad
     sides_e.append(("animation.e.tsv", "class-E rows (ADR 0002 #4, D4 rule b): Rust's formula in f64, rounded once to "
@@ -1848,6 +2196,8 @@ def main():
          "cosf correctly rounded (glibc's f64 sin/cos, rounded once), where glibc's differ by 1 ulp", dcr),
         ("debug_collider.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's collider outlines with each "
          "angle's sinf and cosf correctly rounded, where glibc's differ by 1 ulp", ccr),
+        ("gltf.cr.tsv", "correctly rounded rows (ADR 0002 #14): Rust 1.2.0's glTF animations with each JSON decimal read "
+         "correctly rounded (the decimal's f64, narrowed), where serde_json misrounds", glcr),
     ]
     for name, what, side_rows in sides:
         side_path = os.path.join(GOLDEN, name)
@@ -1885,6 +2235,7 @@ def main():
 
     for fn, (n, d) in sorted(gains.items()):
         print(f"math {fn:<16} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
+    print("gltf: " + ", ".join(f"{v} {k}" for k, v in sorted(gltally.items())) + " (refusals and panics are the oracle's)")
     for fn, (n, d) in sorted(again.items()):
         print(f"animation {fn:<33} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
 

@@ -35,6 +35,7 @@
 # The library first: a file that declares an `enum` (src/error.cyr) must be included before any top-level statement.
 include "tests/lib.cyr"
 include "src/json.cyr"
+include "src/gltf.cyr"
 include "tests/layout_probe.cyr"
 include "tests/ulp.cyr"
 
@@ -1079,6 +1080,148 @@ fn _par_anim(fp, fl): i64 {
     return 0;
 }
 
+# ── gltf (src/gltf.cyr) ───────────────────────────────────────────────────────────────
+
+var _par_gl_arena = 0;
+var _par_gl_buf = 0;
+var _PAR_GL_MAX = 4194304;
+
+# Reads tests/golden/gltf/<the row's fixture> into _par_gl_buf: its length, or -1.
+fn _par_gl_fixture(): i64 {
+    var name = _par_in_cstr(0);
+    if (name == 0) { return 0 - 1; }
+    var pre = "tests/golden/gltf/";
+    var lp = strlen(pre);
+    var ln = strlen(name);
+    var path = alloc(lp + ln + 1);
+    memcpy(path, pre, lp);
+    memcpy(path + lp, name, ln);
+    store8(path + lp + ln, 0);
+    if (_par_gl_buf == 0) { _par_gl_buf = alloc(_PAR_GL_MAX); }
+    return file_read_all(path, _par_gl_buf, _PAR_GL_MAX);
+}
+
+# Appends the f32 array at p (n of them) as `v:n` and then n `g:`; the u32 array likewise as integers.
+fn _par_got_u32s(p, n) {
+    _par_got_seq(n);
+    var i = 0;
+    while (i < n) {
+        _par_got_i(load32(p + i * 4) & 0xFFFFFFFF);
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn _par_gltf(fp, fl): i64 {
+    if (_par_gl_arena == 0) { _par_gl_arena = arena_allocator_growable(1 << 20); }
+    reset_via(_par_gl_arena);
+    var a = _par_gl_arena;
+    var n = _par_gl_fixture();
+    if (n < 0) { return 0 - 1; }
+    var out = alloc_via(a, 32);
+    var i = 0;
+    var j = 0;
+    if (_par_eq(fp, fl, "load_gltf_meshes") == 1) {
+        var rc = sr_load_gltf_meshes(_par_gl_buf, n, a, out);
+        if (rc != 0) {
+            _par_got_err(rc);
+            return 1;
+        }
+        _par_got_i(load64(out + 8));
+        while (i < load64(out + 8)) {
+            var m = load64(out) + i * 40;
+            _par_got_g32s(load64(m), load64(m + 8) * 12);
+            _par_got_u32s(load64(m + 16), load64(m + 24));
+            if (load64(m + 32) == SR_MATERIAL_NONE) { _par_got_none(); } else { _par_got_i(load64(m + 32)); }
+            i = i + 1;
+        }
+        _par_got_i(load64(out + 24));
+        i = 0;
+        while (i < load64(out + 24)) {
+            var ip = load64(out + 16) + i * 16;
+            _par_got_seq(load64(ip + 8));
+            j = 0;
+            while (j < load64(ip + 8)) {
+                _par_got_i(load8(load64(ip) + j));
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+        return 1;
+    }
+    if (_par_eq(fp, fl, "load_gltf_animations") == 1) {
+        var rc2 = sr_load_gltf_animations(_par_gl_buf, n, a, out);
+        if (rc2 != 0) {
+            _par_got_err(rc2);
+            return 1;
+        }
+        _par_got_i(load64(out + 8));
+        while (i < load64(out + 8)) {
+            var sk = load64(out) + i * 16;
+            _par_got_i(load64(sk + 8));
+            j = 0;
+            while (j < load64(sk + 8)) {
+                var jp = load64(sk) + j * 112;
+                _par_got_i(load64(jp));
+                _par_got_g32s(jp + 8, 16);
+                _par_got_g32s(jp + 72, 3);
+                _par_got_g32s(jp + 84, 4);
+                _par_got_g32s(jp + 100, 3);
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+        _par_got_i(load64(out + 24));
+        i = 0;
+        while (i < load64(out + 24)) {
+            var cl = load64(out + 16) + i * 40;
+            _par_got_text(load64(cl), load64(cl + 8));
+            _par_got_g(load64(cl + 16));
+            _par_got_i(load64(cl + 32));
+            j = 0;
+            while (j < load64(cl + 32)) {
+                var ch = load64(cl + 24) + j * 40;
+                _par_got_i(load64(ch));
+                _par_got_i(load64(ch + 8));
+                _par_got_i(load64(ch + 24));
+                var k = 0;
+                while (k < load64(ch + 24)) {
+                    var kp = load64(ch + 16) + k * 40;
+                    _par_got_g(load32(kp));
+                    _par_got_g32s(load64(kp + 8), load64(kp + 16));
+                    k = k + 1;
+                }
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+# The fixtures ADR 0002 #14 names: where Rust 1.2.0 panics (no verdict to copy), where bayan refuses a document serde
+# reads (a duplicate key, an integer above i64::MAX, nesting deeper than 128), and where bayan reads one serde refuses
+# (a raw control byte or bytes that aren't UTF-8 in a string).
+#must_use
+fn _par_gltf_adr14(ip, il): i64 {
+    if (il < 2) { return 0; }
+    var p = ip + 2;
+    var l = il - 2;
+    if (_par_eq(p, l, "header_len_short.glb") == 1 || _par_eq(p, l, "position_stride4.glb") == 1) { return 1; }
+    if (_par_eq(p, l, "position_accessor_oob.glb") == 1 || _par_eq(p, l, "indices_float.glb") == 1) { return 1; }
+    if (_par_eq(p, l, "count_zero.glb") == 1 || _par_eq(p, l, "channel_bad_path.glb") == 1) { return 1; }
+    if (_par_eq(p, l, "schema_image_view_no_mime.glb") == 1 || _par_eq(p, l, "schema_image_neither.glb") == 1) {
+        return 1;
+    }
+    if (_par_eq(p, l, "anim_rot_u32.glb") == 1 || _par_eq(p, l, "anim_target_node_oob.glb") == 1) { return 1; }
+    if (_par_eq(p, l, "mesh_uv_i16.glb") == 1) { return 1; }
+    if (_par_eq(p, l, "dup_key_extras.glb") == 1 || _par_eq(p, l, "dup_key_unknown.glb") == 1) { return 1; }
+    if (_par_eq(p, l, "huge_int.glb") == 1 || _par_eq(p, l, "deep_nesting.glb") == 1) { return 1; }
+    if (_par_eq(p, l, "raw_control.glb") == 1 || _par_eq(p, l, "bad_utf8.glb") == 1) { return 1; }
+    return 0;
+}
+
 # ── hooks ────────────────────────────────────────────────────────────────────────────
 
 # The Rust variant name of an `SR_ERR_*` code (src/error.cyr), which a golden `E:<Variant>` token names.
@@ -1105,6 +1248,7 @@ fn _par_dispatch(mp, ml, fp, fl): i64 {
         return _par_geom(fp, fl);
     }
     if (_par_eq(mp, ml, "animation") == 1) { return _par_anim(fp, fl); }
+    if (_par_eq(mp, ml, "gltf") == 1) { return _par_gltf(fp, fl); }
     return 0;
 }
 
@@ -1124,6 +1268,9 @@ fn _par_c_bound(fp, fl): i64 {
 # The ADR accepting a divergent row, or 0. Class E and the correctly rounded rows come from their own files.
 #must_use
 fn _par_accepted(fp, fl, ip, il): i64 {
+    if (_par_eq(fp, fl, "load_gltf_meshes") == 1 || _par_eq(fp, fl, "load_gltf_animations") == 1) {
+        if (_par_gltf_adr14(ip, il) == 1) { return 14; }
+    }
     return 0;
 }
 

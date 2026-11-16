@@ -30,7 +30,8 @@ Decisions: [ADR 0001](../adr/0001-cyrius-port-with-rust-oracle.md),
 | M2 part b: text, ui, debug geometry | ✅ 2026-11-15: **M2 complete** |
 | M3 part a: primitives, viz, terrain | ✅ 2026-11-15 (below) |
 | M3 part b: animation (no loader), crmath | ✅ 2026-11-15 (below) |
-| M3 part c (GLB loader); M4–M10 | ☐ |
+| M3 part c: the glTF loader (`gltf` profile) | ✅ 2026-11-15: **M3 complete** |
+| M4–M10 | ☐ |
 
 **M1.** 13,793 golden rows over nine modules pass:
 - 1,149 class-E rows are bit-identical to Rust's formula in f64 rounded once;
@@ -61,11 +62,20 @@ includes soorat 20.2 KB of tables, and 36.6 KB once slerp is reached. CUBICSPLIN
 19 of 21 Rust tests are ported (2 need the loader); the 4 twins run 11.3–15.3× Rust. Measurements:
 `port-parity.md` §4.4–4.6.
 
+**M3 part c.** `src/gltf.cyr`, the opt-in `gltf` profile on bayan (ADR 0002 #25). It mirrors gltf-json 1.4.1's schema
+field by field. 292 golden rows over 146 fixtures:
+- 266 identical to Rust 1.2.0;
+- 1 correctly rounded (`float_stress`'s decimals);
+- 25 named under ADR #14: 11 inputs that panic Rust, and bayan's 6 differences from serde_json, filed as L23.
+
+`validate.py` re-derives every accepted document. All 63 M3 Rust tests and 81 items are ported. Loading `rich.glb` takes
+389 µs for both loaders, and the profile adds ~479 KB to a binary. Measurements: `port-parity.md` §4.8.
+
 **Optional features.**
-- `optics` (prakash), `physics-debug` (impetus) and `serde` (JSON on bayan) are opt-in profiles:
-  `dist/soorat-optics.cyr`, `dist/soorat-physics-debug.cyr` and `dist/soorat-serde.cyr`. The core bundle is
-  `dist/soorat.cyr`.
-- serde is opt-in because including bayan costs a binary ~372 KB.
+- `optics` (prakash), `physics-debug` (impetus), `serde` (JSON on bayan) and `gltf` (the glTF loader, on bayan) are
+  opt-in profiles: `dist/soorat-optics.cyr`, `dist/soorat-physics-debug.cyr`, `dist/soorat-serde.cyr` and
+  `dist/soorat-gltf.cyr`. The core bundle is `dist/soorat.cyr`.
+- serde and gltf are opt-in because including bayan costs a binary ~372 KB.
 - The repository's tests use them all, so resolve with `cyrius deps --locked --features optics,physics-debug`.
 
 **Step 2's repairs.** `cyrius port` overwrote CLAUDE.md, the roadmap and both workflows, pinned
@@ -137,9 +147,9 @@ kiran (rendering), salai (editor viewport), joshua (visualization): all still Ru
 
 ## Next
 
-**M3 part c**: the GLB loader (bayan, chitra; D6): `load_model`, `load_gltf_meshes` (which fill
-`SrMeshData.material_index`) and `load_gltf_animations` (with `sr_build_keyframes`), with every 1.1.0 rejection and
-`animation.rs`'s 2 loader tests.
+**M4 (lighting math and infrastructure)**: the shadow math (matrices, splits, atlas), environment's CPU half (f16,
+sRGB, downsample, mips), the PBR BRDF LUT, and the render graph, profiler and capabilities over mabda. Its twins are the
+`shadow/*` benches.
 
 **Performance items carried forward:** `mul_mat4` at about 120 ns (M4's shadow matrices call it); the correctly
 rounded sRGB `pow` at 200–285 ns a call (M4's face encoding calls it three times a texel). port-parity §2.2 has the

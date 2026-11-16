@@ -141,6 +141,33 @@ modules = [
     "src/json.cyr",
 ]
 
+# The glTF loader's bundle, dist/soorat-gltf.cyr: the library plus load_gltf_meshes / load_gltf_animations on bayan
+# (ADR 0002 #25). Opt-in for bayan's ~372 KB, as serde is; a consumer adds "bayan" to its stdlib leaves.
+[lib.gltf]
+modules = [
+    "src/error.cyr",
+    "src/log.cyr",
+    "src/mathx.cyr",
+    "src/crmath.cyr",
+    "src/tables_data.cyr",
+    "src/tables.cyr",
+    "src/math.cyr",
+    "src/layout.cyr",
+    "src/color.cyr",
+    "src/lights.cyr",
+    "src/lod.cyr",
+    "src/sprite.cyr",
+    "src/batch.cyr",
+    "src/text.cyr",
+    "src/ui.cyr",
+    "src/debug_geom.cyr",
+    "src/viz.cyr",
+    "src/primitives.cyr",
+    "src/terrain.cyr",
+    "src/animation.cyr",
+    "src/gltf.cyr",
+]
+
 # The `physics-debug` feature's bundle, dist/soorat-physics-debug.cyr: the library plus LineBatch::collider (impetus).
 [lib.physics-debug]
 modules = [

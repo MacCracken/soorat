@@ -25,6 +25,7 @@ mod m_color_optics;
 mod m_constants;
 mod m_debug;
 mod m_geom;
+mod m_gltf;
 mod m_json;
 mod m_layout;
 mod m_lights;
@@ -34,10 +35,12 @@ mod m_sprite;
 mod m_tables;
 mod m_text;
 
-/// One module's rows, written as `tests/golden/<name>.tsv`.
+/// One module's rows, written as `tests/golden/<name>.tsv`, and any input files its rows name, written as
+/// `tests/golden/<name>/<file>` (the glTF fixtures).
 pub struct Module {
     pub name: &'static str,
     pub rows: Vec<String>,
+    pub files: Vec<(String, Vec<u8>)>,
 }
 
 impl Module {
@@ -45,6 +48,7 @@ impl Module {
         Self {
             name,
             rows: Vec::new(),
+            files: Vec::new(),
         }
     }
     /// Adds a row: `fn <TAB> class <TAB> inputs <TAB> outputs <TAB> note`.
@@ -224,6 +228,7 @@ fn main() {
         m_geom::viz(),
         m_geom::terrain(),
         m_anim::module(),
+        m_gltf::module(),
         m_json::module(),
     ];
 
@@ -259,6 +264,21 @@ fn main() {
             }
         } else {
             std::fs::write(&path, &text).expect("write module");
+        }
+        if !m.files.is_empty() {
+            let dir = root.join(m.name);
+            std::fs::create_dir_all(&dir).expect("fixture dir");
+            for (name, bytes) in &m.files {
+                let fp = dir.join(name);
+                if check {
+                    if std::fs::read(&fp).ok().as_deref() != Some(bytes.as_slice()) {
+                        eprintln!("{}: differs from the oracle", fp.display());
+                        bad += 1;
+                    }
+                } else {
+                    std::fs::write(&fp, bytes).expect("write fixture");
+                }
+            }
         }
         println!("{:<10} {:>6} rows", m.name, m.rows.len());
     }

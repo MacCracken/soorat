@@ -1,0 +1,51 @@
+# gltf.bcyr — the glTF loader's load time (M3 part c). Rust 1.2.0 has no glTF bench, so these are extras: both loaders
+# on rich.glb (a 4.8 KB JSON chunk: every feature soorat reads) and on float_stress.glb (125 KB: 400 joints, 4,000
+# decimals), each into a frame arena reset per iteration.
+
+include "tests/lib.cyr"
+include "src/gltf.cyr"
+
+var _sink = 0;
+
+# Reads tests/golden/gltf/<name> into buf: its length.
+fn fixture(name, buf, max): i64 {
+    var pre = "tests/golden/gltf/";
+    var lp = strlen(pre);
+    var ln = strlen(name);
+    var path = alloc(lp + ln + 1);
+    memcpy(path, pre, lp);
+    memcpy(path + lp, name, ln);
+    store8(path + lp + ln, 0);
+    return file_read_all(path, buf, max);
+}
+
+# Times n loads of both loaders on [buf, buf + len) as the bench b.
+fn bench_load(b, buf, len, a, out, n): i64 {
+    bench_batch_start(b);
+    var i = 0;
+    while (i < n) {
+        reset_via(a);
+        _sink = sr_load_gltf_meshes(buf, len, a, out);
+        _sink = _sink + sr_load_gltf_animations(buf, len, a, out);
+        i = i + 1;
+    }
+    bench_batch_stop(b, n);
+    bench_report(b);
+    return 0;
+}
+
+# Runs the glTF benches.
+fn main(): i64 {
+    alloc_init();
+    var a = arena_allocator_growable(1 << 20);
+    var out = alloc(32);
+    var buf = alloc(262144);
+    var n = fixture("rich.glb", buf, 262144);
+    bench_load(bench_new("gltf/load_rich"), buf, n, a, out, 2000);
+    n = fixture("float_stress.glb", buf, 262144);
+    bench_load(bench_new("gltf/load_float_stress"), buf, n, a, out, 50);
+    return 0;
+}
+
+var r = main();
+sys_exit_group(r);

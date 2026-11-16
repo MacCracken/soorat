@@ -15,4 +15,5 @@ primitives
 viz
 terrain
 animation
+gltf
 json

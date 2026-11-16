@@ -115,6 +115,9 @@ SPLITS = {
     # terrain: the CPU mesh (generate_terrain, flat_heightmap, TerrainConfig, TerrainData) is M3;
     # create_terrain_mesh uploads it with mabda (M6).
     "terrain": {"create_terrain_mesh": "M6"},
+    # gltf_loader: the CPU loaders (load_gltf_meshes, MeshData) are M3; Model and load_model own GPU meshes and textures
+    # (mabda), M6.
+    "gltf_loader": {"Model": "M6", "load_model": "M6"},
 }
 # Every `#[repr(C)]` struct and its fields: §3.1's M1 row ("the 15 `#[repr(C)]` types", src/layout.cyr, probe P1).
 # Its methods and trait impls stay with its module.

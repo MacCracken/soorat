@@ -1,0 +1,175 @@
+# gltf.tcyr — the ported tests of Rust 1.2.0's src/gltf_loader.rs (M3 part c), all 5, then the Cyrius-only tests of
+# src/gltf.cyr: ADR 0002 #14's inputs (where Rust panics or bayan refuses), the CUBICSPLINE tangents the loader keeps
+# (#13), images, materials and memory. The fixtures are the golden corpus's (tests/golden/gltf/, written by the
+# oracle from soorat 1.2.0's own test builders); tests/parity.tcyr replays their rows.
+
+include "tests/lib.cyr"
+include "src/gltf.cyr"
+include "tests/support.cyr"
+
+var A = 0;
+var BUF = 0;
+var BUF_MAX = 4194304;
+
+# Reads tests/golden/gltf/<name> into BUF: its length.
+fn fixture(name): i64 {
+    var pre = "tests/golden/gltf/";
+    var lp = strlen(pre);
+    var ln = strlen(name);
+    var path = alloc(lp + ln + 1);
+    memcpy(path, pre, lp);
+    memcpy(path + lp, name, ln);
+    store8(path + lp + ln, 0);
+    return file_read_all(path, BUF, BUF_MAX);
+}
+
+# sr_load_gltf_meshes on the fixture name, into out: its result.
+fn meshes(name, out): i64 {
+    reset_via(A);
+    return sr_load_gltf_meshes(BUF, fixture(name), A, out);
+}
+
+# sr_load_gltf_animations on the fixture name, into out: its result.
+fn anims(name, out): i64 {
+    reset_via(A);
+    return sr_load_gltf_animations(BUF, fixture(name), A, out);
+}
+
+# Runs the ported and Cyrius-only glTF tests.
+fn main() {
+    alloc_init();
+    A = arena_allocator_growable(1 << 20);
+    BUF = alloc(BUF_MAX);
+    var out = alloc(32);
+    var one = 0x3F800000;
+
+    test_group("load_meshes_skips_malformed_primitives");
+    assert_eq(meshes("mesh_edge_cases.glb", out), 0, "parses");
+    assert_eq(load64(out + 8), 1, "only the valid triangle list survives");
+    var m = load64(out);
+    assert_eq(load64(m + 8), 3, "3 vertices");
+    var ix = load64(m + 16);
+    assert(load64(m + 24) == 3 && load32(ix) == 0 && load32(ix + 4) == 2 && load32(ix + 8) == 1, "indices 0, 2, 1");
+    var v1 = load64(m) + 48;
+    assert(load32(v1 + 12) == 0 && load32(v1 + 16) == one && load32(v1 + 20) == 0, "missing normal: (0, 1, 0)");
+    assert(load32(v1) == one && load32(v1 + 4) == 0 && load32(v1 + 8) == 0, "position (1, 0, 0)");
+    assert(load64(out + 24) == 1 && load64(load64(out + 16) + 8) == 0, "an out-of-bounds image view: empty");
+
+    test_group("load_meshes_truncated_input_is_error");
+    var full = fixture("mesh_edge_cases.glb");
+    var cuts = alloc(48);
+    store64(cuts, 0);
+    store64(cuts + 8, 4);
+    store64(cuts + 16, 12);
+    store64(cuts + 24, 20);
+    store64(cuts + 32, full / 2);
+    var c = 0;
+    var all_err = 1;
+    while (c < 5) {
+        reset_via(A);
+        fixture("mesh_edge_cases.glb");
+        if (sr_load_gltf_meshes(BUF, load64(cuts + c * 8), A, out) != SR_ERR_MODEL) { all_err = 0; }
+        c = c + 1;
+    }
+    assert(all_err == 1, "cut at 0, 4, 12, 20 and half: errors");
+
+    test_group("mesh_data_types");
+    var md = alloc(sizeof(SrMeshData));
+    var vtx = alloc(48);
+    t_set4(vtx, 0, 0, 0, 0);
+    t_set4(vtx + 16, one, 0, 0, 0);
+    t_set4(vtx + 32, one, one, one, one);
+    var idx = alloc(4);
+    store32(idx, 0);
+    store64(md, vtx);
+    store64(md + 8, 1);
+    store64(md + 16, idx);
+    store64(md + 24, 1);
+    store64(md + 32, SR_MATERIAL_NONE);
+    assert(load64(md + 8) == 1 && load64(md + 24) == 1 && load64(md + 32) == SR_MATERIAL_NONE, "one vertex, one index");
+
+    test_group("load_invalid_gltf_returns_error");
+    reset_via(A);
+    assert_eq(sr_load_gltf_meshes("not a gltf file", 15, A, out), SR_ERR_MODEL, "not glTF");
+
+    test_group("load_empty_gltf_returns_model_error");
+    reset_via(A);
+    assert_eq(sr_load_gltf_meshes("", 0, A, out), SR_ERR_MODEL, "empty");
+    assert(sr_gltf_last_error() != 0, "a reason");
+
+    # ── Cyrius-only ──
+
+    test_group("adr14_rust_panics_are_errors");
+    assert_eq(meshes("position_stride4.glb", out), SR_ERR_MODEL, "POSITION stride below 12");
+    assert_eq(meshes("position_accessor_oob.glb", out), SR_ERR_MODEL, "POSITION accessor out of range");
+    assert_eq(meshes("indices_float.glb", out), SR_ERR_MODEL, "a float index type");
+    assert_eq(meshes("header_len_short.glb", out), SR_ERR_MODEL, "a header length below 12");
+    assert_eq(meshes("mesh_uv_i16.glb", out), SR_ERR_MODEL, "an i16 UV");
+    assert_eq(meshes("schema_image_view_no_mime.glb", out), SR_ERR_MODEL, "an image view without a MIME type");
+    assert_eq(meshes("schema_image_neither.glb", out), SR_ERR_MODEL, "an image with neither view nor URI");
+    assert_eq(anims("channel_bad_path.glb", out), SR_ERR_MODEL, "an unknown path on a joint");
+    assert_eq(anims("anim_target_node_oob.glb", out), SR_ERR_MODEL, "a channel's node out of range");
+    assert_eq(anims("anim_rot_u32.glb", out), SR_ERR_MODEL, "a u32 rotation");
+    assert_eq(meshes("anim_target_node_oob.glb", out), 0, "but its meshes load (Rust's do too)");
+
+    test_group("adr14_count_zero_skips_the_primitive");
+    assert_eq(meshes("count_zero.glb", out), 0, "loads");
+    assert_eq(load64(out + 8), 0, "the count-0 primitive is skipped");
+
+    test_group("adr14_bayan_refusals");
+    assert_eq(meshes("dup_key_extras.glb", out), SR_ERR_MODEL, "a duplicate key");
+    assert_eq(meshes("huge_int.glb", out), SR_ERR_MODEL, "an integer above i64::MAX");
+    assert_eq(meshes("deep_nesting.glb", out), SR_ERR_MODEL, "nesting deeper than 128");
+    assert_eq(meshes("nesting_100.glb", out), 0, "nesting 100 deep is fine");
+
+    test_group("cubicspline_keeps_its_tangents");
+    assert_eq(anims("skinned_animation.glb", out), 0, "loads");
+    var clip = load64(out + 16);
+    var tr = load64(clip + 24) + 40;
+    assert_eq(load64(tr + 32), SR_INTERPOLATION_CUBICSPLINE, "the channel is CUBICSPLINE");
+    var k0 = load64(tr + 16);
+    assert(load64(k0 + 24) != 0 && load64(k0 + 32) != 0, "in and out tangents kept");
+    assert(load32(load64(k0 + 24)) == 0x41100000 && load32(load64(k0 + 32)) == 0x41100000, "(9, 9, 9) both");
+    assert_eq(load64(load64(clip + 24) + 32), SR_INTERPOLATION_STEP, "the rotation channel is STEP");
+
+    test_group("materials_and_images");
+    assert_eq(meshes("rich.glb", out), 0, "rich.glb loads");
+    assert_eq(load64(load64(out) + 32), 0, "its first primitive's material is 0");
+    assert_eq(load64(load64(out) + 40 + 32), SR_MATERIAL_NONE, "its second has none");
+    var im = load64(out + 16);
+    assert(load64(out + 24) == 2 && load64(im + 8) == 8 && load8(load64(im) + 1) == 80, "the embedded image's 8 bytes");
+    assert_eq(load64(im + 24), 0, "a URI image is empty");
+    assert(sr_gltf_last_error() == 0, "no reason after a success");
+
+    test_group("sparse_and_matrix_joints");
+    assert_eq(meshes("sparse.glb", out), 0, "sparse.glb loads");
+    var sm = load64(out);
+    assert(load32(load64(sm) + 48) == 0x40A00000, "sparse value (5, 5, 5) at vertex 1");
+    assert_eq(anims("matrix_joints.glb", out), 0, "matrix_joints.glb loads");
+    var j1 = load64(load64(out)) + 112;
+    var sc = j1 + 100;
+    assert(load32(sc) == 0x40000000 && load32(sc + 4) == 0x40400000 && load32(sc + 8) == 0x40800000, "scale (2, 3, 4)");
+    var tt = j1 + 72;
+    assert(load32(tt) == one && load32(tt + 4) == 0x40000000 && load32(tt + 8) == 0x40400000, "translation (1, 2, 3)");
+
+    test_group("decode_arena_does_not_grow");
+    var rn = fixture("rich.glb");
+    reset_via(A);
+    sr_load_gltf_meshes(BUF, rn, A, out);
+    var used = alloc_used();
+    var r = 0;
+    while (r < 100) {
+        reset_via(A);
+        sr_load_gltf_meshes(BUF, rn, A, out);
+        reset_via(A);
+        sr_load_gltf_animations(BUF, rn, A, out);
+        r = r + 1;
+    }
+    assert_eq(alloc_used(), used, "100 loads: no global heap growth");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

@@ -50,7 +50,7 @@ soorat is being ported to Cyrius. Plan of record: `docs/development/soorat-port-
   `scripts/vendor_crmath.py`; never edit it). ganita's are up to 2 ulp off, which shows wherever a formula cancels.
 - **GPU access goes through mabda only.** No wgpu-native FFI in soorat.
 - **Optional dependencies are profiles** (M1): the code is a file outside `[lib]`, bundled by `[lib.<feature>]`
-  (`optics`: prakash; `serde`: bayan, whose tables cost every including binary ~372 KB; `physics-debug`:
+  (`optics`: prakash; `serde` and `gltf`: bayan, whose tables cost every including binary ~372 KB; `physics-debug`:
   impetus). Measure a new stdlib leaf's binary cost before making it a production dependency.
 
 ## Development Process

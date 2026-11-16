@@ -1,10 +1,11 @@
-# animation.tcyr — the ported tests of Rust 1.2.0's src/animation.rs (M3 part b): 19 of its 21
-# (`load_fixture_animations` and `load_invalid_gltf_animations` need the GLB loader, part c). Then the Cyrius-only
+# animation.tcyr — the ported tests of Rust 1.2.0's src/animation.rs, all 21 (M3 part b; its 2 loader tests with the
+# GLB loader, part c, through the `gltf` profile's src/gltf.cyr). Then the Cyrius-only
 # tests: CUBICSPLINE playback (ADR 0002 #13, class R against the glTF formula evaluated here independently), the exact
 # f32 fmod, the correctly rounded acos and sin (src/crmath.cyr), and the layouts. The golden rows
 # (tests/golden/animation.tsv, its .e.tsv) are replayed by tests/parity.tcyr.
 
 include "tests/lib.cyr"
+include "src/gltf.cyr"
 include "tests/support.cyr"
 
 var A = 0;
@@ -246,6 +247,40 @@ fn main() {
     var ck = load64(cch + 16);
     assert(load64(cch + 24) == 2, "2 keys");
     assert(load32(load64(ck + 8)) == one && load32(load64(ck + 48)) == 0x40400000, "values 1, 3");
+
+    test_group("load_fixture_animations");
+    var path = "tests/golden/gltf/skinned_animation.glb";
+    var gb = alloc(4096);
+    var gfl = file_read_all(path, gb, 4096);
+    var ga = alloc(32);
+    assert_eq(sr_load_gltf_animations(gb, gfl, A, ga), 0, "the fixture parses");
+    assert_eq(load64(ga + 8), 1, "one skeleton");
+    var gs = load64(ga);
+    var gj = load64(gs);
+    assert_eq(load64(gs + 8), 2, "two joints");
+    assert_eq(load64(gj), 1, "the child joint (node 1) is parented to node 0");
+    assert_eq(load64(gj + 112), 0 - 1, "node 0 is a root");
+    assert_eq(load64(ga + 24), 1, "one clip");
+    var gc = load64(ga + 16);
+    assert(load64(gc + 8) == 7 && memeq(load64(gc), "fixture", 7) == 1, "named fixture");
+    assert_eq(load32(gc + 16), one, "duration 1");
+    assert_eq(load64(gc + 32), 2, "the channel on the non-joint node 2 is skipped");
+    var rot = load64(gc + 24);
+    assert(load64(rot + 8) == SR_ANIMATION_PROPERTY_ROTATION && load64(rot) == 1, "rotation of joint 1");
+    assert_eq(load64(rot + 24), 3, "STEP encodes a duplicate-time key");
+    var trc = rot + 40;
+    assert(load64(trc + 8) == SR_ANIMATION_PROPERTY_TRANSLATION && load64(trc) == 0, "translation of joint 0");
+    var tk = load64(trc + 16);
+    assert(load32(load64(tk + 8)) == one && load32(load64(tk + 8) + 4) == 0, "key 0: (1, 0, 0)");
+    assert(load32(load64(tk + 48)) == 0x40000000, "key 1: (2, 0, 0)");
+    var gsk = skel(gj, 2);
+    SrAnimationClip_sample(gc, gsk, 0x3F000000);
+    assert(load32(gj + 112 + 84) == 0 && load32(gj + 112 + 96) == one, "STEP holds key 0");
+    assert(t_near(at(gj + 72, 0), x15, tol) == 1, "translation x 1.5 (the Hermite spline's, tangents equal)");
+    assert(SrSkeleton_compute_joint_matrices(gsk, out) == 2 && t_all_finite(out, 32) == 1, "finite joint matrices");
+
+    test_group("load_invalid_gltf_animations");
+    assert_eq(sr_load_gltf_animations("not gltf", 8, A, ga), SR_ERR_MODEL, "an error");
 
     test_group("joint_default");
     var dj = SrJoint_default(alloc_via(A, 112));

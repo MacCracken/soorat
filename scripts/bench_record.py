@@ -80,6 +80,9 @@ TWINS = {
 REASONS = {}
 # Cyrius benches that twin no Rust bench -> what they measure.
 EXTRA = {
+    # The glTF loader (M3 part c, the `gltf` profile) has no Rust bench.
+    "gltf/load_rich": "M3: both glTF loaders on rich.glb (4.8 KB of JSON, every feature read); no Rust bench",
+    "gltf/load_float_stress": "M3: both glTF loaders on float_stress.glb (125 KB of JSON, 400 joints); no Rust bench",
     "noop": "the scaffold's harness check: an empty call, i.e. loop and call overhead (tests/soorat.bcyr)",
     # math_util has no Rust bench; M4's shadow benches call it, so these give them a baseline (tests/math.bcyr).
     "math/mul_mat4": "M1: `mul_mat4` in f64, rounded once (D4 rule b); no Rust bench (`shadow/*` call it, M4)",

@@ -697,7 +697,7 @@ These run at setup, not per frame. The first full run of the three read slow aga
 - **A cache can be a parity-neutral speed-up** when it returns exactly the values it replaces: the circle's trig
   table changed no golden row.
 
-## 4. M3: geometry and animation (parts a and b, 2026-11-15)
+## 4. M3: geometry and animation (parts a–c, 2026-11-15; M3 complete)
 
 ### 4.1 Parity
 
@@ -838,3 +838,49 @@ Over the 65,537 points k/65536 of [0, 1], against glibc 2.44:
   identical.
 - **Static scratch counts against a compile's static data.** 17.6 KB of `var x[N]` buffers tipped `--bounds` into a
   "large static data" warning. One `alloc` on first use avoids it. The initialized MPFR tables did not count.
+
+### 4.8 Part c: the glTF loader
+
+**The corpus.** 146 fixtures, written by `scripts/oracle/src/m_gltf.rs` to `tests/golden/gltf/`, two rows each:
+- probe P9's 51 fixtures (`test_support`'s two among them);
+- 63 schema variants, each one substring of a document that uses every collection;
+- sparse accessors (with and without a base view, u8/u16/u32 indices, unsorted and repeated indices, values past the
+  buffer, a sparse animation output);
+- 15 matrix joints, one for each branch of `Quaternion::from_matrix`, a mirror, a zero column and a shear;
+- 21 animation and 3 mesh reader cases;
+- two strings bayan and serde judge differently.
+
+| Rows | Result |
+|---|---|
+| 266 | identical to Rust 1.2.0: 108 accepted documents (every vertex, index, image byte, joint, key and duration) and 158 refusals |
+| 1 | `float_stress` animations: identical once its 41 adversarial decimals read correctly rounded (`gltf.cr.tsv`), where serde_json misrounds |
+| 25 | named under ADR 0002 #14. Rust panics on 11 inputs (13 rows); bayan refuses 4 documents serde reads (8 rows); bayan reads 2 that serde refuses (4 rows) |
+
+- **The schema** is gltf-json 1.4.1's, transcribed field by field: required fields, `Option`s, and defaulted fields
+  (serde accepts `null` for the first kind of optional field and refuses it for the second).
+- **The details serde and gltf-json fix**, each a fixture row:
+  - an index is `value as u32`, so 4294967297 is index 1;
+  - `mode: 4294967300` is TRIANGLES;
+  - `extras` takes `[]` and `[null]` but not `[1]`;
+  - a `TEXCOORD_+0` key is set 0, and the last equal key wins;
+  - an orthographic `zfar: null` is refused, where a perspective one is not;
+  - a channel's target is not validated, so a bad node or path fails only the animations, which Rust panics on.
+- The first replay matched every row but `float_stress` (its 41 values, as P9 predicted).
+- `validate.py` re-derives the 117 accepted documents in Python from the fixture bytes, sharing no code with the port.
+  It covers the container, accessors, sparse merge, normalization, the f32 matrix decomposition and the keyframe
+  pairing. The 162 refusals and 13 panics are the oracle's verdicts.
+- **Memory.** The JSON tree lives on a decode arena reset per call. 100 loads of both loaders grow the global heap by
+  0 bytes (`tests/gltf.tcyr`).
+
+### 4.9 Part c speed and size (`taskset -c 10 cyrius bench`; two runs agreed)
+
+| Bench | Cyrius | Notes |
+|---|---|---|
+| `gltf/load_rich` | 389 µs | both loaders on rich.glb (a 4.8 KB JSON chunk), two parses: about 40 ns per JSON byte |
+| `gltf/load_float_stress` | 9.09 ms | both loaders on 125 KB of JSON (400 joints): about 36 ns per byte |
+
+- Rust has no glTF bench, so these are extras. The parse dominates. bayan's own measurement is 15–25 ns per byte (its
+  open issue of 2026-11-14); the schema walk and the readers add the rest.
+- **Size.** The `gltf` profile costs a binary ~479 KB: 121,984 → 600,760 bytes for a program calling both loaders.
+  372 KB of that is bayan's tables, which a binary carries as soon as it includes bayan; the rest is parser and loader
+  code. Rust's loader is unconditional; here it is opt-in, as serde is (ADR 0002 #25).
