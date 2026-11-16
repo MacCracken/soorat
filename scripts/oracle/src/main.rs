@@ -27,6 +27,7 @@ mod m_layout;
 mod m_lights;
 mod m_lod;
 mod m_math;
+mod m_sprite;
 mod m_tables;
 
 /// One module's rows, written as `tests/golden/<name>.tsv`.
@@ -211,6 +212,7 @@ fn main() {
         m_lights::module(),
         m_lod::module(),
         m_tables::module(),
+        m_sprite::module(),
         m_json::module(),
     ];
 

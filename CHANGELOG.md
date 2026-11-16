@@ -69,6 +69,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cyrius-only `SR_ERR_DESERIALIZE` (12). 5 Rust tests ported (`tests/color.tcyr`, `tests/color_optics.tcyr`);
     `json/*` and `color_optics/*` benches.
   - CI resolves `cyrius deps --locked --features optics` and checks all three bundles.
+- **M2 part a: sprites and batches** (`src/sprite.cyr`, `src/batch.cyr`; ADR 0002 #20).
+  - `UvRect`, `Sprite` (builders mutate in place), `SpriteBatch` (freelist-backed, stable `sort_by_z`).
+  - `batch_to_vertices` and its `_into` / `_u32` forms, quads straight into caller buffers or a frame arena.
+  - 638 golden rows pass. The u16 limit batches are FNV-1a digests, truncation included. On the one rotated batch
+    where glibc's `sinf`/`cosf` misround, the port gives the correctly rounded corners.
+  - `UvRect` and `Sprite` JSON in the serde profile: 117 more `json` rows pass.
+  - 38 Rust tests ported (all of `sprite.rs`, `pipeline.rs`'s 16 batch tests, 7 integration tests).
+  - 9 bench twins and 2 `batch/*` extras.
 
 ### Performance
 - color: one typed f32 helper per formula instead of a ganita call per operation. `color/lerp` 75 → 37 ns (−51 %),

@@ -26,7 +26,9 @@ Decisions: [ADR 0001](../adr/0001-cyrius-port-with-rust-oracle.md),
 | M1 parts a–c: error, log, math, mathx, layout, color (core), lights, lod | ✅ 2026-11-15 (below) |
 | M1 part d: f16 and sRGB (`tables`) | ✅ 2026-11-15 (below) |
 | M1 part b2: colour `optics` + serde (prakash, bayan) | ✅ 2026-11-15: **M1 complete** |
-| M2–M10 | ☐ |
+| M2 part a: sprite, batch | ✅ 2026-11-15 (below) |
+| M2 part b: text, ui, debug geometry | ☐ |
+| M3–M10 | ☐ |
 
 **M1.** 13,793 golden rows over nine modules pass:
 - 1,149 class-E rows are bit-identical to Rust's formula in f64 rounded once;
@@ -37,6 +39,10 @@ Decisions: [ADR 0001](../adr/0001-cyrius-port-with-rust-oracle.md),
 
 Pending: 9 constants, until their modules arrive; 3 `json` rows bayan's tree can't read yet (ADR 0002 #19).
 `material` moved to M6: it owns a GPU texture and bind group. Measurements: `port-parity.md` §2.
+
+**M2 part a.** `src/sprite.cyr` and `src/batch.cyr` (ADR 0002 #20): 638 `sprite` rows and 117 more `json` rows pass,
+with 1 accepted correctly rounded batch row and 1 bayan row pending. 38 more Rust tests are ported. 9 bench twins:
+the batch loops are 4–9× Rust. Measurements: `port-parity.md` §3.
 
 **Optional features.**
 - `optics` (prakash, `[features]`) and `serde` (JSON on bayan) are opt-in profiles: `dist/soorat-optics.cyr` and
@@ -63,7 +69,7 @@ Pending: 9 constants, until their modules arrive; 3 `json` rows bayan's tree can
 
 - **Rust reference:** `rust-old/`. 7,649 code lines in 44 modules, plus 9 WGSL shaders, 15,767 lines in all.
 - **Cyrius:** the library is `[lib]` in `cyrius.cyml`, bundled as `dist/soorat.cyr` (`cyrius distlib --all`):
-  `src/{error,log,mathx,tables_data,tables,math,layout,color,lights,lod}.cyr`, plus `src/color_optics.cyr`
+  `src/{error,log,mathx,tables_data,tables,math,layout,color,lights,lod,sprite,batch}.cyr`, plus `src/color_optics.cyr`
   (`[lib.optics]`) and `src/json.cyr` (`[lib.serde]`). `src/layout.cyr` and
   `src/tables_data.cyr` are generated (`scripts/oracle/gen_layout.py`, `gen_tables.py`). `src/main.cyr` is still the
   scaffold's smoke program.
@@ -113,8 +119,8 @@ kiran (rendering), salai (editor viewport), joshua (visualization): all still Ru
 
 ## Next
 
-**M2 (2D)**: sprite, batch, text, ui and the debug geometry (port plan §7). Its first Rust twins are
-`vertex/quad_generation_100` and the `sprite/*` and `batch/*` benches.
+**M2 part b**: text (bitmap-font layout; kashi optional for font import), ui (quads) and debug_draw's geometry
+half (wire shapes, impetus collider shapes). Its Rust twins are the three `debug_draw/*` benches.
 
 **Performance items carried forward:** `mul_mat4` at about 120 ns (M4's shadow matrices call it); the correctly
 rounded sRGB `pow` at 200–285 ns a call (M4's face encoding calls it three times a texel). port-parity §2.2 has the

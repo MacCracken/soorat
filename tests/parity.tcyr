@@ -25,6 +25,8 @@
 # - M1 part b2: `json` (`Color::from_json`). Its three `Color::from_json_bayan_*` rows, documents serde_json reads and
 #   bayan's tree can't, stay pending until bayan changes (ADR 0002 #19). `color_optics` needs the `optics` feature's
 #   prakash and is replayed by tests/parity_optics.tcyr.
+# - M2 part a: `sprite` (UvRect, Sprite, sort_by_z, batch_to_vertices; the quads class C at 0 ulp against
+#   sprite.cr.tsv; the limit batches as FNV-1a digests).
 
 # The library first: a file that declares an `enum` (src/error.cyr) must be included before any top-level statement.
 include "tests/lib.cyr"
@@ -96,7 +98,7 @@ fn _par_lights(fp, fl): i64 {
     if (_par_eq(fp, fl, "GpuLight::spot") == 1) {
         var ks = _par_in_g32s(_par_in_g32s(_par_in_g32s(0, _par_ga), _par_gb), _par_gc);
         SrGpuLight_spot(_par_ga, _par_gb, _par_gc, _par_in(ks), _par_in(ks + 1), _par_in(ks + 2), _par_in(ks + 3),
-            _par_gr);
+          _par_gr);
         _par_got_g32s(_par_gr, 16);
         return 1;
     }
@@ -235,9 +237,206 @@ fn _par_tables(fp, fl): i64 {
     return 0;
 }
 
+# ── sprite (src/sprite.cyr, src/batch.cyr) ───────────────────────────────────────────
+
+var _par_sp = alloc(_SR_SPRITE_SIZE);
+var _par_vbuf = 0;
+var _par_ibuf = 0;
+var _par_bcap = 0;
+
+# Vertex and index buffers for n sprites (u32 indices), grown on demand.
+fn _par_batch_bufs(n) {
+    if (n <= _par_bcap) { return 0; }
+    _par_vbuf = alloc(n * 128 + 128);
+    _par_ibuf = alloc(n * 24 + 24);
+    _par_bcap = n;
+    return 0;
+}
+
+# The FNV-1a 64 of [p, p + n) as its two 32-bit halves, appended to the got list.
+fn _par_got_fnv(p, n) {
+    var h = 0 - 3750763034362895579;
+    var i = 0;
+    while (i < n) {
+        h = (h ^ load8(p + i)) * 1099511628211;
+        i = i + 1;
+    }
+    _par_got_i((h >> 32) & 0xFFFFFFFF);
+    _par_got_i(h & 0xFFFFFFFF);
+    return 0;
+}
+
+# A sprite from 13 f32 (x, y, width, height, rotation, color, uv) at buf, into s.
+fn _par_sprite13(buf, s) {
+    SrSprite_new(load32(buf), load32(buf + 4), load32(buf + 8), load32(buf + 12), s);
+    SrSprite_with_rotation(s, load32(buf + 16));
+    SrSprite_with_color(s, buf + 20);
+    SrSprite_with_uv(s, buf + 36);
+    return s;
+}
+
+fn _par_sprite(fp, fl): i64 {
+    if (_par_eq(fp, fl, "UvRect::from_pixel_rect") == 1) {
+        _par_got_g32s(SrUvRect_from_pixel_rect(_par_in(1), _par_in(2), _par_in(3), _par_in(4), _par_in(5), _par_in(6),
+            _par_gr), 4);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "UvRect::corners") == 1) {
+        _par_in_g32s(0, _par_ga);
+        _par_got_g32s(SrUvRect_corners(_par_ga, _par_gr), 8);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "Sprite::center") == 1 || _par_eq(fp, fl, "Sprite::bounds") == 1) {
+        _par_in_g32s(0, _par_ga);
+        SrSprite_new(load32(_par_ga), load32(_par_ga + 4), load32(_par_ga + 8), load32(_par_ga + 12), _par_sp);
+        var nb = 4;
+        if (_par_eq(fp, fl, "Sprite::center") == 1) {
+            SrSprite_center(_par_sp, _par_gr);
+            nb = 2;
+        } else {
+            SrSprite_bounds(_par_sp, _par_gr);
+        }
+        var j = 0;
+        while (j < nb) {
+            _par_got_g(load32(_par_gr + j * 4));
+            j = j + 1;
+        }
+        return 1;
+    }
+    if (_par_eq(fp, fl, "Sprite::default") == 1) {
+        SrSprite_default(_par_sp);
+        _par_got_seq(13);
+        var k = 0;
+        while (k < 5) {
+            _par_got_g(load32(_par_sp + _SR_SP_X + k * 4));
+            k = k + 1;
+        }
+        var c = 0;
+        while (c < 8) {
+            _par_got_g(load32(_par_sp + _SR_SP_COLOR + c * 4));
+            c = c + 1;
+        }
+        _par_got_i(load64(_par_sp + _SR_SP_TEX));
+        _par_got_i(load64(_par_sp + _SR_SP_Z));
+        return 1;
+    }
+    if (_par_eq(fp, fl, "SpriteBatch::sort_by_z") == 1) {
+        var n = _par_in(0);
+        var b = SrSpriteBatch_with_capacity(n);
+        if (b == 0) { return 0 - 1; }
+        var i = 0;
+        while (i < n) {
+            SrSprite_with_z_order(SrSprite_default(_par_sp), _par_in(1 + i));
+            SrSpriteBatch_push(b, SrSprite_with_texture(_par_sp, i));
+            i = i + 1;
+        }
+        SrSpriteBatch_sort_by_z(b);
+        _par_got_seq(n);
+        var q = 0;
+        while (q < n) {
+            _par_got_i(load64(SrSpriteBatch_get(b, q) + _SR_SP_TEX));
+            q = q + 1;
+        }
+        SrSpriteBatch_drop(b);
+        return 1;
+    }
+    var is16 = _par_eq(fp, fl, "batch_to_vertices");
+    var is32 = _par_eq(fp, fl, "batch_to_vertices_u32");
+    if (is16 == 1 || is32 == 1) {
+        var ns = _par_in(0);
+        var bb = SrSpriteBatch_with_capacity(ns);
+        if (bb == 0) { return 0 - 1; }
+        var at = 1;
+        var t = 0;
+        while (t < ns) {
+            at = _par_in_g32s(at, _par_ga);
+            SrSpriteBatch_push(bb, _par_sprite13(_par_ga, _par_sp));
+            t = t + 1;
+        }
+        _par_batch_bufs(ns);
+        var m = 0;
+        if (is32 == 1) {
+            m = sr_batch_to_vertices_u32_into(bb, _par_vbuf, _par_ibuf);
+        } else {
+            m = sr_batch_to_vertices_into(bb, _par_vbuf, _par_ibuf);
+        }
+        _par_got_g32s(_par_vbuf, m * 32);
+        _par_got_seq(m * 6);
+        var x = 0;
+        while (x < m * 6) {
+            if (is32 == 1) {
+                _par_got_i(load32(_par_ibuf + x * 4) & 0xFFFFFFFF);
+            } else {
+                _par_got_i(load16(_par_ibuf + x * 2) & 0xFFFF);
+            }
+            x = x + 1;
+        }
+        SrSpriteBatch_drop(bb);
+        return 1;
+    }
+    var d16 = _par_eq(fp, fl, "batch_to_vertices_digest");
+    var d32 = _par_eq(fp, fl, "batch_to_vertices_u32_digest");
+    if (d16 == 1 || d32 == 1) {
+        var nd = _par_in(0);
+        var bd = SrSpriteBatch_with_capacity(nd);
+        if (bd == 0) { return 0 - 1; }
+        var one = 0x3F800000;
+        var y = 0;
+        while (y < nd) {
+            SrSpriteBatch_push(bd, SrSprite_new(f32_from(f64_from(y)), 0, one, one, _par_sp));
+            y = y + 1;
+        }
+        _par_batch_bufs(nd);
+        var md = 0;
+        var isz = 2;
+        if (d32 == 1) {
+            md = sr_batch_to_vertices_u32_into(bd, _par_vbuf, _par_ibuf);
+            isz = 4;
+        } else {
+            md = sr_batch_to_vertices_into(bd, _par_vbuf, _par_ibuf);
+        }
+        _par_got_i(md * 4);
+        _par_got_i(md * 6);
+        _par_got_fnv(_par_vbuf, md * 128);
+        _par_got_fnv(_par_ibuf, md * 6 * isz);
+        SrSpriteBatch_drop(bd);
+        return 1;
+    }
+    return 0;
+}
+
 # ── json (src/json.cyr) ──────────────────────────────────────────────────────────────
 
 fn _par_json(fp, fl): i64 {
+    if (_par_eq(fp, fl, "UvRect::from_json") == 1) {
+        var ud = _par_in_cstr(0);
+        if (ud == 0) { return 0 - 1; }
+        var ut, uv = SrUvRect_from_json(ud, strlen(ud), _par_gr);
+        if (is_err_result(ut) == 1) {
+            _par_got_err(uv);
+        } else {
+            _par_got_g32s(_par_gr, 4);
+        }
+        return 1;
+    }
+    if (_par_eq(fp, fl, "Sprite::from_json") == 1) {
+        var sd = _par_in_cstr(0);
+        if (sd == 0) { return 0 - 1; }
+        var st, sv = SrSprite_from_json(sd, strlen(sd), _par_sp);
+        if (is_err_result(st) == 1) {
+            _par_got_err(sv);
+            return 1;
+        }
+        _par_got_seq(13);
+        var k = 0;
+        while (k < 13) {
+            _par_got_g(load32(_par_sp + _SR_SP_X + k * 4));
+            k = k + 1;
+        }
+        _par_got_i(load64(_par_sp + _SR_SP_TEX));
+        _par_got_i(load64(_par_sp + _SR_SP_Z));
+        return 1;
+    }
     if (_par_eq(fp, fl, "Color::from_json") == 1) {
         var doc = _par_in_cstr(0);
         if (doc == 0) { return 0 - 1; }
@@ -375,6 +574,7 @@ fn _par_dispatch(mp, ml, fp, fl): i64 {
     if (_par_eq(mp, ml, "lod") == 1) { return _par_lod(fp, fl); }
     if (_par_eq(mp, ml, "tables") == 1) { return _par_tables(fp, fl); }
     if (_par_eq(mp, ml, "json") == 1) { return _par_json(fp, fl); }
+    if (_par_eq(mp, ml, "sprite") == 1) { return _par_sprite(fp, fl); }
     return 0;
 }
 
@@ -385,6 +585,7 @@ fn _par_dispatch(mp, ml, fp, fl): i64 {
 fn _par_c_bound(fp, fl): i64 {
     if (_par_eq(fp, fl, "GpuLight::spot") == 1) { return 0; }
     if (_par_eq(fp, fl, "srgb_to_linear") == 1 || _par_eq(fp, fl, "linear_to_srgb") == 1) { return 0; }
+    if (_par_eq(fp, fl, "batch_to_vertices") == 1 || _par_eq(fp, fl, "batch_to_vertices_u32") == 1) { return 0; }
     return 0 - 1;
 }
 

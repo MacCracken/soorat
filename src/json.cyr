@@ -1,4 +1,5 @@
-# json.cyr — serde-compatible JSON for soorat's serde types (M1 part b2: `Color`), ADR 0002 #19.
+# json.cyr — serde-compatible JSON for soorat's serde types: `Color` (M1 part b2), `UvRect` and `Sprite` (M2 part a),
+# ADR 0002 #19.
 #
 # **OPTIONAL.** Outside `[lib]`, bundled by the `[lib.serde]` profile as dist/soorat-serde.cyr. It needs bayan, which
 # carries ~372 KB of unicode tables into any binary that includes it (49 KB → 421 KB for soorat's smoke program), so
@@ -22,6 +23,8 @@
 # - an f32 takes a JSON integer (`n as f32`, one rounding) or float (the decimal's f64, then `as f32`); serde_json
 #   refuses a float whose f64 is infinite (`1e400`), and so does this. A finite f64 beyond f32's range is ±∞, as
 #   `as f32` gives;
+# - a u64 (`texture_id`) takes a JSON integer ≥ 0, an i32 (`z_order`) a JSON integer in i32's range; a float is
+#   refused for both, as serde refuses one;
 # - anything else, and trailing text, is Err(SR_ERR_DESERIALIZE), *out untouched.
 # serde_json reads a float as its integer significand times or divided by one power of ten. For the documents it
 # writes (at most 9 digits, small exponents) that is one correctly rounded step, which is bayan's correctly rounded
@@ -51,19 +54,83 @@ fn _sr_jw_f32(sb, x): i64 {
     return _sr_jw(sb, &buf);
 }
 
+# Appends the u64 n (an i64 holding its bits) in decimal: 0, or -1 when the builder can't grow.
+#must_use
+fn _sr_jw_u64(sb, n): i64 {
+    if (n >= 0) {
+        if (str_builder_add_int_a(default_alloc(), sb, n) != 0) { return 0 - 1; }
+        return 0;
+    }
+    var q = ((n >> 1) & 0x7FFFFFFFFFFFFFFF) / 5;
+    var d = n - q * 10;
+    var rc = 0;
+    if (str_builder_add_int_a(default_alloc(), sb, q) != 0) { rc = 0 - 1; }
+    if (str_builder_add_int_a(default_alloc(), sb, d) != 0) { rc = 0 - 1; }
+    return rc;
+}
+
+# Appends the i64 n in decimal: 0, or -1 when the builder can't grow.
+#must_use
+fn _sr_jw_int(sb, n): i64 {
+    if (str_builder_add_int_a(default_alloc(), sb, n) != 0) { return 0 - 1; }
+    return 0;
+}
+
+# Appends `{"<k0>":…,"<k1>":…,"<k2>":…,"<k3>":…}` for the 4 f32 at p, with the keys given as `"k0":` … text.
+#must_use
+fn _sr_jw_f32x4(sb, p, k0, k1, k2, k3): i64 {
+    var rc = _sr_jw(sb, "{");
+    rc = rc | _sr_jw(sb, k0);
+    rc = rc | _sr_jw_f32(sb, load32(p));
+    rc = rc | _sr_jw(sb, ",");
+    rc = rc | _sr_jw(sb, k1);
+    rc = rc | _sr_jw_f32(sb, load32(p + 4));
+    rc = rc | _sr_jw(sb, ",");
+    rc = rc | _sr_jw(sb, k2);
+    rc = rc | _sr_jw_f32(sb, load32(p + 8));
+    rc = rc | _sr_jw(sb, ",");
+    rc = rc | _sr_jw(sb, k3);
+    rc = rc | _sr_jw_f32(sb, load32(p + 12));
+    rc = rc | _sr_jw(sb, "}");
+    return rc;
+}
+
+# Appends uv as serde_json writes a `UvRect`: 0, or -1 when the builder can't grow.
+#must_use
+fn SrUvRect_to_json(uv, sb): i64 {
+    return _sr_jw_f32x4(sb, uv, "\"u_min\":", "\"v_min\":", "\"u_max\":", "\"v_max\":");
+}
+
+# Appends s as serde_json writes a `Sprite` (fields in Rust's order: x, y, width, height, rotation, color, texture_id,
+# z_order, uv): 0, or -1 when the builder can't grow.
+#must_use
+fn SrSprite_to_json(s, sb): i64 {
+    var rc = _sr_jw(sb, "{\"x\":");
+    rc = rc | _sr_jw_f32(sb, load32(s + _SR_SP_X));
+    rc = rc | _sr_jw(sb, ",\"y\":");
+    rc = rc | _sr_jw_f32(sb, load32(s + _SR_SP_Y));
+    rc = rc | _sr_jw(sb, ",\"width\":");
+    rc = rc | _sr_jw_f32(sb, load32(s + _SR_SP_W));
+    rc = rc | _sr_jw(sb, ",\"height\":");
+    rc = rc | _sr_jw_f32(sb, load32(s + _SR_SP_H));
+    rc = rc | _sr_jw(sb, ",\"rotation\":");
+    rc = rc | _sr_jw_f32(sb, load32(s + _SR_SP_ROT));
+    rc = rc | _sr_jw(sb, ",\"color\":");
+    rc = rc | SrColor_to_json(s + _SR_SP_COLOR, sb);
+    rc = rc | _sr_jw(sb, ",\"texture_id\":");
+    rc = rc | _sr_jw_u64(sb, load64(s + _SR_SP_TEX));
+    rc = rc | _sr_jw(sb, ",\"z_order\":");
+    rc = rc | _sr_jw_int(sb, load64(s + _SR_SP_Z));
+    rc = rc | _sr_jw(sb, ",\"uv\":");
+    rc = rc | SrUvRect_to_json(s + _SR_SP_UV, sb);
+    rc = rc | _sr_jw(sb, "}");
+    return rc;
+}
+
 # Appends c as serde_json writes a `Color` (`{"r":…,"g":…,"b":…,"a":…}`): 0, or -1 when the builder can't grow.
 #must_use
 fn SrColor_to_json(c, sb): i64 {
-    var rc = _sr_jw(sb, "{\"r\":");
-    rc = rc | _sr_jw_f32(sb, load32(c));
-    rc = rc | _sr_jw(sb, ",\"g\":");
-    rc = rc | _sr_jw_f32(sb, load32(c + 4));
-    rc = rc | _sr_jw(sb, ",\"b\":");
-    rc = rc | _sr_jw_f32(sb, load32(c + 8));
-    rc = rc | _sr_jw(sb, ",\"a\":");
-    rc = rc | _sr_jw_f32(sb, load32(c + 12));
-    rc = rc | _sr_jw(sb, "}");
-    return rc;
+    return _sr_jw_f32x4(sb, c, "\"r\":", "\"g\":", "\"b\":", "\"a\":");
 }
 
 # ── reader ──────────────────────────────────────────────────────────────────────────
@@ -115,19 +182,77 @@ fn _sr_jr_f32(v, out): i64 {
     return 1;
 }
 
+# A JSON integer ≥ 0 (a u64, as bayan's tree holds integers up to i64::MAX) into the word at out: 1, or 0.
+fn _sr_jr_u64(v, out): i64 {
+    if (v == 0 || bayan_json_v_tag(v) != JTAG_INT) { return 0; }
+    var n = bayan_json_v_int(v);
+    if (n < 0) { return 0; }
+    store64(out, n);
+    return 1;
+}
+
+# A JSON integer in i32's range into the word at out: 1, or 0.
+fn _sr_jr_i32(v, out): i64 {
+    if (v == 0 || bayan_json_v_tag(v) != JTAG_INT) { return 0; }
+    var n = bayan_json_v_int(v);
+    if (n < (0 - 2147483648) || n > 2147483647) { return 0; }
+    store64(out, n);
+    return 1;
+}
+
+# A struct node of 4 f32 fields named k0 … k3 (an object, or an array of exactly 4) into the 16 bytes at out: 1, or 0
+# (out untouched).
+fn _sr_jr_f32x4(v, out, k0, k1, k2, k3): i64 {
+    var f = _sr_jr_form(v, 4);
+    if (f == 0) { return 0; }
+    var w[16];
+    var ok = _sr_jr_f32(_sr_jr_at(v, f, 0, k0), &w);
+    ok = ok & _sr_jr_f32(_sr_jr_at(v, f, 1, k1), &w + 4);
+    ok = ok & _sr_jr_f32(_sr_jr_at(v, f, 2, k2), &w + 8);
+    ok = ok & _sr_jr_f32(_sr_jr_at(v, f, 3, k3), &w + 12);
+    if (ok == 0) { return 0; }
+    store64(out, load64(&w));
+    store64(out + 8, load64(&w + 8));
+    return 1;
+}
+
 # Reads a `Color` document into out: Ok(out), or Err(SR_ERR_DESERIALIZE) with out untouched.
 #must_use
 fn SrColor_from_json(buf, len, out): Result {
+    if (_sr_jr_f32x4(_sr_jr_parse(buf, len), out, "r", "g", "b", "a") == 0) { return Err(SR_ERR_DESERIALIZE); }
+    return Ok(out);
+}
+
+# Reads a `UvRect` document into out: Ok(out), or Err(SR_ERR_DESERIALIZE) with out untouched.
+#must_use
+fn SrUvRect_from_json(buf, len, out): Result {
     var v = _sr_jr_parse(buf, len);
-    var f = _sr_jr_form(v, 4);
+    if (_sr_jr_f32x4(v, out, "u_min", "v_min", "u_max", "v_max") == 0) { return Err(SR_ERR_DESERIALIZE); }
+    return Ok(out);
+}
+
+# Reads a `Sprite` document (an object by field name, or an array of its 9 fields) into out: Ok(out), or
+# Err(SR_ERR_DESERIALIZE) with out untouched.
+#must_use
+fn SrSprite_from_json(buf, len, out): Result {
+    var v = _sr_jr_parse(buf, len);
+    var f = _sr_jr_form(v, 9);
     if (f == 0) { return Err(SR_ERR_DESERIALIZE); }
-    var w[16];
-    var ok = _sr_jr_f32(_sr_jr_at(v, f, 0, "r"), &w);
-    ok = ok & _sr_jr_f32(_sr_jr_at(v, f, 1, "g"), &w + 4);
-    ok = ok & _sr_jr_f32(_sr_jr_at(v, f, 2, "b"), &w + 8);
-    ok = ok & _sr_jr_f32(_sr_jr_at(v, f, 3, "a"), &w + 12);
+    var w[_SR_SPRITE_SIZE];
+    var tex[8];
+    var z[8];
+    var ok = _sr_jr_f32(_sr_jr_at(v, f, 0, "x"), &w + _SR_SP_X);
+    ok = ok & _sr_jr_f32(_sr_jr_at(v, f, 1, "y"), &w + _SR_SP_Y);
+    ok = ok & _sr_jr_f32(_sr_jr_at(v, f, 2, "width"), &w + _SR_SP_W);
+    ok = ok & _sr_jr_f32(_sr_jr_at(v, f, 3, "height"), &w + _SR_SP_H);
+    ok = ok & _sr_jr_f32(_sr_jr_at(v, f, 4, "rotation"), &w + _SR_SP_ROT);
+    ok = ok & _sr_jr_f32x4(_sr_jr_at(v, f, 5, "color"), &w + _SR_SP_COLOR, "r", "g", "b", "a");
+    ok = ok & _sr_jr_u64(_sr_jr_at(v, f, 6, "texture_id"), &tex);
+    ok = ok & _sr_jr_i32(_sr_jr_at(v, f, 7, "z_order"), &z);
+    ok = ok & _sr_jr_f32x4(_sr_jr_at(v, f, 8, "uv"), &w + _SR_SP_UV, "u_min", "v_min", "u_max", "v_max");
     if (ok == 0) { return Err(SR_ERR_DESERIALIZE); }
-    store64(out, load64(&w));
-    store64(out + 8, load64(&w + 8));
+    store64(&w + _SR_SP_TEX, load64(&tex));
+    store64(&w + _SR_SP_Z, load64(&z));
+    _sr_sprite_copy(out, &w);
     return Ok(out);
 }

@@ -6,7 +6,7 @@
 > milestone (plan §3.1; done = ✅ in the plan's §14). The golden corpus checks every ported function on its
 > grid besides; this ledger is about the oracle's own assertions.
 
-**502 Rust tests** (460 unit, 12 integration, 9 GPU smoke, 18 oracle-hook, 2 shader-validation, 1 doc): 67 ported, 28 not applicable, 3 deferred, 404 pending, 0 unaccounted. Milestones done: M0, M1.
+**502 Rust tests** (460 unit, 12 integration, 9 GPU smoke, 18 oracle-hook, 2 shader-validation, 1 doc): 105 ported, 28 not applicable, 3 deferred, 366 pending, 0 unaccounted. Milestones done: M0, M1.
 
 | Rust file | Kind | Milestone | Cyrius tests | Rust tests | Ported | N/A | Deferred | Pending |
 |---|---|---|---|---:|---:|---:|---:|---:|
@@ -18,7 +18,7 @@
 | `src/lights.rs` | unit | M1 | `tests/lights.tcyr` | 8 | 8 | 0 | 0 | 0 |
 | `src/lod.rs` | unit | M1 | `tests/lod.tcyr` | 7 | 7 | 0 | 0 | 0 |
 | `src/material.rs` | unit | M6 | `tests/material.tcyr` | 1 | 0 | 0 | 0 | 1 |
-| `src/sprite.rs` | unit | M2 | `tests/sprite.tcyr` | 15 | 0 | 0 | 0 | 15 |
+| `src/sprite.rs` | unit | M2 | `tests/sprite.tcyr` | 15 | 15 | 0 | 0 | 0 |
 | `src/text.rs` | unit | M2 | `tests/text.tcyr` | 10 | 0 | 0 | 0 | 10 |
 | `src/ui.rs` | unit | M2 | `tests/ui.tcyr` | 6 | 0 | 0 | 0 | 6 |
 | `src/debug_draw.rs` | unit | M2+M6 | `tests/debug_geom.tcyr`<br>`tests/line_pipeline.tcyr` | 16 | 0 | 0 | 0 | 16 |
@@ -40,7 +40,7 @@
 | `src/texture.rs` | unit | M6 | `tests/texture.tcyr` | 5 | 0 | 0 | 0 | 5 |
 | `src/render_target.rs` | unit | M6 | `tests/render_target.tcyr` | 2 | 0 | 0 | 0 | 2 |
 | `src/compute.rs` | unit | M6 | `tests/compute.tcyr` | 11 | 0 | 0 | 0 | 11 |
-| `src/pipeline.rs` | unit | M6 | `tests/sprite_pipeline.tcyr` | 18 | 0 | 0 | 0 | 18 |
+| `src/pipeline.rs` | unit | M2+M6 | `tests/batch.tcyr`<br>`tests/sprite_pipeline.tcyr` | 18 | 16 | 0 | 0 | 2 |
 | `src/mesh_pipeline.rs` | unit | M6 | `tests/mesh_pipeline.tcyr` | 15 | 0 | 0 | 0 | 15 |
 | `src/gpu.rs` | unit | M6 | — | 1 | 0 | 1 | 0 | 0 |
 | `src/hdr.rs` | unit | M8 | `tests/hdr.tcyr` | 6 | 0 | 0 | 0 | 6 |
@@ -51,15 +51,15 @@
 | `src/window.rs` | unit | M9 | `tests/surface.tcyr` | 8 | 0 | 0 | 0 | 8 |
 | `src/drm.rs` | unit | M9 | `tests/drm.tcyr` | 9 | 0 | 0 | 3 | 6 |
 | `src/egui_bridge.rs` | doc, unit | — | — | 4 | 0 | 4 | 0 | 0 |
-| `tests/integration.rs` | integration | M1+M2+M6+M9 | `tests/integration.tcyr` | 12 | 3 | 0 | 0 | 9 |
+| `tests/integration.rs` | integration | M1+M2+M6+M9 | `tests/integration.tcyr` | 12 | 10 | 0 | 0 | 2 |
 | `tests/gpu_smoke.rs` | gpu smoke | M6+M7+M8 | `tests/gpu_smoke.tcyr` | 9 | 0 | 0 | 0 | 9 |
 | `tests/oracle.rs` | oracle hooks | — | — | 18 | 0 | 18 | 0 | 0 |
 | `tests/shaders.rs` | shader validation | — | — | 2 | 0 | 2 | 0 | 0 |
-| **Total** | | | | **502** | **67** | **28** | **3** | **404** |
+| **Total** | | | | **502** | **105** | **28** | **3** | **366** |
 
 ## Pending by milestone
 
-M2: 53, M3: 63, M4: 55, M5: 111, M6: 68, M7: 4, M8: 35, M9: 15
+M2: 31, M3: 63, M4: 55, M5: 111, M6: 52, M7: 4, M8: 35, M9: 15
 
 ## Rust's ignored tests
 

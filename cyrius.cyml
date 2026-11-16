@@ -65,6 +65,8 @@ modules = [
     "src/color.cyr",
     "src/lights.cyr",
     "src/lod.cyr",
+    "src/sprite.cyr",
+    "src/batch.cyr",
 ]
 
 # The `optics` feature's bundle, dist/soorat-optics.cyr: the library plus Color's prakash conversions.
@@ -80,6 +82,8 @@ modules = [
     "src/color.cyr",
     "src/lights.cyr",
     "src/lod.cyr",
+    "src/sprite.cyr",
+    "src/batch.cyr",
     "src/color_optics.cyr",
 ]
 
@@ -98,5 +102,7 @@ modules = [
     "src/color.cyr",
     "src/lights.cyr",
     "src/lod.cyr",
+    "src/sprite.cyr",
+    "src/batch.cyr",
     "src/json.cyr",
 ]

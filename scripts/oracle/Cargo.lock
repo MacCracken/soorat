@@ -1854,6 +1854,7 @@ dependencies = [
 name = "soorat-oracle"
 version = "0.0.0"
 dependencies = [
+ "bytemuck",
  "prakash",
  "serde_json",
  "soorat",

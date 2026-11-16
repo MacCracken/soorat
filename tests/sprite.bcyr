@@ -1,0 +1,223 @@
+# sprite.bcyr — twins of Rust 1.2.0's `sprite/*` and `vertex/quad_generation_100` benches (M2 part a), and the
+# `batch/*` extras.
+#
+# Each twin does what rust-old/benches/benchmarks.rs's body does. The builders write into one reused sprite (Rust's
+# return a value on the stack). The batch benches reuse one batch, cleared each iteration, as Rust's do.
+# `quad_generation_100` writes 400 Vertex2D into a reused buffer: Rust's allocates a Vec of 400 each iteration, which
+# a Cyrius vertex stream doesn't need (plan §9.4).
+
+include "tests/lib.cyr"
+
+var _sink = 0;
+
+# The f32 bits of the integer k.
+fn f(k): i64 { return f32_from(f64_from(k)); }
+
+# Runs the sprite benches.
+fn main(): i64 {
+    alloc_init();
+    var s = alloc(_SR_SPRITE_SIZE);
+    var out = alloc(16);
+    var i = 0;
+    var N = 1000000;
+
+    var bc = bench_new("sprite/create");
+    bench_batch_start(bc);
+    i = 0;
+    while (i < N) {
+        SrSprite_with_z_order(SrSprite_with_color(SrSprite_new(0x42C80000, 0x43480000, 0x42800000, 0x42800000, s),
+            SR_COLOR_RED), 5);
+        i = i + 1;
+    }
+    bench_batch_stop(bc, N);
+    bench_report(bc);
+
+    var bf = bench_new("sprite/create_full_builder");
+    bench_batch_start(bf);
+    i = 0;
+    while (i < N) {
+        SrSprite_new(0x42C80000, 0x43480000, 0x42800000, 0x42800000, s);
+        SrSprite_with_z_order(SrSprite_with_texture(SrSprite_with_rotation(SrSprite_with_color(s, SR_COLOR_RED),
+              0x3FC8F5C3), 42), 5);
+        i = i + 1;
+    }
+    bench_batch_stop(bf, N);
+    bench_report(bf);
+
+    SrSprite_new(0x42C80000, 0x43480000, 0x42800000, 0x42800000, s);
+    var bb = bench_new("sprite/center_bounds");
+    bench_batch_start(bb);
+    i = 0;
+    while (i < N) {
+        SrSprite_center(s, out);
+        SrSprite_bounds(s, out);
+        i = i + 1;
+    }
+    bench_batch_stop(bb, N);
+    bench_report(bb);
+
+    var M = 10000;
+    var k = 0;
+    var b = SrSpriteBatch_new();
+    var bp = bench_new("sprite/batch_push_100");
+    bench_batch_start(bp);
+    i = 0;
+    while (i < M) {
+        k = 0;
+        while (k < 100) {
+            SrSpriteBatch_push(b, SrSprite_new(f(k), 0, 0x42000000, 0x42000000, s));
+            k = k + 1;
+        }
+        SrSpriteBatch_clear(b);
+        i = i + 1;
+    }
+    bench_batch_stop(bp, M);
+    bench_report(bp);
+    SrSpriteBatch_drop(b);
+
+    b = SrSpriteBatch_with_capacity(100);
+    var bpp = bench_new("sprite/batch_push_100_prealloc");
+    bench_batch_start(bpp);
+    i = 0;
+    while (i < M) {
+        k = 0;
+        while (k < 100) {
+            SrSpriteBatch_push(b, SrSprite_new(f(k), 0, 0x42000000, 0x42000000, s));
+            k = k + 1;
+        }
+        SrSpriteBatch_clear(b);
+        i = i + 1;
+    }
+    bench_batch_stop(bpp, M);
+    bench_report(bpp);
+    SrSpriteBatch_drop(b);
+
+    b = SrSpriteBatch_new();
+    k = 0;
+    while (k < 100) {
+        SrSpriteBatch_push(b, SrSprite_with_z_order(SrSprite_new(0, 0, 0x42000000, 0x42000000, s), 100 - k));
+        k = k + 1;
+    }
+    var bs = bench_new("sprite/batch_sort_100");
+    bench_batch_start(bs);
+    i = 0;
+    while (i < M) {
+        _sink = SrSpriteBatch_sort_by_z(b);
+        i = i + 1;
+    }
+    bench_batch_stop(bs, M);
+    bench_report(bs);
+    SrSpriteBatch_drop(b);
+
+    var M2 = 2000;
+    b = SrSpriteBatch_new();
+    var bp1 = bench_new("sprite/batch_push_1000");
+    bench_batch_start(bp1);
+    i = 0;
+    while (i < M2) {
+        k = 0;
+        while (k < 1000) {
+            SrSpriteBatch_push(b, SrSprite_new(f(k), 0, 0x42000000, 0x42000000, s));
+            k = k + 1;
+        }
+        SrSpriteBatch_clear(b);
+        i = i + 1;
+    }
+    bench_batch_stop(bp1, M2);
+    bench_report(bp1);
+    SrSpriteBatch_drop(b);
+
+    b = SrSpriteBatch_new();
+    k = 0;
+    while (k < 1000) {
+        SrSpriteBatch_push(b, SrSprite_with_z_order(SrSprite_new(0, 0, 0x42000000, 0x42000000, s), 1000 - k));
+        k = k + 1;
+    }
+    var bs1 = bench_new("sprite/batch_sort_1000");
+    bench_batch_start(bs1);
+    i = 0;
+    while (i < M2) {
+        _sink = SrSpriteBatch_sort_by_z(b);
+        i = i + 1;
+    }
+    bench_batch_stop(bs1, M2);
+    bench_report(bs1);
+    SrSpriteBatch_drop(b);
+
+    # vertex/quad_generation_100: Rust's loop, 4 Vertex2D per sprite from x, y, width, height and the colour.
+    b = SrSpriteBatch_new();
+    k = 0;
+    while (k < 100) {
+        SrSprite_new(f(k * 10), 0, 0x42000000, 0x42000000, s);
+        SrSpriteBatch_push(b, SrSprite_with_color(s, SR_COLOR_WHITE));
+        k = k + 1;
+    }
+    var verts = alloc(400 * 32);
+    var one = 0x3F800000;
+    var bq = bench_new("vertex/quad_generation_100");
+    bench_batch_start(bq);
+    i = 0;
+    while (i < M) {
+        k = 0;
+        while (k < 100) {
+            var sp = SrSpriteBatch_get(b, k);
+            var v = verts + k * 128;
+            var x = load32(sp + _SR_SP_X);
+            var y = load32(sp + _SR_SP_Y);
+            var x1 = _sr_f32_add(x, load32(sp + _SR_SP_W));
+            var y1 = _sr_f32_add(y, load32(sp + _SR_SP_H));
+            var c0 = load64(sp + _SR_SP_COLOR);
+            var c1 = load64(sp + _SR_SP_COLOR + 8);
+            t_quad_vertex(v, x, y, 0, 0, c0, c1);
+            t_quad_vertex(v + 32, x1, y, one, 0, c0, c1);
+            t_quad_vertex(v + 64, x1, y1, one, one, c0, c1);
+            t_quad_vertex(v + 96, x, y1, 0, one, c0, c1);
+            k = k + 1;
+        }
+        i = i + 1;
+    }
+    bench_batch_stop(bq, M);
+    bench_report(bq);
+
+    # Extras: the real expansion, sr_batch_to_vertices_into, unrotated and rotated.
+    var ib = alloc(100 * 12);
+    var bt = bench_new("batch/to_vertices_100");
+    bench_batch_start(bt);
+    i = 0;
+    while (i < M) {
+        _sink = sr_batch_to_vertices_into(b, verts, ib);
+        i = i + 1;
+    }
+    bench_batch_stop(bt, M);
+    bench_report(bt);
+
+    k = 0;
+    while (k < 100) {
+        SrSprite_with_rotation(SrSpriteBatch_get(b, k), f32_from(f64_div(f64_from(k + 1), 64.0)));
+        k = k + 1;
+    }
+    var br = bench_new("batch/to_vertices_100_rotated");
+    bench_batch_start(br);
+    i = 0;
+    while (i < M) {
+        _sink = sr_batch_to_vertices_into(b, verts, ib);
+        i = i + 1;
+    }
+    bench_batch_stop(br, M);
+    bench_report(br);
+    return 0;
+}
+
+# One Vertex2D: position (x, y), tex_coords (u, v), the colour's two words.
+fn t_quad_vertex(v, x, y, u, w, c0, c1) {
+    store32(v, x);
+    store32(v + 4, y);
+    store32(v + 8, u);
+    store32(v + 12, w);
+    store64(v + 16, c0);
+    store64(v + 24, c1);
+    return v;
+}
+
+var r = main();
+sys_exit_group(r);

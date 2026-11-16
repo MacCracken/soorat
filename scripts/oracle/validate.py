@@ -657,33 +657,76 @@ def _serde_f32(v):
     return r32(x)
 
 
-def serde_color(doc):
-    """What serde_json::from_str::<Color>(doc) gives: [r, g, b, a], or None for an error."""
-    known = ("r", "g", "b", "a")
+class _Obj:
+    """A JSON object as its (key, value) pairs in document order."""
+    def __init__(self, pairs):
+        self.pairs = pairs
 
-    def pairs(ps):
-        seen = {}
-        for k, val in ps:
-            if k in known and k in seen:
-                raise ValueError("duplicate field")
-            seen[k] = val
-        return seen
 
+def _serde_tree(doc):
+    """The document as Python values, objects as _Obj and numbers as _Num, or None when it is not one JSON value."""
     def no_const(_c):
         raise ValueError("not JSON")
     try:
-        v = _json.loads(doc, object_pairs_hook=pairs, parse_int=lambda t: _Num(t, True),
-                        parse_float=lambda t: _Num(t, False), parse_constant=no_const)
+        return _json.loads(doc, object_pairs_hook=_Obj, parse_int=lambda t: _Num(t, True),
+                           parse_float=lambda t: _Num(t, False), parse_constant=no_const)
     except (ValueError, RecursionError):
         return None
-    if isinstance(v, dict):
-        fields = [v.get(k) for k in known]
-    elif isinstance(v, list) and len(v) == 4:
-        fields = v
-    else:
+
+
+def _serde_fields(v, names):
+    """A struct node's fields, as serde's derive reads them: from an object by name (unknown keys ignored, a
+    duplicated known field refused), or from an array of exactly len(names); None otherwise."""
+    if isinstance(v, _Obj):
+        got = {}
+        for k, val in v.pairs:
+            if k in names:
+                if k in got:
+                    return None
+                got[k] = val
+        return [got.get(k) for k in names]
+    if isinstance(v, list) and len(v) == len(names):
+        return v
+    return None
+
+
+def _serde_f32s(v, names):
+    f = _serde_fields(v, names)
+    if f is None:
         return None
-    out = [_serde_f32(f) for f in fields]
+    out = [_serde_f32(x) for x in f]
     return None if any(o is None for o in out) else out
+
+
+def _serde_int(v, lo, hi):
+    if not isinstance(v, _Num) or not v.is_int or v.text.startswith("-0") and v.text.lstrip("-") == "0":
+        return None
+    n = int(v.text)
+    return n if lo <= n <= hi else None
+
+
+def serde_color(doc):
+    """What serde_json::from_str::<Color>(doc) gives: [r, g, b, a], or None for an error."""
+    return _serde_f32s(_serde_tree(doc), ("r", "g", "b", "a"))
+
+
+def serde_uv(doc):
+    return _serde_f32s(_serde_tree(doc), ("u_min", "v_min", "u_max", "v_max"))
+
+
+def serde_sprite(doc):
+    """What serde_json::from_str::<Sprite>(doc) gives: 13 f32, then [texture_id, z_order]; or None."""
+    f = _serde_fields(_serde_tree(doc), ("x", "y", "width", "height", "rotation", "color", "texture_id", "z_order", "uv"))
+    if f is None:
+        return None
+    head = [_serde_f32(x) for x in f[0:5]]
+    color = _serde_f32s(f[5], ("r", "g", "b", "a"))
+    uv = _serde_f32s(f[8], ("u_min", "v_min", "u_max", "v_max"))
+    tex = _serde_int(f[6], 0, 2 ** 64 - 1)
+    z = _serde_int(f[7], -2 ** 31, 2 ** 31 - 1)
+    if any(x is None for x in head) or color is None or uv is None or tex is None or z is None:
+        return None
+    return head + color + uv, [tex, z]
 
 
 def check_json():
@@ -693,10 +736,16 @@ def check_json():
     _, body = rows(path)
     bad = 0
     for fn, _cls, ins, outs, note in body:
+        doc = re.sub(r"%([0-9A-F]{2})", lambda m: chr(int(m.group(1), 16)), ins[2:]).encode("latin-1").decode("utf-8")
         if fn.startswith("Color::from_json"):
-            doc = re.sub(r"%([0-9A-F]{2})", lambda m: chr(int(m.group(1), 16)), ins[2:]).encode("latin-1").decode("utf-8")
             got = serde_color(doc)
             ok = outs == "E:Deserialize" if got is None else same(got, g_values(outs))
+        elif fn.startswith("UvRect::from_json"):
+            got = serde_uv(doc)
+            ok = outs == "E:Deserialize" if got is None else same(got, g_values(outs))
+        elif fn.startswith("Sprite::from_json"):
+            got = serde_sprite(doc)
+            ok = outs == "E:Deserialize" if got is None else (same(got[0], g_values(outs)) and got[1] == i_values(outs))
         else:
             ok = False
             print(f"json: {fn}: no re-derivation in validate.py")
@@ -704,6 +753,117 @@ def check_json():
             bad += 1
             print(f"json: {fn} {note}: re-derived outputs differ from the corpus")
     return bad
+
+
+# ── sprite: UvRect, Sprite, sort_by_z, and the quads (f32 sin/cos correctly rounded, ADR 0002 #16) ─────────
+
+def trig_cr(fn, x):
+    if math.isnan(x) or math.isinf(x):
+        return math.nan
+    return r32(fn(x))
+
+
+def quad(s, sn_cs=None):
+    """Rust's sprite_quad and emit_quad for the 13-f32 sprite s: 4 vertices of 8 f32. sn_cs overrides (sin, cos)."""
+    x, y, w, h, rot = s[0:5]
+    hw, hh = r32(w * 0.5), r32(h * 0.5)
+    cx, cy = r32(x + hw), r32(y + hh)
+    if sn_cs is not None:
+        sn, cs = sn_cs
+    elif rot != 0.0:
+        sn, cs = trig_cr(math.sin, rot), trig_cr(math.cos, rot)
+    else:
+        sn, cs = 0.0, 1.0
+    uv = [(s[9], s[10]), (s[11], s[10]), (s[11], s[12]), (s[9], s[12])]
+    out = []
+    for (kx, ky), (u, v) in zip([(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)], uv):
+        px = r32(r32(r32(kx * cs) - r32(ky * sn)) + cx)
+        py = r32(r32(r32(kx * sn) + r32(ky * cs)) + cy)
+        out += [px, py, u, v] + list(s[5:9])
+    return out
+
+
+def fnv_halves(data):
+    h = 0xCBF29CE484222325
+    for b in data:
+        h = ((h ^ b) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    return [h >> 32, h & 0xFFFFFFFF]
+
+
+def digest_row(n, u32):
+    """The digest outputs for n sprites Sprite::new(k, 0, 1, 1): counts, then the vertex and index FNV-1a halves."""
+    m = n if u32 else min(n, 16383)
+    vb = bytearray()
+    ib = bytearray()
+    one = [1.0, 1.0, 1.0, 1.0]
+    for k in range(m):
+        vb += struct.pack("<32f", *quad([r32(float(k)), 0.0, 1.0, 1.0, 0.0] + one + [0.0, 0.0, 1.0, 1.0]))
+        base = k * 4
+        idx = [base, base + 1, base + 2, base + 2, base + 3, base]
+        ib += struct.pack("<6I" if u32 else "<6H", *idx)
+    return [m * 4, m * 6] + fnv_halves(vb) + fnv_halves(ib)
+
+
+def check_sprite():
+    """Re-derives every `sprite` row; returns (rows that differ, the sprite.cr.tsv rows)."""
+    path = os.path.join(GOLDEN, "sprite.tsv")
+    if not os.path.exists(path):
+        return 0, []
+    _, body = rows(path)
+    bad, cr = 0, []
+    for fn, _cls, ins, outs, note in body:
+        x = g_values(ins)
+        ok = True
+        if fn == "UvRect::from_pixel_rect":
+            px, py, pw, ph, aw, ah = i_values(ins)
+            mine = [0.0, 0.0, 1.0, 1.0] if aw == 0 or ah == 0 else \
+                [r32(px / aw), r32(py / ah), r32((px + pw) / aw), r32((py + ph) / ah)]
+            ok = same(mine, g_values(outs))
+        elif fn == "UvRect::corners":
+            ok = same([x[0], x[1], x[2], x[1], x[2], x[3], x[0], x[3]], g_values(outs))
+        elif fn == "Sprite::center":
+            ok = same([r32(x[0] + r32(x[2] / 2.0)), r32(x[1] + r32(x[3] / 2.0))], g_values(outs))
+        elif fn == "Sprite::bounds":
+            ok = same([x[0], x[1], r32(x[0] + x[2]), r32(x[1] + x[3])], g_values(outs))
+        elif fn == "Sprite::default":
+            ok = same([0.0, 0.0, 64.0, 64.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0], g_values(outs)) and \
+                i_values(outs) == [0, 0]
+        elif fn == "SpriteBatch::sort_by_z":
+            zs = i_values(ins)
+            ok = sorted(range(len(zs)), key=lambda k: zs[k]) == i_values(outs)
+        elif fn in ("batch_to_vertices", "batch_to_vertices_u32"):
+            n = i_values(ins)[0]
+            sprites = [x[13 * k:13 * k + 13] for k in range(n)]
+            want = g_values(outs)
+            m = n if fn.endswith("u32") or n <= 16383 else 16383
+            mine, explained = [], True
+            for k, sp in enumerate(sprites[:m]):
+                block = quad(sp)
+                got = want[32 * k:32 * k + 32]
+                if not same(block, got):
+                    sn, cs = trig_cr(math.sin, sp[4]), trig_cr(math.cos, sp[4])
+                    alts = [quad(sp, (ulp_step(sn, a), ulp_step(cs, b))) for a in (-1, 0, 1) for b in (-1, 0, 1)]
+                    explained = explained and any(same(alt, got) for alt in alts)
+                mine += block
+            idx = []
+            for k in range(m):
+                idx += [4 * k, 4 * k + 1, 4 * k + 2, 4 * k + 2, 4 * k + 3, 4 * k]
+            if i_values(outs) != idx or len(want) != 32 * m:
+                ok = False
+            elif not same(mine, want):
+                if explained:
+                    cr.append(f"{fn}\t{ins}\t{g_tokens(outs, mine)}\t{note}: glibc's sinf/cosf misround")
+                else:
+                    ok = False
+        elif fn in ("batch_to_vertices_digest", "batch_to_vertices_u32_digest"):
+            ok = digest_row(i_values(ins)[0], fn.startswith("batch_to_vertices_u32")) == i_values(outs)
+        else:
+            ok = False
+            print(f"sprite: {fn}: no re-derivation in validate.py")
+        if not ok:
+            bad += 1
+            print(f"sprite: {fn} {note}: re-derived outputs differ from the corpus")
+    return bad, cr
 
 
 def main():
@@ -734,12 +894,15 @@ def main():
     failures += check_json()
     lbad, lcr = check_lights(plat)
     tbad, tcr = check_tables(plat)
-    failures += lbad + tbad
+    sbad, scr = check_sprite()
+    failures += lbad + tbad + sbad
     sides = [
         ("lights.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's outputs with each f32 cos correctly "
          "rounded (glibc's f64 cos, rounded once), where glibc's cosf differs", lcr),
         ("tables.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's sRGB transfer functions with powf "
          "correctly rounded (glibc's f64 pow, rounded once), where glibc's powf differs by 1 ulp", tcr),
+        ("sprite.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's sprite quads with each rotation's sinf "
+         "and cosf correctly rounded (glibc's f64 sin/cos, rounded once), where glibc's differ by 1 ulp", scr),
     ]
     for name, what, side_rows in sides:
         side_path = os.path.join(GOLDEN, name)

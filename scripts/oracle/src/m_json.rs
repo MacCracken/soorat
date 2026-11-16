@@ -11,10 +11,33 @@
 
 use crate::{Module, Rng, Toks};
 use soorat::Color;
+use soorat::sprite::{Sprite, UvRect};
 
 fn decode(doc: &str) -> Toks {
     match serde_json::from_str::<Color>(doc) {
         Ok(c) => Toks::new().gs(&c.to_array()),
+        Err(_) => Toks::new().err("Deserialize"),
+    }
+}
+
+fn decode_uv(doc: &str) -> Toks {
+    match serde_json::from_str::<UvRect>(doc) {
+        Ok(u) => Toks::new().gs(&[u.u_min, u.v_min, u.u_max, u.v_max]),
+        Err(_) => Toks::new().err("Deserialize"),
+    }
+}
+
+fn decode_sprite(doc: &str) -> Toks {
+    match serde_json::from_str::<Sprite>(doc) {
+        Ok(s) => {
+            let mut v = vec![s.x, s.y, s.width, s.height, s.rotation];
+            v.extend_from_slice(&s.color.to_array());
+            v.extend_from_slice(&[s.uv.u_min, s.uv.v_min, s.uv.u_max, s.uv.v_max]);
+            Toks::new()
+                .gs(&v)
+                .i(s.texture_id as i128)
+                .i(s.z_order as i128)
+        }
         Err(_) => Toks::new().err("Deserialize"),
     }
 }
@@ -89,6 +112,101 @@ pub fn module() -> Module {
             &format!("hand-written document {i}"),
         );
     }
+
+    // UvRect and Sprite (M2 part a)
+    for i in 0..40 {
+        let uv = UvRect {
+            u_min: unit(&mut r),
+            v_min: unit(&mut r),
+            u_max: unit(&mut r),
+            v_max: unit(&mut r),
+        };
+        let doc = serde_json::to_string(&uv).unwrap_or_default();
+        m.row(
+            "UvRect::from_json",
+            'A',
+            &Toks::new().s(&doc),
+            &decode_uv(&doc),
+            &format!("serde_json's document {i}"),
+        );
+    }
+    for (i, doc) in [
+        r#"[0,0.5,1,0.25]"#,
+        r#"{"u_min":0,"v_min":0,"u_max":1}"#,
+        r#"{"v_max":1,"u_max":1,"v_min":0,"u_min":0,"x":0}"#,
+    ]
+    .iter()
+    .enumerate()
+    {
+        m.row(
+            "UvRect::from_json",
+            'A',
+            &Toks::new().s(doc),
+            &decode_uv(doc),
+            &format!("hand-written document {i}"),
+        );
+    }
+    for i in 0..60 {
+        let mut sp = Sprite::new(r.f() * 100.0, r.f() * 100.0, r.pos(), r.f())
+            .with_rotation(r.f())
+            .with_color(Color::new(
+                unit(&mut r),
+                unit(&mut r),
+                unit(&mut r),
+                unit(&mut r),
+            ))
+            .with_texture(r.next() >> (1 + (r.next() % 60)))
+            .with_z_order(r.next() as i32);
+        sp.uv = UvRect {
+            u_min: unit(&mut r),
+            v_min: unit(&mut r),
+            u_max: unit(&mut r),
+            v_max: unit(&mut r),
+        };
+        let doc = serde_json::to_string(&sp).unwrap_or_default();
+        m.row(
+            "Sprite::from_json",
+            'A',
+            &Toks::new().s(&doc),
+            &decode_sprite(&doc),
+            &format!("serde_json's document {i}"),
+        );
+    }
+    let base =
+        r#""x":1,"y":2,"width":3,"height":4,"rotation":0.5,"color":{"r":1,"g":0,"b":0,"a":1}"#;
+    let uvs = r#""uv":{"u_min":0,"v_min":0,"u_max":1,"v_max":1}"#;
+    let sprite_docs = [
+        format!("{{{base},\"texture_id\":42,\"z_order\":-3,{uvs}}}"),
+        format!("{{{base},\"texture_id\":-1,\"z_order\":0,{uvs}}}"),
+        format!("{{{base},\"texture_id\":1.0,\"z_order\":0,{uvs}}}"),
+        format!("{{{base},\"texture_id\":0,\"z_order\":2147483647,{uvs}}}"),
+        format!("{{{base},\"texture_id\":0,\"z_order\":2147483648,{uvs}}}"),
+        format!("{{{base},\"texture_id\":0,\"z_order\":-2147483648,{uvs}}}"),
+        format!("{{{base},\"texture_id\":0,\"z_order\":-2147483649,{uvs}}}"),
+        format!("{{{base},\"texture_id\":0,\"z_order\":0.0,{uvs}}}"),
+        format!("{{{base},\"texture_id\":9223372036854775807,\"z_order\":0,{uvs},\"extra\":[]}}"),
+        format!("{{{base},\"texture_id\":0,\"z_order\":0}}"),
+        r#"{"x":1,"y":2,"width":3,"height":4,"rotation":0,"color":[1,0.5,0.25,1],"texture_id":7,"z_order":1,"uv":[0,0,1,1]}"#.to_string(),
+        r#"[1,2,3,4,0,{"r":1,"g":1,"b":1,"a":1},7,8,[0,0,1,1]]"#.to_string(),
+        r#"[1,2,3,4,0,{"r":1,"g":1,"b":1,"a":1},7,8]"#.to_string(),
+    ];
+    for (i, doc) in sprite_docs.iter().enumerate() {
+        m.row(
+            "Sprite::from_json",
+            'A',
+            &Toks::new().s(doc),
+            &decode_sprite(doc),
+            &format!("hand-written document {i}"),
+        );
+    }
+    let big = format!("{{{base},\"texture_id\":18446744073709551615,\"z_order\":0,{uvs}}}");
+    m.row(
+        "Sprite::from_json_bayan_above_i64",
+        'A',
+        &Toks::new().s(&big),
+        &decode_sprite(&big),
+        "a texture_id above i64::MAX",
+    );
 
     // Documents serde_json reads and bayan's tree can't: rows of their own, pending until bayan changes (pravash's
     // `*_bayan_*` rows; ADR 0002 #19).

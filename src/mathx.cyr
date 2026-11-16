@@ -123,3 +123,40 @@ fn _sr_i64_to_f32(n): i64 {
     }
     return sign | ((e + 127) << 23) | (mant & 0x7FFFFF);
 }
+
+# Sorts the n i64 at a ascending, in place (heapsort: O(n log n), no recursion, no allocation). Not stable on its
+# own; a caller that needs a stable order makes every key unique by putting the original index in the low bits
+# (SrSpriteBatch_sort_by_z), which is what Rust's stable `sort_by_key` gives.
+fn _sr_sort_i64(a, n) {
+    if (n < 2) { return 0; }
+    var start = n / 2 - 1;
+    while (start >= 0) {
+        _sr_sift_i64(a, start, n);
+        start = start - 1;
+    }
+    var end = n - 1;
+    while (end > 0) {
+        var t = load64(a);
+        store64(a, load64(a + end * 8));
+        store64(a + end * 8, t);
+        _sr_sift_i64(a, 0, end);
+        end = end - 1;
+    }
+    return 0;
+}
+
+# Sifts a[root] down the max-heap of the first n i64 at a.
+fn _sr_sift_i64(a, root, n) {
+    var r = root;
+    while (1 == 1) {
+        var child = r * 2 + 1;
+        if (child >= n) { return 0; }
+        if (child + 1 < n && load64(a + (child + 1) * 8) > load64(a + child * 8)) { child = child + 1; }
+        if (load64(a + r * 8) >= load64(a + child * 8)) { return 0; }
+        var t = load64(a + r * 8);
+        store64(a + r * 8, load64(a + child * 8));
+        store64(a + child * 8, t);
+        r = child;
+    }
+    return 0;
+}

@@ -94,6 +94,9 @@ EXTRA = {
     "tables/srgb_to_linear": "M1: sRGB decode, f32 with a correctly rounded pow; no Rust bench (environment, M4)",
     "tables/linear_to_srgb": "M1: sRGB encode, f32 with a correctly rounded pow; no Rust bench (environment, M4)",
     "tables/srgb8_decode": "M1: a decode-table lookup (the generated table); no Rust bench (environment, M4)",
+    # The real sprite → quad expansion (M2 part a); Rust's quad_generation_100 times a hand loop instead.
+    "batch/to_vertices_100": "M2: sr_batch_to_vertices_into on 100 unrotated sprites; no Rust bench (cf. vertex/quad_generation_100)",
+    "batch/to_vertices_100_rotated": "M2: the same with each sprite rotated (sin and cos per sprite); no Rust bench",
     # Color's serde and optics halves (M1 part b2) have no Rust bench.
     "json/color_to_json": "M1: Color's serde document, written (bayan's round-trip digits); no Rust bench",
     "json/color_from_json": "M1: a serde_json Color document, read (bayan's value tree); no Rust bench",

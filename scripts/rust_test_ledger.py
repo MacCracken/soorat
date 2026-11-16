@@ -83,7 +83,7 @@ FILES = {
     "src/texture.rs": ("M6", ["tests/texture.tcyr"]),
     "src/render_target.rs": ("M6", ["tests/render_target.tcyr"]),
     "src/compute.rs": ("M6", ["tests/compute.tcyr"]),
-    "src/pipeline.rs": ("M6", ["tests/sprite_pipeline.tcyr"]),
+    "src/pipeline.rs": ("M6", ["tests/batch.tcyr", "tests/sprite_pipeline.tcyr"]),
     "src/mesh_pipeline.rs": ("M6", ["tests/mesh_pipeline.tcyr"]),
     "src/gpu.rs": ("M6", []),
     "src/hdr.rs": ("M8", ["tests/hdr.tcyr"]),
@@ -118,6 +118,24 @@ TEST_MILESTONE = {
     ("src/instancing.rs", "instance_data_translation"): "M6",
     ("src/instancing.rs", "instance_data_layout"): "M6",
     ("src/instancing.rs", "instance_data_batch_cast"): "M6",
+    # pipeline.rs's batch tests (M2 part a): pipeline re-exports batch.rs's functions and tests them
+    # (tests/batch.tcyr). Its orthographic projection and frame stats are the GPU sprite pipeline's (M6).
+    ("src/pipeline.rs", "batch_to_vertices_empty"): "M2",
+    ("src/pipeline.rs", "batch_to_vertices_single_sprite"): "M2",
+    ("src/pipeline.rs", "batch_to_vertices_rotated_sprite"): "M2",
+    ("src/pipeline.rs", "batch_to_vertices_zero_rotation_matches_unrotated"): "M2",
+    ("src/pipeline.rs", "batch_to_vertices_multiple_sprites"): "M2",
+    ("src/pipeline.rs", "batch_to_vertices_preserves_color"): "M2",
+    ("src/pipeline.rs", "batch_to_vertices_tex_coords"): "M2",
+    ("src/pipeline.rs", "batch_to_vertices_into_reuses_buffers"): "M2",
+    ("src/pipeline.rs", "batch_to_vertices_with_uv"): "M2",
+    ("src/pipeline.rs", "batch_to_vertices_into_matches_batch_to_vertices"): "M2",
+    ("src/pipeline.rs", "max_sprites_constant"): "M2",
+    ("src/pipeline.rs", "batch_u32_overflow_protection"): "M2",
+    ("src/pipeline.rs", "batch_to_vertices_respects_limit"): "M2",
+    ("src/pipeline.rs", "batch_to_vertices_u32_no_limit"): "M2",
+    ("src/pipeline.rs", "batch_to_vertices_u32_matches_u16_for_small"): "M2",
+    ("src/pipeline.rs", "batch_to_vertices_at_exact_limit"): "M2",
     # debug_draw's line pipeline half (M6): the wgpu vertex-buffer layout descriptor.
     ("src/debug_draw.rs", "line_vertex_layout"): "M6",
     # environment's f16 and sRGB conversions (M1 part d, src/tables.cyr, tests/tables.tcyr).

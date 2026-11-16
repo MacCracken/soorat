@@ -1,7 +1,9 @@
-# integration.tcyr — the ported tests of Rust 1.2.0's tests/integration.rs. M1: the three that use colours and
-# vertices. The rest use sprites and batches (M2), the texture cache (M6) and the window configuration (M9).
+# integration.tcyr — the ported tests of Rust 1.2.0's tests/integration.rs: M1's three (colours and vertices) and M2's
+# seven (sprites and batches; the serde round trip through src/json.cyr). The texture cache (M6) and the window
+# configuration (M9) come later.
 
 include "tests/lib.cyr"
+include "src/json.cyr"
 include "tests/support.cyr"
 
 # Runs the ported integration tests.
@@ -32,6 +34,133 @@ fn main() {
     t_set4(vp, 0x41200000, 0x41A00000, 0, 0);
     SrColor_to_array(c, vp + 16);
     assert(t_arr_eq(vp + 16, c, 4) == 1, "color = c.to_array()");
+
+    # ── M2 ─────────────────────────────────────────────────────────────────────────────
+    var sp = alloc(_SR_SPRITE_SIZE);
+    var col = alloc(16);
+
+    test_group("sprite_workflow");
+    var b = SrSpriteBatch_new();
+    var i = 0;
+    while (i < 10) {
+        SrSprite_new(f32_from(f64_from(i * 50)), 0x42C80000, 0x42000000, 0x42000000, sp);
+        SrSprite_with_z_order(SrSprite_with_color(sp, SrColor_from_rgba8(255, i * 25, 0, 255, col)), 10 - i);
+        SrSpriteBatch_push(b, sp);
+        i = i + 1;
+    }
+    assert_eq(SrSpriteBatch_len(b), 10, "10 sprites");
+    SrSpriteBatch_sort_by_z(b);
+    var z0 = load64(SrSpriteBatch_get(b, 0) + _SR_SP_Z);
+    var z9 = load64(SrSpriteBatch_get(b, 9) + _SR_SP_Z);
+    assert(z0 == 1 && z9 == 10, "1 … 10");
+
+    test_group("sprite_batch_serde_roundtrip");
+    SrSprite_new(0x41200000, 0x41A00000, 0x42800000, 0x42800000, sp);
+    SrSprite_with_z_order(SrSprite_with_texture(SrSprite_with_rotation(SrSprite_with_color(sp,
+            SrColor_from_hex(0x336699FF, col)), 0x3FC8F5C3), 42), 3);
+    var sb = str_builder_new();
+    var rc = SrSprite_to_json(sp, sb);
+    var js = str_builder_build(sb);
+    var sback = alloc(_SR_SPRITE_SIZE);
+    var jt, jv = SrSprite_from_json(str_data(js), str_len(js), sback);
+    assert(rc == 0 && is_ok(jt) == 1 && memeq(sp, sback, _SR_SPRITE_SIZE) == 1, "the same sprite");
+
+    # The quad Rust's test builds by hand from the sprite's bounds, as Vertex2D bytes (128 of them).
+    test_group("sprite_to_vertex_quad");
+    SrSprite_with_color(SrSprite_new(0x42C80000, 0x43480000, 0x42480000, 0x41F00000, sp), SR_COLOR_RED);
+    var bnd = SrSprite_bounds(sp, alloc(16));
+    var verts = alloc(4 * sizeof(SrVertex2D));
+    t_set4(verts, load32(bnd), load32(bnd + 4), 0, 0);
+    t_set4(verts + 64, load32(bnd + 8), load32(bnd + 12), 0x3F800000, 0x3F800000);
+    assert(load32(verts) == load32(bnd) && load32(verts + 4) == load32(bnd + 4), "corner 0 = (min_x, min_y)");
+    var c2 = load32(verts + 64) == load32(bnd + 8) && load32(verts + 68) == load32(bnd + 12);
+    assert(c2, "corner 2 = (max_x, max_y)");
+    assert_eq(4 * sizeof(SrVertex2D), 32 * 4, "128 bytes");
+
+    test_group("batch_sort_preserves_all_sprites");
+    var b50 = SrSpriteBatch_new();
+    i = 0;
+    while (i < 50) {
+        SrSpriteBatch_push(b50, SrSprite_with_texture(SrSprite_with_z_order(SrSprite_new(f32_from(f64_from(i)), 0,
+                0x41200000, 0x41200000, sp), 50 - i), i));
+        i = i + 1;
+    }
+    SrSpriteBatch_sort_by_z(b50);
+    assert_eq(SrSpriteBatch_len(b50), 50, "50 sprites");
+    var seen = alloc(50);
+    memset(seen, 0, 50);
+    i = 0;
+    while (i < 50) {
+        var tid = load64(SrSpriteBatch_get(b50, i) + _SR_SP_TEX);
+        if (tid >= 0 && tid < 50) { store8(seen + tid, 1); }
+        i = i + 1;
+    }
+    var all = 1;
+    i = 0;
+    while (i < 50) {
+        if (load8(seen + i) != 1) { all = 0; }
+        i = i + 1;
+    }
+    assert(all == 1, "every texture id 0 … 49 is still there");
+
+    test_group("pipeline_batch_to_vertices_integration");
+    var arena = arena_allocator_growable(1 << 20);
+    var q = alloc(sizeof(SrQuadData));
+    var b10 = SrSpriteBatch_with_capacity(10);
+    i = 0;
+    while (i < 10) {
+        SrSprite_new(f32_from(f64_from(i * 50)), 0x42C80000, 0x42000000, 0x42000000, sp);
+        SrSprite_with_z_order(SrSprite_with_color(sp, SrColor_from_rgba8(255, i * 25, 0, 255, col)), 10 - i);
+        SrSpriteBatch_push(b10, sp);
+        i = i + 1;
+    }
+    SrSpriteBatch_sort_by_z(b10);
+    sr_batch_to_vertices(b10, arena, q);
+    assert(load64(q + 8) == 40 && load64(q + 24) == 60, "40 vertices, 60 indices");
+    var inr = 1;
+    i = 0;
+    while (i < 60) {
+        if ((load16(load64(q + 16) + i * 2) & 0xFFFF) >= 40) { inr = 0; }
+        i = i + 1;
+    }
+    assert(inr == 1, "every index in range");
+    assert_eq(load64(q + 8) * sizeof(SrVertex2D), 32 * 40, "1280 bytes");
+
+    test_group("pipeline_index_pattern");
+    var b3 = SrSpriteBatch_new();
+    SrSpriteBatch_push(b3, SrSprite_new(0, 0, 0x41200000, 0x41200000, sp));
+    SrSpriteBatch_push(b3, SrSprite_new(0x41A00000, 0, 0x41200000, 0x41200000, sp));
+    SrSpriteBatch_push(b3, SrSprite_new(0x42200000, 0, 0x41200000, 0x41200000, sp));
+    sr_batch_to_vertices(b3, arena, q);
+    var ix = load64(q + 16);
+    var pat = 1;
+    i = 0;
+    while (i < 3) {
+        var bse = i * 4;
+        var p = ix + i * 12;
+        if (load16(p) != bse || load16(p + 2) != bse + 1 || load16(p + 4) != bse + 2) { pat = 0; }
+        if (load16(p + 6) != bse + 2 || load16(p + 8) != bse + 3 || load16(p + 10) != bse) { pat = 0; }
+        i = i + 1;
+    }
+    assert(pat == 1, "base+0, +1, +2, +2, +3, +0 per quad");
+
+    test_group("pipeline_overflow_protection");
+    var bo = SrSpriteBatch_new();
+    i = 0;
+    while (i < SR_MAX_SPRITES_PER_BATCH + 100) {
+        SrSpriteBatch_push(bo, SrSprite_new(f32_from(f64_from(i)), 0, 0x3F800000, 0x3F800000, sp));
+        i = i + 1;
+    }
+    sr_batch_to_vertices(bo, arena, q);
+    assert(load64(q + 8) == SR_MAX_SPRITES_PER_BATCH * 4 && load64(q + 24) == SR_MAX_SPRITES_PER_BATCH * 6, "clamped");
+    var mx = 0;
+    i = 0;
+    while (i < load64(q + 24)) {
+        var vi = load16(load64(q + 16) + i * 2) & 0xFFFF;
+        if (vi > mx) { mx = vi; }
+        i = i + 1;
+    }
+    assert(mx < 65535, "no u16 overflow");
 
     return assert_summary();
 }

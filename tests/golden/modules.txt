@@ -7,4 +7,5 @@ color_optics
 lights
 lod
 tables
+sprite
 json

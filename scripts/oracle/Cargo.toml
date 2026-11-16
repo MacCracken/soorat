@@ -15,6 +15,8 @@ description = "Writes soorat's golden corpus (tests/golden/*.tsv) from the froze
 soorat = { path = "../../rust-old", features = ["oracle", "optics"] }
 prakash = "=1.2.0"
 serde_json = "=1.0.154"
+# bytemuck: the vertex bytes the `*_digest` rows hash, as rust-old casts them (its own dependency, at its version).
+bytemuck = "=1.25.2"
 
 [profile.release]
 overflow-checks = true

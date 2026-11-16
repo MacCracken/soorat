@@ -638,3 +638,39 @@ These run at setup, not per frame. The first full run of the three read slow aga
   nothing called it. So serde is the `[lib.serde]` profile, and bayan a test leaf.
 - **`fn f(): Option` returns `Some(v)` or `None()`**; the caller binds both halves (`var t, v = f(…)`), as for a
   Result.
+
+## 3. M2: 2D (part a, 2026-11-15)
+
+### 3.1 Parity
+
+| Module | Rows | Classes | Result |
+|---|---|---|---|
+| `sprite` | 638 | A, B, C | all identical but one row: the rotated batch where glibc's `sinf`/`cosf` misround gives the correctly rounded corners (`sprite.cr.tsv`). `center`/`bounds` are identical even with class B held to exact bits. Batches of 16,382, 16,383, 16,384 and 16,483 sprites (u16) and 16,384 and 70,000 (u32) match as FNV-1a digests of the vertex and index bytes, so the truncation at 16,383 is Rust's |
+| `json` | + 117 | A | `UvRect` and `Sprite`: serde_json's documents, and hand-written ones for serde's u64 / i32 rules (negative, float and out-of-range integers), the array forms and nested arrays; one bayan row pending (a `texture_id` above i64::MAX) |
+
+### 3.2 Speed (`taskset -c 2 cyrius bench`; two runs agreed)
+
+| Bench | Rust | Cyrius | Ratio | Plan §11 |
+|---|---|---|---|---|
+| `sprite/create` | 2.39 ns | 36.3 ns | 15.2× | 10–50× |
+| `sprite/create_full_builder` | 3.54 ns | 42.8 ns | 12.1× | 10–50× |
+| `sprite/center_bounds` | 0.25 ns | 29.8 ns | 117× | 10–50× |
+| `sprite/batch_push_100` | 837 ns | 4.74 µs | 5.66× | 4–10× |
+| `sprite/batch_push_100_prealloc` | 841 ns | 4.66 µs | 5.54× | 4–10× |
+| `sprite/batch_sort_100` | 73.6 ns | 300 ns | 4.08× | 4–10× |
+| `sprite/batch_push_1000` | 8.31 µs | 47.8 µs | 5.75× | 4–10× |
+| `sprite/batch_sort_1000` | 566 ns | 3.28 µs | 5.80× | 4–10× |
+| `vertex/quad_generation_100` | 634 ns | 5.55 µs | 8.76× | 4–10× |
+
+- `center_bounds` is outside the band. Rust's 0.25 ns for two calls is less than a cycle, so criterion's loop has
+  hoisted the work out; the Cyrius figure is two calls of real work.
+- Both sort benches re-sort a sorted batch after their first iteration, and Rust's sort is adaptive. The port's
+  sorted-input check gives the same behaviour: one pass, no scratch.
+- The real expansion, `sr_batch_to_vertices_into` (extras), is 8.8 µs for 100 unrotated sprites and 15.5 µs rotated
+  (sin and cos per sprite).
+
+### 3.3 What part a taught
+
+- **A pointer stored past a header must be freed at the header.** The sort's keys array is `block + 8` (the first
+  word records its capacity), and `SrSpriteBatch_drop` first freed the inner pointer. The unit tests passed (nothing
+  allocated after the bad free); the golden replay, which builds and drops hundreds of batches, crashed.

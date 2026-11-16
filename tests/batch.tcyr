@@ -1,0 +1,214 @@
+# batch.tcyr — the ported `batch_to_vertices` tests of Rust 1.2.0's src/pipeline.rs (M2 part a): 16 of its 18.
+# pipeline.rs re-exports batch.rs's functions and tests them; `orthographic_projection_values` and
+# `frame_stats_default` belong to the GPU sprite pipeline (M6). The allocating forms take a frame arena here
+# (ADR 0002 #6); `_into` writes into caller buffers. The golden rows are tests/golden/sprite.tsv's.
+
+include "tests/lib.cyr"
+include "tests/support.cyr"
+
+var A = 0;
+var Q = 0;
+var S = 0;
+
+# The f32 bits of the integer k.
+fn f(k): i64 { return f32_from(f64_from(k)); }
+
+# A batch of n sprites Sprite::new(i, 0, 1, 1).
+fn ladder(n): i64 {
+    var b = SrSpriteBatch_with_capacity(n);
+    var i = 0;
+    while (i < n) {
+        SrSpriteBatch_push(b, SrSprite_new(f(i), 0, f(1), f(1), S));
+        i = i + 1;
+    }
+    return b;
+}
+
+# Vertex v's position x (k = 0) or y (k = 1), widened, of the quad data's vertices.
+fn pos(v, k): f64 {
+    var x: f64 = f32_to(load32(load64(Q) + v * 32 + k * 4));
+    return x;
+}
+
+# 1 when every u16 index of the quad data is below the vertex count.
+fn indices_in_range16(): i64 {
+    var i = 0;
+    while (i < load64(Q + 24)) {
+        if ((load16(load64(Q + 16) + i * 2) & 0xFFFF) >= load64(Q + 8)) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+# Runs the ported batch tests.
+fn main() {
+    alloc_init();
+    A = arena_allocator_growable(1 << 20);
+    Q = alloc(sizeof(SrQuadData));
+    S = alloc(_SR_SPRITE_SIZE);
+    var eps: f64 = 0.01;
+
+    test_group("batch_to_vertices_empty");
+    var b = SrSpriteBatch_new();
+    sr_batch_to_vertices(b, A, Q);
+    assert(load64(Q + 8) == 0 && load64(Q + 24) == 0, "no vertices, no indices");
+
+    test_group("batch_to_vertices_single_sprite");
+    SrSpriteBatch_push(b, SrSprite_new(f(10), f(20), f(32), f(32), S));
+    sr_batch_to_vertices(b, A, Q);
+    assert(load64(Q + 8) == 4 && load64(Q + 24) == 6, "4 vertices, 6 indices");
+    var ib = load64(Q + 16);
+    assert(load16(ib) == 0 && load16(ib + 2) == 1 && load16(ib + 4) == 2 && load16(ib + 6) == 2, "0 1 2 2 …");
+    assert(load16(ib + 8) == 3 && load16(ib + 10) == 0, "… 3 0");
+    assert(pos(0, 0) == 10.0 && pos(0, 1) == 20.0, "(10, 20)");
+    assert(pos(1, 0) == 42.0 && pos(1, 1) == 20.0, "(42, 20)");
+    assert(pos(2, 0) == 42.0 && pos(2, 1) == 52.0, "(42, 52)");
+    assert(pos(3, 0) == 10.0 && pos(3, 1) == 52.0, "(10, 52)");
+
+    test_group("batch_to_vertices_rotated_sprite");
+    SrSpriteBatch_clear(b);
+    SrSpriteBatch_push(b, SrSprite_with_rotation(SrSprite_new(0, 0, f(100), f(100), S), 0x3FC90FDB));
+    sr_batch_to_vertices(b, A, Q);
+    var hundred: f64 = 100.0;
+    var zero: f64 = 0.0;
+    assert(t_near(pos(0, 0), hundred, eps) == 1 && t_near(pos(0, 1), zero, eps) == 1, "corner 0 -> (100, 0)");
+    assert(t_near(pos(2, 0), zero, eps) == 1 && t_near(pos(2, 1), hundred, eps) == 1, "corner 2 -> (0, 100)");
+
+    test_group("batch_to_vertices_zero_rotation_matches_unrotated");
+    var ba = SrSpriteBatch_new();
+    var bb = SrSpriteBatch_new();
+    SrSpriteBatch_push(ba, SrSprite_new(f(10), f(20), f(50), f(30), S));
+    SrSpriteBatch_push(bb, SrSprite_with_rotation(SrSprite_new(f(10), f(20), f(50), f(30), S), 0));
+    var va = alloc(128);
+    var vb = alloc(128);
+    var ix = alloc(24);
+    sr_batch_to_vertices_into(ba, va, ix);
+    sr_batch_to_vertices_into(bb, vb, ix);
+    assert(memeq(va, vb, 128) == 1, "identical vertices");
+
+    test_group("batch_to_vertices_multiple_sprites");
+    SrSpriteBatch_clear(b);
+    SrSpriteBatch_push(b, SrSprite_new(0, 0, f(10), f(10), S));
+    SrSpriteBatch_push(b, SrSprite_new(f(50), f(50), f(20), f(20), S));
+    sr_batch_to_vertices(b, A, Q);
+    assert(load64(Q + 8) == 8 && load64(Q + 24) == 12, "8 vertices, 12 indices");
+    ib = load64(Q + 16);
+    assert(load16(ib + 12) == 4 && load16(ib + 14) == 5 && load16(ib + 16) == 6 && load16(ib + 22) == 4,
+      "the second quad's indices start at 4");
+
+    test_group("batch_to_vertices_preserves_color");
+    SrSpriteBatch_clear(b);
+    SrSpriteBatch_push(b, SrSprite_with_color(SrSprite_new(0, 0, f(10), f(10), S), SR_COLOR_RED));
+    sr_batch_to_vertices(b, A, Q);
+    var v = 0;
+    while (v < 4) {
+        assert(t_arr_eq(load64(Q) + v * 32 + 16, SR_COLOR_RED, 4) == 1, "red");
+        v = v + 1;
+    }
+
+    test_group("batch_to_vertices_tex_coords");
+    SrSpriteBatch_clear(b);
+    SrSpriteBatch_push(b, SrSprite_new(0, 0, f(10), f(10), S));
+    sr_batch_to_vertices(b, A, Q);
+    var vt = load64(Q);
+    assert(load32(vt + 8) == 0 && load32(vt + 12) == 0, "(0, 0)");
+    assert(load32(vt + 40) == 0x3F800000 && load32(vt + 44) == 0, "(1, 0)");
+    assert(load32(vt + 72) == 0x3F800000 && load32(vt + 76) == 0x3F800000, "(1, 1)");
+    assert(load32(vt + 104) == 0 && load32(vt + 108) == 0x3F800000, "(0, 1)");
+
+    # Rust refills the caller's Vecs; here the caller's buffers, sized by sr_batch_sprite_count.
+    test_group("batch_to_vertices_into_reuses_buffers");
+    var vbuf = alloc(8 * 32);
+    var ibuf = alloc(12 * 2);
+    SrSpriteBatch_clear(b);
+    SrSpriteBatch_push(b, SrSprite_new(0, 0, f(10), f(10), S));
+    assert_eq(sr_batch_to_vertices_into(b, vbuf, ibuf), 1, "1 sprite: 4 vertices, 6 indices");
+    SrSpriteBatch_push(b, SrSprite_new(f(20), 0, f(10), f(10), S));
+    assert_eq(sr_batch_sprite_count(b, 0), 2, "the same buffers hold 2");
+    assert_eq(sr_batch_to_vertices_into(b, vbuf, ibuf), 2, "2 sprites: 8 vertices, 12 indices");
+
+    test_group("batch_to_vertices_with_uv");
+    var uv = SrUvRect_from_pixel_rect(0, 0, 16, 16, 64, 64, alloc(16));
+    SrSpriteBatch_clear(b);
+    SrSpriteBatch_push(b, SrSprite_with_uv(SrSprite_new(0, 0, f(32), f(32), S), uv));
+    sr_batch_to_vertices(b, A, Q);
+    vt = load64(Q);
+    assert(load32(vt + 8) == load32(uv) && load32(vt + 12) == load32(uv + 4), "(u_min, v_min)");
+    assert(load32(vt + 40) == load32(uv + 8) && load32(vt + 44) == load32(uv + 4), "(u_max, v_min)");
+    assert(load32(vt + 72) == load32(uv + 8) && load32(vt + 76) == load32(uv + 12), "(u_max, v_max)");
+    assert(load32(vt + 104) == load32(uv) && load32(vt + 108) == load32(uv + 12), "(u_min, v_max)");
+
+    test_group("batch_to_vertices_into_matches_batch_to_vertices");
+    SrSpriteBatch_clear(b);
+    var i = 0;
+    while (i < 10) {
+        SrSpriteBatch_push(b, SrSprite_with_color(SrSprite_new(f(i * 10), 0, f(32), f(32), S), SR_COLOR_RED));
+        i = i + 1;
+    }
+    sr_batch_to_vertices(b, A, Q);
+    var v10 = alloc(10 * 128);
+    var i10 = alloc(10 * 12);
+    sr_batch_to_vertices_into(b, v10, i10);
+    assert(memeq(load64(Q), v10, 1280) == 1 && memeq(load64(Q + 16), i10, 120) == 1, "identical");
+
+    test_group("max_sprites_constant");
+    assert_eq(SR_MAX_SPRITES_PER_BATCH, 16383, "16383");
+
+    test_group("batch_u32_overflow_protection");
+    var b100 = ladder(100);
+    sr_batch_to_vertices_u32(b100, A, Q);
+    assert(load64(Q + 8) == 400 && load64(Q + 24) == 600, "400 vertices, 600 indices");
+    var ok = 1;
+    i = 0;
+    while (i < 600) {
+        if ((load32(load64(Q + 16) + i * 4) & 0xFFFFFFFF) >= 400) { ok = 0; }
+        i = i + 1;
+    }
+    assert(ok == 1, "every index valid");
+
+    test_group("batch_to_vertices_respects_limit");
+    var big = ladder(16400);
+    sr_batch_to_vertices(big, A, Q);
+    assert(load64(Q + 8) == 16383 * 4 && load64(Q + 24) == 16383 * 6, "clamped to the limit");
+    assert(indices_in_range16() == 1, "every index a valid u16 below the vertex count");
+
+    test_group("batch_to_vertices_u32_no_limit");
+    var b20k = ladder(20000);
+    sr_batch_to_vertices_u32(b20k, A, Q);
+    assert(load64(Q + 8) == 80000 && load64(Q + 24) == 120000, "not clamped");
+
+    test_group("batch_to_vertices_u32_matches_u16_for_small");
+    var b10 = SrSpriteBatch_new();
+    i = 0;
+    while (i < 10) {
+        SrSpriteBatch_push(b10, SrSprite_new(f(i), 0, f(32), f(32), S));
+        i = i + 1;
+    }
+    var w16 = alloc(1280);
+    var w32 = alloc(1280);
+    var x16 = alloc(120);
+    var x32 = alloc(240);
+    sr_batch_to_vertices_into(b10, w16, x16);
+    sr_batch_to_vertices_u32_into(b10, w32, x32);
+    assert(memeq(w16, w32, 1280) == 1, "the same vertices");
+    ok = 1;
+    i = 0;
+    while (i < 60) {
+        if ((load16(x16 + i * 2) & 0xFFFF) != (load32(x32 + i * 4) & 0xFFFFFFFF)) { ok = 0; }
+        i = i + 1;
+    }
+    assert(ok == 1, "the same index values");
+
+    test_group("batch_to_vertices_at_exact_limit");
+    var lim = ladder(16383);
+    sr_batch_to_vertices(lim, A, Q);
+    assert(load64(Q + 8) == 16383 * 4 && load64(Q + 24) == 16383 * 6, "every sprite");
+    var last = load16(load64(Q + 16) + (16383 * 6 - 1) * 2) & 0xFFFF;
+    assert(last < 65535, "the last index is a valid u16");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

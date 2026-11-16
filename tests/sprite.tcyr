@@ -1,0 +1,182 @@
+# sprite.tcyr — the ported tests of Rust 1.2.0's src/sprite.rs (M2 part a), all 15; the two serde tests go through
+# src/json.cyr (the serde profile). The golden rows (tests/golden/sprite.tsv, json.tsv) are replayed by
+# tests/parity.tcyr.
+
+include "tests/lib.cyr"
+include "src/json.cyr"
+include "tests/support.cyr"
+
+# The f32 bits of the integer k.
+fn f(k): i64 { return f32_from(f64_from(k)); }
+
+# The z-order of sprite i of b.
+fn z_at(b, i): i64 { return load64(SrSpriteBatch_get(b, i) + _SR_SP_Z); }
+
+# Runs the ported sprite tests.
+fn main() {
+    alloc_init();
+    var uv = alloc(16);
+    var c8 = alloc(32);
+    var s = alloc(_SR_SPRITE_SIZE);
+    var out = alloc(16);
+    var zero: f64 = 0.0;
+    var eps: f64 = f32_to(0x34000000);
+
+    test_group("uv_rect_default");
+    SrUvRect_default(uv);
+    assert(t_arr_eq(uv, SR_UV_RECT_FULL, 4) == 1, "default = FULL");
+    SrUvRect_corners(uv, c8);
+    assert(load32(c8) == 0 && load32(c8 + 8) == 0x3F800000 && load32(c8 + 20) == 0x3F800000, "corners");
+    assert(load32(c8 + 24) == 0 && load32(c8 + 28) == 0x3F800000, "bottom-left (0, 1)");
+
+    test_group("uv_rect_from_pixel_rect");
+    SrUvRect_from_pixel_rect(64, 0, 32, 32, 256, 256, uv);
+    var q: f64 = 0.25;
+    assert(t_near(t_f(uv, 0), q, eps) == 1, "u_min 0.25");
+    assert(t_eq_at(uv, 1, zero) == 1, "v_min 0");
+    var tq: f64 = 0.375;
+    assert(t_near(t_f(uv, 2), tq, eps) == 1, "u_max 0.375");
+    var e8: f64 = 0.125;
+    assert(t_near(t_f(uv, 3), e8, eps) == 1, "v_max 0.125");
+
+    test_group("uv_rect_serde");
+    SrUvRect_from_pixel_rect(10, 20, 30, 40, 100, 100, uv);
+    var sb = str_builder_new();
+    assert_eq(SrUvRect_to_json(uv, sb), 0, "written");
+    var js = str_builder_build(sb);
+    var back = alloc(16);
+    var jt, jv = SrUvRect_from_json(str_data(js), str_len(js), back);
+    assert(is_ok(jt) == 1 && t_arr_eq(uv, back, 4) == 1, "read back equal");
+
+    test_group("sprite_with_uv");
+    SrUvRect_from_pixel_rect(0, 0, 16, 16, 64, 64, uv);
+    SrSprite_with_uv(SrSprite_new(0, 0, f(32), f(32), s), uv);
+    assert(t_arr_eq(s + _SR_SP_UV, uv, 4) == 1, "uv set");
+
+    test_group("sprite_default");
+    SrSprite_default(s);
+    assert(t_eq_at(s + _SR_SP_X, 0, zero) == 1, "x 0");
+    assert(t_eq_at(s + _SR_SP_W, 0, 64.0) == 1, "width 64");
+    assert(t_arr_eq(s + _SR_SP_COLOR, SR_COLOR_WHITE, 4) == 1, "white");
+    assert_eq(load64(s + _SR_SP_Z), 0, "z 0");
+    assert(t_arr_eq(s + _SR_SP_UV, SR_UV_RECT_FULL, 4) == 1, "full texture");
+
+    test_group("sprite_builder");
+    SrSprite_new(f(10), f(20), f(32), f(32), s);
+    SrSprite_with_z_order(SrSprite_with_texture(SrSprite_with_rotation(SrSprite_with_color(s, SR_COLOR_RED),
+          0x3FC8F5C3), 42), 5);
+    assert(t_eq_at(s + _SR_SP_X, 0, 10.0) == 1, "x 10");
+    assert(t_arr_eq(s + _SR_SP_COLOR, SR_COLOR_RED, 4) == 1, "red");
+    assert_eq(load32(s + _SR_SP_ROT), 0x3FC8F5C3, "rotation 1.57f32");
+    assert_eq(load64(s + _SR_SP_TEX), 42, "texture 42");
+    assert_eq(load64(s + _SR_SP_Z), 5, "z 5");
+
+    test_group("sprite_center");
+    SrSprite_center(SrSprite_new(f(100), f(200), f(50), f(30), s), out);
+    assert(t_eq_at(out, 0, 125.0) == 1 && t_eq_at(out, 1, 215.0) == 1, "(125, 215)");
+
+    test_group("sprite_bounds");
+    SrSprite_bounds(SrSprite_new(f(10), f(20), f(100), f(50), s), out);
+    assert(t_eq_at(out, 0, 10.0) == 1 && t_eq_at(out, 1, 20.0) == 1, "min (10, 20)");
+    assert(t_eq_at(out, 2, 110.0) == 1 && t_eq_at(out, 3, 70.0) == 1, "max (110, 70)");
+
+    test_group("sprite_serde");
+    SrSprite_with_color(SrSprite_new(f(1), f(2), f(3), f(4), s), SR_COLOR_BLUE);
+    var sb2 = str_builder_new();
+    assert_eq(SrSprite_to_json(s, sb2), 0, "written");
+    var js2 = str_builder_build(sb2);
+    var s2 = alloc(_SR_SPRITE_SIZE);
+    var st, sv = SrSprite_from_json(str_data(js2), str_len(js2), s2);
+    assert(is_ok(st) == 1 && memeq(s, s2, _SR_SPRITE_SIZE) == 1, "read back equal");
+
+    test_group("sprite_batch");
+    var b = SrSpriteBatch_new();
+    assert(SrSpriteBatch_is_empty(b) == 1, "empty");
+    SrSpriteBatch_push(b, SrSprite_with_z_order(SrSprite_new(0, 0, f(10), f(10), s), 2));
+    SrSpriteBatch_push(b, SrSprite_with_z_order(SrSprite_new(0, 0, f(10), f(10), s), 0));
+    SrSpriteBatch_push(b, SrSprite_with_z_order(SrSprite_new(0, 0, f(10), f(10), s), 1));
+    assert_eq(SrSpriteBatch_len(b), 3, "3 sprites");
+    SrSpriteBatch_sort_by_z(b);
+    assert(z_at(b, 0) == 0 && z_at(b, 1) == 1 && z_at(b, 2) == 2, "sorted");
+    SrSpriteBatch_clear(b);
+    assert(SrSpriteBatch_is_empty(b) == 1, "cleared");
+    SrSpriteBatch_drop(b);
+
+    test_group("sprite_negative_dimensions");
+    SrSprite_new(f(10), f(20), f(0 - 32), f(0 - 16), s);
+    assert(t_eq_at(s + _SR_SP_W, 0, f32_to(f(0 - 32))) == 1, "width -32");
+    SrSprite_center(s, out);
+    assert(t_eq_at(out, 0, f32_to(f(0 - 6))) == 1 && t_eq_at(out, 1, f32_to(f(12))) == 1, "centre (-6, 12)");
+
+    test_group("batch_sort_stability");
+    b = SrSpriteBatch_new();
+    var k = 1;
+    while (k <= 3) {
+        SrSpriteBatch_push(b, SrSprite_with_z_order(SrSprite_new(f(k), 0, f(10), f(10), s), 0));
+        k = k + 1;
+    }
+    SrSpriteBatch_sort_by_z(b);
+    assert(load32(SrSpriteBatch_get(b, 0) + _SR_SP_X) == f(1) && load32(SrSpriteBatch_get(b, 2) + _SR_SP_X) == f(3),
+      "equal z keep their order");
+    SrSpriteBatch_drop(b);
+
+    test_group("batch_with_capacity");
+    b = SrSpriteBatch_with_capacity(100);
+    assert(SrSpriteBatch_is_empty(b) == 1, "empty");
+    assert(load64(b + 16) >= 100, "capacity >= 100");
+    SrSpriteBatch_drop(b);
+
+    test_group("batch_1000_sprites");
+    b = SrSpriteBatch_new();
+    var i = 0;
+    while (i < 1000) {
+        SrSpriteBatch_push(b, SrSprite_with_z_order(SrSprite_new(f(i), 0, f(10), f(10), s), 1000 - i));
+        i = i + 1;
+    }
+    assert_eq(SrSpriteBatch_len(b), 1000, "1000 sprites");
+    SrSpriteBatch_sort_by_z(b);
+    assert(z_at(b, 0) == 1 && z_at(b, 999) == 1000, "1 … 1000");
+    SrSpriteBatch_drop(b);
+
+    test_group("uvrect_zero_atlas");
+    assert(t_arr_eq(SrUvRect_from_pixel_rect(0, 0, 10, 10, 0, 0, uv), SR_UV_RECT_FULL, 4) == 1, "0 × 0");
+    assert(t_arr_eq(SrUvRect_from_pixel_rect(0, 0, 10, 10, 0, 256, uv), SR_UV_RECT_FULL, 4) == 1, "0 wide");
+    assert(t_arr_eq(SrUvRect_from_pixel_rect(0, 0, 10, 10, 256, 0, uv), SR_UV_RECT_FULL, 4) == 1, "0 high");
+
+    # Cyrius-only: the offsets the module uses are the compiled struct's, and a sort of sorted input is a no-op.
+    test_group("cyrius: SrSprite offsets, and sorting what is sorted");
+    var t: SrSprite;
+    assert_eq(sizeof(SrSprite), _SR_SPRITE_SIZE, "68 bytes");
+    memset(&t, 0, _SR_SPRITE_SIZE);
+    t.texture_id = 7;
+    t.z_order = 8;
+    t.x = f(1);
+    t.rotation = f(2);
+    t.color.r = f(3);
+    t.uv.u_min = f(4);
+    t.uv.v_max = f(5);
+    var tp = &t;
+    assert_eq(load64(tp + _SR_SP_TEX), 7, "texture_id at 0");
+    assert_eq(load64(tp + _SR_SP_Z), 8, "z_order at 8");
+    assert_eq(load32(tp + _SR_SP_X), f(1), "x at 16");
+    assert_eq(load32(tp + _SR_SP_ROT), f(2), "rotation at 32");
+    assert_eq(load32(tp + _SR_SP_COLOR), f(3), "color at 36");
+    assert_eq(load32(tp + _SR_SP_UV), f(4), "uv at 52");
+    assert_eq(load32(tp + _SR_SP_UV + 12), f(5), "uv.v_max at 64");
+    b = SrSpriteBatch_new();
+    i = 0;
+    while (i < 50) {
+        SrSpriteBatch_push(b, SrSprite_with_z_order(SrSprite_new(f(i), 0, f(1), f(1), s), i / 7));
+        i = i + 1;
+    }
+    var before = load64(b);
+    SrSpriteBatch_sort_by_z(b);
+    assert(load64(b) == before && load64(b + 24) == 0, "sorted input: no scratch, no move");
+    SrSpriteBatch_drop(b);
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);
