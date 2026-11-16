@@ -7,7 +7,7 @@
 
 **Cyrius column:** `bench-history.csv` at the repository root (`timestamp,commit,branch,benchmark,estimate_ns`, as the Rust history), its latest run: `2026-11-16T04:46:41Z` at `ca25318+wip`, `cyrius bench` means. `scripts/bench_record.py . --append <cyrius bench log>` adds a run.
 
-**35 Rust benches:** 34 twinned, 0 not applicable, 1 pending, 0 missing. Milestones done (plan §14): M0, M1, M2, M3.
+**35 Rust benches:** 34 twinned, 0 not applicable, 1 pending, 0 missing. Milestones done (plan §14): M0, M1, M2, M3, M4.
 
 | Rust bench | Milestone | Rust 1.2.0 | Cyrius twin | Cyrius | Cyrius / Rust |
 |---|---|---:|---|---:|---:|

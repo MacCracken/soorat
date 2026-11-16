@@ -72,7 +72,9 @@ MODULE_MILESTONE = {
     # M3 Geometry and animation
     "primitives": "M3", "terrain": "M3", "viz": "M3", "animation": "M3", "gltf_loader": "M3",
     # M4 Lighting math and infrastructure (shadow's maps and passes are M7: SPLITS)
-    "shadow": "M4", "pbr_material": "M4", "render_graph": "M4", "profiler": "M4", "capabilities": "M4",
+    "shadow": "M4", "pbr_material": "M4", "render_graph": "M4",
+    # profiler and capabilities re-export mabda's types: they move to M6, where mabda becomes a dependency (M4 part d).
+    "profiler": "M6", "capabilities": "M6",
     # M5 Science visualization. em_render: D7 — if bijli 2.0 (its M7) hasn't shipped when M5 closes, move it to
     # DEFERRED_MODULES with that reason, and it follows in 2.1.0.
     "acoustic_render": "M5", "thermo_render": "M5", "fluid_render": "M5", "em_render": "M5",

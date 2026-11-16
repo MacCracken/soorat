@@ -74,8 +74,9 @@ FILES = {
     "src/environment.rs": ("M4", ["tests/tables.tcyr", "tests/env_cpu.tcyr", "tests/environment.tcyr"]),
     "src/pbr_material.rs": ("M4", ["tests/pbr_material.tcyr"]),
     "src/render_graph.rs": ("M4", ["tests/render_graph.tcyr"]),
-    "src/profiler.rs": ("M4", ["tests/profiler.tcyr"]),
-    "src/capabilities.rs": ("M4", ["tests/capabilities.tcyr"]),
+    # profiler and capabilities re-export mabda's types: M6, where mabda becomes a dependency (moved at M4 part d).
+    "src/profiler.rs": ("M6", ["tests/profiler.tcyr"]),
+    "src/capabilities.rs": ("M6", ["tests/capabilities.tcyr"]),
     "src/acoustic_render.rs": ("M5", ["tests/acoustic_render.tcyr"]),
     "src/thermo_render.rs": ("M5", ["tests/thermo_render.tcyr"]),
     "src/fluid_render.rs": ("M5", ["tests/fluid_render.tcyr"]),

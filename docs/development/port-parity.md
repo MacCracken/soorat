@@ -977,7 +977,7 @@ How far Rust's f32 sits from the f64-once value:
   threshold ± 4 ulps, every 2¹⁶th non-negative float, the knee ± 64 ulps, NaN, ±0 and ±∞. The 128² mip chain went
   from 4.97 to 1.40 ms. Scaled by texel count, six 512² faces now take about 0.13 s, down from M1's estimated 1.2 s.
 
-### 5.5 Part c: the render graph, and what part d finds in mabda
+### 5.5 Part c: the render graph; the profiler and capabilities moved to M6
 
 | Module | Rows | Class | Result |
 |---|---|---|---|
@@ -990,8 +990,9 @@ How far Rust's f32 sits from the f64-once value:
   tested.
 - **Lookup is a scan**, by length and then bytes, where Rust hashes. Ordering costs one lookup per dependency.
 
-**Part d, the profiler and capabilities.** Rust soorat re-exports Rust mabda 1.0's `FrameProfiler`, `PassTiming`,
-`ProfileScope`, `GpuTimestamps` and `GpuCapabilities`. Against mabda 4.2.0's Cyrius API:
+**The profiler and capabilities moved to M6** (decided at M4's close, 2026-11-15). Rust soorat re-exports Rust mabda
+1.0's `FrameProfiler`, `PassTiming`, `ProfileScope`, `GpuTimestamps` and `GpuCapabilities`, and mabda becomes a
+dependency at M6. What M4 found against mabda 4.2.0's Cyrius API, for M6:
 - **Capabilities: everything is there.** `gpu_caps_max_texture_2d`, `_max_uniform_buffer` and `_max_bind_groups`
   serve `meets_soorat_requirements`. `webgpu_uniform_fits` and `WEBGPU_MAX_*` serve `check_soorat_uniforms`, whose
   eight uniform sizes are in `src/layout.cyr` (M1).
@@ -1004,7 +1005,7 @@ How far Rust's f32 sits from the f64-once value:
   - no `frame_history`, `export_json` or `export_history_csv`; `ProfileScope` is `profile_begin`/`profile_end`.
 
   Four of soorat's eight profiler tests use the first two (`profiler_record_pass`, `profiler_begin_clears_passes`,
-  `pass_timing_fields`, `profiler_end_without_begin`).
+  `pass_timing_fields`, `profiler_end_without_begin`). All four gaps are filed in mabda (ledger L24).
 - **mabda is not a dependency yet.** The plan brings it in at M6, where `error`'s `From<GpuError>` waits for it.
   Probe P5 built a minimal mabda consumer at 0.72 MB through the stdlib fold and 1.52 MB through `[deps.mabda]`
   (§1.4), and the latter pulls samvada and chitra into every compile until L12 lands.
@@ -1020,3 +1021,21 @@ How far Rust's f32 sits from the f64-once value:
   does, and each call ran `strlen` over a 60-byte message that DEBUG (off by default) then dropped. It now checks the
   level first, as a disabled `tracing::debug!` does: the order went from 371 to 319 ns (two runs each), and every
   DEBUG site gains the same.
+
+### 5.7 M4's close: the milestone gate on three targets
+
+§7's gate asks for the CPU classes on x86_64 ELF, x86_64 PE and aarch64. Both parity harnesses and the render-graph
+tests ran on each, from the same tree:
+
+| Target | How | Core harness (20 modules) | Features harness (3) | `render_graph.tcyr` |
+|---|---|---|---|---|
+| x86_64 ELF | `cyrius test --bounds` | 20,555 ok, 3,303 accepted, 7 pending, 0 failed | 1,829 ok, 49 accepted (R) | 23 passed |
+| aarch64 | `cyrius test --aarch64 --bounds`, under qemu-aarch64 | the same counts | the same | 23 passed |
+| x86_64 PE | `cyrius build --win`, under wine | the same counts | the same | 23 passed |
+
+Every row's outcome is the same on all three targets, so the f64-once, correctly rounded and adopted rows hold
+bit for bit across them, as pravash's do. `cyrius test` has no `--win`, and `cyrius build` prepends only the
+production stdlib leaves. So the PE binaries were built from a wrapper that includes `lib/assert.cyr`,
+`lib/overflow.cyr` and `lib/bayan.cyr` before the test file. `cyrius vet` is clean (8 dependencies, none untrusted or
+missing).
+

@@ -33,7 +33,8 @@ Decisions: [ADR 0001](../adr/0001-cyrius-port-with-rust-oracle.md),
 | M3 part c: the glTF loader (`gltf` profile) | ✅ 2026-11-15: **M3 complete** |
 | M4 part a: shadow math | ✅ 2026-11-15 (below) |
 | M4 part b: environment CPU, PBR material and LUT | ✅ 2026-11-15 (below) |
-| M4 part c; M5–M10 | ☐ |
+| M4 part c: the render graph (profiler and capabilities moved to M6) | ✅ 2026-11-15: **M4 complete** |
+| M5–M10 | ☐ |
 
 **M1.** 13,793 golden rows over nine modules pass:
 - 1,149 class-E rows are bit-identical to Rust's formula in f64 rounded once;
@@ -95,6 +96,10 @@ pass, and `validate.py` re-derives each independently. All 10 `render_graph.rs` 
 Cyrius-only ones (a 3,000-pass chain, scratch reuse, copied names, freed memory). Ordering `forward_with_effects`
 takes 327 ns. Measurements: `port-parity.md` §5.5.
 
+**M4 close.** The profiler and capabilities moved to M6: Rust soorat re-exports mabda 1.0's types for both, and mabda
+becomes a dependency at M6. mabda 4.2.0's profiler lacks pass timings and times an unbegun frame from clock zero,
+filed as L24.
+
 **Optional features.**
 - `optics` (prakash), `physics-debug` (impetus), `serde` (JSON on bayan) and `gltf` (the glTF loader, on bayan) are
   opt-in profiles: `dist/soorat-optics.cyr`, `dist/soorat-physics-debug.cyr`, `dist/soorat-serde.cyr` and
@@ -121,14 +126,16 @@ takes 327 ns. Measurements: `port-parity.md` §5.5.
 
 - **Rust reference:** `rust-old/`. 7,649 code lines in 44 modules, plus 9 WGSL shaders, 15,767 lines in all.
 - **Cyrius:** the library is `[lib]` in `cyrius.cyml`, bundled as `dist/soorat.cyr` (`cyrius distlib --all`):
-  `src/{error,log,mathx,tables_data,tables,math,layout,color,lights,lod,sprite,batch,text,ui,debug_geom}.cyr`, plus `src/color_optics.cyr`
-  (`[lib.optics]`), `src/debug_collider.cyr` (`[lib.physics-debug]`) and `src/json.cyr` (`[lib.serde]`). `src/layout.cyr` and
-  `src/tables_data.cyr` are generated (`scripts/oracle/gen_layout.py`, `gen_tables.py`). `src/main.cyr` is still the
-  scaffold's smoke program.
+  `src/{error,log,mathx,crmath,tables_data,tables,math,layout,color,lights,lod,sprite,batch,text,ui,debug_geom}.cyr`
+  and `src/{viz,primitives,terrain,animation,shadow_math,env_cpu,pbr_material,render_graph}.cyr`. The profiles add
+  `src/color_optics.cyr` and `src/pbr_optics.cyr` (`[lib.optics]`), `src/debug_collider.cyr` (`[lib.physics-debug]`),
+  `src/json.cyr` (`[lib.serde]`), and `src/json.cyr` with `src/gltf.cyr` (`[lib.gltf]`). `src/layout.cyr` and
+  `src/tables_data.cyr` are generated (`scripts/oracle/gen_layout.py`, `gen_tables.py`), and `src/crmath.cyr` is
+  vendored (`scripts/vendor_crmath.py`). `src/main.cyr` is still the scaffold's smoke program.
 - **Port machinery (M0):**
-  - `scripts/oracle/`: the golden generator, `validate.py`, `gen_layout.py` and `gen_tables.py` (`tests/golden/`:
-    constants, layout, math, color, color_optics, json, lights, lod, tables: 13,805 rows; `math.e.tsv` holds 1,149 class-E rows,
-    `lights.cr.tsv` 28 and `tables.cr.tsv` 3 correctly rounded rows);
+  - `scripts/oracle/`: the golden generator, `validate.py`, `gen_layout.py` and `gen_tables.py`. `tests/golden/` holds
+    23 modules, 25,743 rows, and 3,327 side-table rows: 3,244 class E (`*.e.tsv`), 34 correctly rounded (`*.cr.tsv`)
+    and 49 adopted (`pbr_optics.r.tsv`), with the glTF fixtures in `tests/golden/gltf/`;
   - `tests/parity.tcyr` with `parity_core.cyr`, `ulp.cyr` and the generated `layout_probe.cyr`: the replay;
   - `scripts/render_ref/`: the class-G corpus (`tests/golden/render/`, 12 scenes, adapter-pinned);
   - `scripts/{surface_parity,rust_test_ledger,bench_record,doc_examples,upstream_ledger}.py`, in CI.
@@ -138,30 +145,34 @@ takes 327 ns. Measurements: `port-parity.md` §5.5.
 - **Rust oracle:** 501 tests pass with all features (460 unit, 12 integration, 9 GPU smoke, 18 oracle-hook,
   2 shader-validation). CI runs them under `rust-old/`.
 - **Cyrius:**
-  - `cyrius test` and `cyrius test --bounds` pass with zero warnings: 9 test files (67 ported Rust tests), the smoke
-    test, and the two parity replays of 13,805 rows (13,793 passing; 9 constants and 3 bayan rows pending);
-  - `cyrius audit` exits 0; `cyrius distlib --check` is current.
+  - `cyrius test` and `cyrius test --bounds` pass with zero warnings: 26 test files, among them 23 of ported tests
+    (242 Rust tests), the smoke test, and the two parity replays. Of the 25,743 rows, 25,736 pass (3,352 of them
+    accepted: E 3,244, cr 34, R 49, ADR #14 25); 7 are pending (3 constants of later milestones, 4 bayan rows);
+  - `cyrius audit` exits 0; `cyrius distlib --check` is current; `cyrius vet` is clean;
+  - at M4's close, both parity harnesses gave the same outcome for every row on x86_64 ELF, aarch64 (qemu) and x86_64
+    PE (wine) (port-parity §5.7).
 - **Ledgers:**
-  - surface: 912 public items, 161 ported (M1: 137 of 141; the 4 left are colour's `optics` functions);
-  - Rust tests: 502, 67 ported (M1: all 67; `docs/development/rust-test-ledger.md`);
-  - benches: 6 of 35 twinned, plus 16 extras: `math/*`, `tables/*`, `json/*`, `color_optics/*`
-    (`docs/benchmarks-rust-v-cyrius.md`).
+  - surface: 912 public items, 428 ported, every M1–M4 item (`scripts/surface_parity.py`);
+  - Rust tests: 502, 242 ported, every M1–M4 test (`docs/development/rust-test-ledger.md`);
+  - benches: 34 of 35 Rust benches twinned, plus 23 extras (`docs/benchmarks-rust-v-cyrius.md`).
 
 ## Dependencies
 
-Declared in `cyrius.cyml` today: the stdlib only (`string`, `fmt`, `alloc`, `vec`, `str`, `syscalls`, `io`,
-`args`, `math`, `ganita`, `tagged`, `result`, `freelist`, `sakshi`; test: `assert`, `bench`, `overflow`, `bayan`),
-and prakash 2.15.2, optional, behind `optics`. Each bundle's sidecar (`dist/*.deps`) names the stdlib leaves it needs. Each milestone adds its own; the full list and its order
+Declared in `cyrius.cyml` today: the stdlib (`string`, `fmt`, `alloc`, `vec`, `str`, `syscalls`, `io`, `args`,
+`math`, `ganita`, `tagged`, `result`, `freelist`, `sakshi`, `fnptr`; test: `assert`, `bench`, `overflow`, `bayan`),
+prakash 2.15.2 (optional, `optics`) and impetus 2.0.0 (optional, `physics-debug`). The `serde` and `gltf` bundles need
+bayan, which their consumers add to their own stdlib leaves. mabda arrives at M6. Each bundle's sidecar (`dist/*.deps`) names the stdlib leaves it needs. Each milestone adds its own; the full list and its order
 are in the plan's §4 step 3.
 
 **Open upstream requests** (ledger, plan §10):
-- mabda: the render tier and the render-loop leaks (L2–L6, L17), and tidy-up (L12);
+- mabda: the render tier and the render-loop leaks (L2–L6, L17), the profiler's gaps (L24), and tidy-up (L12);
 - name clashes: hisab/ranga (L18), agnodrm/sigil (L19), goonj/pravash (L20);
 - cyrius: f32 types (L8);
 - selah: raw-RGBA encoders (L9);
 - agnodrm: display queries (L10);
 - ushma: the hisab pin (L11);
 - prakash: allocation-free `Rgb` results (L21);
+- ganita: an fmod (L22); bayan: glTF verdicts that differ from serde_json's (L23);
 - soorat's numbers added to the open ganita and cyrius issues (L1, L13).
 
 ## Consumers
@@ -171,9 +182,8 @@ kiran (rendering), salai (editor viewport), joshua (visualization): all still Ru
 
 ## Next
 
-**M4 part d**: the profiler and capabilities. Both re-export Rust mabda 1.0's types, and mabda is not a dependency
-until M6. Open: bring mabda in at M4 for them, or move them to M6 with it (port-parity §5.5 lists how mabda 4.2.0's
-profiler differs from 1.0's).
+**M5**: science visualization (acoustic, thermo, fluid; em per D7), on the Cyrius producers (goonj, ushma, pravash).
+The `ranga` feature cannot be combined with `acoustics` or `thermo` until L18 lands.
 
 **Performance items carried forward:** `mul_mat4` at about 120 ns (M4's shadow matrices call it). The correctly
 rounded sRGB `pow` (200–285 ns a call) no longer runs per texel: M4 part b encodes faces by threshold search.

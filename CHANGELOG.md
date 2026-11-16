@@ -173,6 +173,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the search's scratch, copied names and freed memory. Extras `render_graph/build_forward_with_effects` and
     `render_graph/order_forward_with_effects` (`tests/render_graph.bcyr`).
 
+- **M4 is complete.** The profiler and capabilities moved to M6: Rust soorat re-exports mabda 1.0's types for both, and
+  mabda becomes a dependency there. mabda 4.2.0's profiler lacks pass timings and times an unbegun frame from clock
+  zero, filed in mabda (ledger L24).
+
 ### Performance (M4)
 - `_sr_debug` checks sakshi's level before measuring its message, where it ran `strlen` on every call. DEBUG is off by
   default. `render_graph/order_forward_with_effects` 371 → 319 ns (−14 %, two runs each).
