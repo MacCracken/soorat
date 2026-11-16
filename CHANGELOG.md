@@ -224,6 +224,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     tests ported (all 35 now). Extras `acoustic/pressure_slice_32x32`, `acoustic/mode_pattern_32x32` and
     `acoustic/balloon_32x64`.
 
+- **M5 is complete, and with it the CPU track (M0–M5).** The five parity harnesses and the three renderer test files
+  gave the same outcome for every row on x86_64 ELF, aarch64 and x86_64 PE (port-parity §6.9).
+  - **`em_render` follows in 2.1.0 (D7).** bijli 2.0.0, whose M7 carries the types it reads, has not shipped, so
+    2.0.0 goes without the `em` feature. Its 37 Rust tests and 15 public items are deferred in the ledgers.
+
 - **M4 is complete.** The profiler and capabilities moved to M6: Rust soorat re-exports mabda 1.0's types for both, and
   mabda becomes a dependency there. mabda 4.2.0's profiler lacks pass timings and times an unbegun frame from clock
   zero, filed in mabda (ledger L24).

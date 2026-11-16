@@ -57,7 +57,7 @@ NO_STANDIN = {
     "L13": "soorat calls memcpy as it is; the frame arena (§9.4) is the design, not a stand-in to remove",
     "L14": "the repairs are docs and the manifest (state.md), not code",
     "L15": "none needed by 2.0 (D5: the application owns the window)",
-    "L16": "D7 decides: em_render ships with bijli 2.0's M7 or follows in 2.1.0; no stand-in code",
+    "L16": "D7, applied at M5's close: bijli 2.0 had not shipped, so em_render follows in 2.1.0; no stand-in code",
     "L17": "none: a launcher change in mabda, landing with L2–L6",
     "L23": "bayan's JSON verdicts where serde_json's differ: the glTF rows are named (ADR 0002 #14), no stand-in code",
     "L24": "none before M6: soorat's profiler arrives with mabda there (moved from M4), and M6 decides one if needed",

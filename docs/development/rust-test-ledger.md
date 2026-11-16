@@ -6,7 +6,7 @@
 > milestone (plan §3.1; done = ✅ in the plan's §14). The golden corpus checks every ported function on its
 > grid besides; this ledger is about the oracle's own assertions.
 
-**502 Rust tests** (460 unit, 12 integration, 9 GPU smoke, 18 oracle-hook, 2 shader-validation, 1 doc): 316 ported, 28 not applicable, 3 deferred, 155 pending, 0 unaccounted. Milestones done: M0, M1, M2, M3, M4.
+**502 Rust tests** (460 unit, 12 integration, 9 GPU smoke, 18 oracle-hook, 2 shader-validation, 1 doc): 316 ported, 28 not applicable, 40 deferred, 118 pending, 0 unaccounted. Milestones done: M0, M1, M2, M3, M4, M5.
 
 | Rust file | Kind | Milestone | Cyrius tests | Rust tests | Ported | N/A | Deferred | Pending |
 |---|---|---|---|---:|---:|---:|---:|---:|
@@ -36,7 +36,7 @@
 | `src/acoustic_render.rs` | unit | M5 | `tests/acoustic_render.tcyr` | 35 | 35 | 0 | 0 | 0 |
 | `src/thermo_render.rs` | unit | M5 | `tests/thermo_render.tcyr` | 24 | 24 | 0 | 0 | 0 |
 | `src/fluid_render.rs` | unit | M5 | `tests/fluid_render.tcyr` | 15 | 15 | 0 | 0 | 0 |
-| `src/em_render.rs` | unit | M5 | `tests/em_render.tcyr` | 37 | 0 | 0 | 0 | 37 |
+| `src/em_render.rs` | unit | — | — | 37 | 0 | 0 | 37 | 0 |
 | `src/texture.rs` | unit | M6 | `tests/texture.tcyr` | 5 | 0 | 0 | 0 | 5 |
 | `src/render_target.rs` | unit | M6 | `tests/render_target.tcyr` | 2 | 0 | 0 | 0 | 2 |
 | `src/compute.rs` | unit | M6 | `tests/compute.tcyr` | 11 | 0 | 0 | 0 | 11 |
@@ -55,11 +55,11 @@
 | `tests/gpu_smoke.rs` | gpu smoke | M6+M7+M8 | `tests/gpu_smoke.tcyr` | 9 | 0 | 0 | 0 | 9 |
 | `tests/oracle.rs` | oracle hooks | — | — | 18 | 0 | 18 | 0 | 0 |
 | `tests/shaders.rs` | shader validation | — | — | 2 | 0 | 2 | 0 | 0 |
-| **Total** | | | | **502** | **316** | **28** | **3** | **155** |
+| **Total** | | | | **502** | **316** | **28** | **40** | **118** |
 
 ## Pending by milestone
 
-M5: 37, M6: 64, M7: 4, M8: 35, M9: 15
+M6: 64, M7: 4, M8: 35, M9: 15
 
 ## Rust's ignored tests
 
@@ -77,5 +77,6 @@ M5: 37, M6: 64, M7: 4, M8: 35, M9: 15
 | `src/drm.rs` | `list_connectors_nonexistent_path` | deferred: agnodrm 1.8.1 has no render-node or connector query, so 2.0 carries the reduced drm subset (D8, ADR 0002 #11) until L10 lands |
 | `src/drm.rs` | `connector_summary_debug` | deferred: agnodrm 1.8.1 has no render-node or connector query, so 2.0 carries the reduced drm subset (D8, ADR 0002 #11) until L10 lands |
 | `src/egui_bridge.rs` | all 4 | n/a: `egui_bridge` is not carried: Cyrius has no egui (D8, §3.2, ADR 0002 #10) |
+| `src/em_render.rs` | all 37 | deferred: D7, applied at M5's close (2026-11-15): bijli 2.0.0, whose M7 carries the visualization types em_render reads, has not shipped, so 2.0.0 goes without the `em` feature and em_render follows in 2.1.0 |
 | `tests/oracle.rs` | all 18 | n/a: the tests of the `oracle` hooks added to the frozen crate for this port (D1, port plan §4 step 0), not of soorat 1.2.0's API; scripts/golden/ drives the hooks, and the golden corpus checks what they give |
 | `tests/shaders.rs` | all 2 | n/a: naga's offline WGSL validation. Cyrius has no offline validator; wgpu-native validates each shader at pipeline creation, and the GPU smoke tests create every pipeline (port plan §1.1, §3.2) |

@@ -1039,7 +1039,7 @@ production stdlib leaves. So the PE binaries were built from a wrapper that incl
 `lib/overflow.cyr` and `lib/bayan.cyr` before the test file. `cyrius vet` is clean (8 dependencies, none untrusted or
 missing).
 
-## 6. M5: science visualization (parts a–d, 2026-11-15)
+## 6. M5: science visualization (parts a–d, 2026-11-15; M5 complete)
 
 ### 6.1 Part a: the acoustic types and line renderers, the `acoustics` profile
 
@@ -1196,4 +1196,33 @@ rows pass; `fluid_render` has its own replay, `tests/parity_fluids.tcyr`, 26 ide
 | `fluid/particles_quads_1000` | 303 µs | 1,000 velocity-coloured quads (4,000 vertices), about 300 ns each |
 | `fluid/particles_billboards_1000` | 278 µs | 1,000 billboards, the default solid colour |
 | `fluid/shallow_water_64x64` | 476 µs | 4,096 vertices through viz's height-field builder, 3,969 quads |
+
+### 6.9 M5's close: the milestone gate on three targets
+
+All five parity harnesses and M5's three renderer test files ran on each target, from the same tree (`c3a42ba` and
+the close's documentation):
+
+| Target | How | Core (23 modules) | Features (3) | Acoustics | Thermo | Fluids | Renderer tests |
+|---|---|---|---|---|---|---|---|
+| x86_64 ELF | `cyrius test --bounds` | 20,656 ok, 3,303 accepted, 7 pending, 0 failed | 1,829 ok, 49 accepted (R) | 188 ok, 564 E | 47 ok, 189 E | 26 ok, 117 E | 50, 36, 22 passed |
+| aarch64 | `cyrius test --aarch64 --bounds`, under qemu-aarch64 | the same | the same | the same | the same | the same | the same |
+| x86_64 PE | `cyrius build --win --locked`, under wine | the same | the same | the same | the same | the same | the same |
+
+Each harness's per-function and side-table lines are identical on the three targets, and every row passes on each, so
+every row has the same outcome on all three. No build or run warned.
+
+- **A PE test binary is built from a wrapper** that includes `lib/assert.cyr`, `lib/overflow.cyr` and
+  `lib/bayan.cyr` before the test file, as at M4 (§5.7): `cyrius test` has no `--win`.
+- **`cyrius build --features` resolves only the features it is given**, and writes `lib/` and `cyrius.lock` unless
+  `--locked`. With `thermo` alone, ushma's pin (L11) resolved hisab 3.4.1 and rewrote `lib/hisab.cyr`; it is goonj,
+  declared first, that makes the full resolve choose 3.5.0. The lock was restored (a full-feature `cyrius deps`, then
+  `--locked` clean), and the thermo binaries were built with `--locked --features acoustics,thermo`, so every
+  target ran the same hisab. A consumer of `dist/soorat-thermo.cyr` that declares ushma alone gets hisab 3.4.1: the
+  thermo replay has not run against it, which L11's fix (ushma moving to 3.5.0) makes moot.
+- **Each feature is built alone.** With every feature, a build includes every dependency, and goonj's and pravash's
+  `logging_init` collide (L20).
+
+**`em_render` (D7).** bijli 2.0.0 has not shipped (its port is at its M5; the visualization types `em_render` reads
+are its M7), so 2.0.0 goes without the `em` feature and `em_render` follows in 2.1.0. Its 37 Rust tests and 15
+public items (17 with their re-exports) are now deferred in the ledgers, with that reason.
 

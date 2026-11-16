@@ -8,7 +8,8 @@ Version 1.2.0 — the final Rust release. All planned features implemented; patc
 
 **Cyrius port — planned (decisions taken 2026-11-15):** see [soorat-port-plan.md](soorat-port-plan.md).
 - 1.2.0 adds the hidden `oracle` feature, makes particle damping frame-rate independent, and wires the bloom composite. It is the **final Rust release** and the oracle. The shallow-water bathymetry item turned out not to be a defect. CUBICSPLINE Hermite interpolation moves to the Cyrius port (ADR 0002 #13), because it needs tangent storage in public types.
-- The Cyrius port ships as 2.0.0.
+- The Cyrius port ships as 2.0.0, without the `em` feature: bijli 2.0.0 had not shipped when M5 closed, so
+  `em_render` follows in 2.1.0 (D7).
 - Sprints 4–8 below were planned for Rust; they move after the Cyrius 2.0.0, and the version numbers in their headings no longer apply.
 
 ## Sprint 1 — Correctness & Safety — DONE
@@ -97,7 +98,7 @@ Version 1.2.0 — the final Rust release. All planned features implemented; patc
 
 > Priority: joshua consumer needs. Shared infrastructure across viz modules.
 
-- [ ] **Axis convention** — EM `vector_field_to_arrows` maps sim y → world Y while field slices map sim y → world Z; pick one convention for 2D data (effort: S)
+- [ ] **Axis convention** — EM `vector_field_to_arrows` maps sim y → world Y while field slices map sim y → world Z; pick one convention for 2D data (effort: S). Goes in with `em_render`'s port in 2.1.0 (D7)
 - [ ] **Heatmap alignment** — samples render as cells starting at the node (half-cell offset vs arrows at nodes); offer node-centred mode (effort: S)
 - [x] ~~**Shallow water bathymetry**~~ — withdrawn, not a defect: pravash's `height` is already the surface elevation η (depth = `height − ground`), so the mesh is the free surface; adding `ground` would double-count it. A regression test now locks this in. Rendering the bed itself is a separate, new feature (for 1.2.0)
 

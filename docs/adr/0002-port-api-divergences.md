@@ -34,7 +34,7 @@ harness still compares the function, so nothing leaves parity entirely. Rows 1â€
 | 9 | Cargo features | one bundle with dead-code elimination; each science crate an optional dependency | â€” |
 | 10 | `egui_bridge` | removed (D8) | n/a |
 | 11 | `drm` | agnodrm's subset (D8) | class A on what remains |
-| 12 | `em_render` axis convention (if ported in 2.0, D7) | one convention for 2D data | rows mapped by name |
+| 12 | `em_render` axis convention (D7: not in 2.0.0, since bijli 2.0 had not shipped at M5's close; it goes in with `em_render` in 2.1.0) | one convention for 2D data | rows mapped by name |
 | 13 | CUBICSPLINE samplers keep each key's value and drop its tangents, so playback is linear (slerp for rotations) between keys | channels carry their interpolation mode and the in/out tangents, and CUBICSPLINE plays back as the glTF cubic Hermite spline (rotations normalized) | **class R** against the glTF spec formula, evaluated independently in f64. The 1.2.0 value-only rows stay for LINEAR and STEP, and for CUBICSPLINE at key times, where both agree |
 | 14 | glTF verdicts on malformed input | **Measured at M3 part c** on the 146-fixture corpus (`tests/golden/gltf/`, 292 rows), each named in the harness (`_par_gltf_adr14`):
 - **Rust 1.2.0 panics on 11 inputs** (13 rows): a POSITION view with `byteStride: 4`; a POSITION accessor out of range; a float index type; an i16 UV; a u32 rotation output; an unknown target path on a joint; a channel's node out of range; an image with a view and no MIME type; an image with neither view nor URI; and, under overflow checks, a GLB header length below 12 and an accessor count of 0. Each is `SR_ERR_MODEL` here, except the count of 0, whose primitive is skipped as release Rust skips it.

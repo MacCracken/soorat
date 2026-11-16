@@ -75,9 +75,8 @@ MODULE_MILESTONE = {
     "shadow": "M4", "pbr_material": "M4", "render_graph": "M4",
     # profiler and capabilities re-export mabda's types: they move to M6, where mabda becomes a dependency (M4 part d).
     "profiler": "M6", "capabilities": "M6",
-    # M5 Science visualization. em_render: D7 — if bijli 2.0 (its M7) hasn't shipped when M5 closes, move it to
-    # DEFERRED_MODULES with that reason, and it follows in 2.1.0.
-    "acoustic_render": "M5", "thermo_render": "M5", "fluid_render": "M5", "em_render": "M5",
+    # M5 Science visualization. em_render is in DEFERRED_MODULES (D7, applied at M5's close).
+    "acoustic_render": "M5", "thermo_render": "M5", "fluid_render": "M5",
     # M6 GPU core. gpu.rs is in no §3.1 row: it only re-exports mabda's GpuContext, which EXCEPTIONS covers
     # (ADR 0002 #2, #3); M6, where the GPU work starts, is its milestone.
     "texture": "M6", "render_target": "M6", "compute": "M6", "pipeline": "M6", "mesh_pipeline": "M6", "gpu": "M6",
@@ -99,8 +98,12 @@ NOT_SURFACE_MODULES = {
     "lib": "the crate root: its `pub use` re-exports are checked, as the items they name",
     "test_support": "`#[cfg(test)]` GLB fixtures; they port with the gltf tests (M3)",
 }
-# Modules whose milestone waits past 2.0.0: module -> the reason (D7's em_render may land here).
-DEFERRED_MODULES = {}
+# Modules whose milestone waits past 2.0.0: module -> the reason.
+DEFERRED_MODULES = {
+    "em_render": "D7, applied at M5's close (2026-11-15): bijli 2.0.0, whose M7 carries the visualization types "
+                 "em_render reads, has not shipped, so 2.0.0 goes without the `em` feature and em_render follows "
+                 "in 2.1.0",
+}
 # The §3.1 splits, item by item: module -> {key: milestone}. A key is a type (its fields, variants, methods, consts
 # and trait impls with it), `Type::member`, or a free fn or const. Fixed here at M0, as §3.1 asks.
 SPLITS = {

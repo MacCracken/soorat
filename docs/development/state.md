@@ -38,7 +38,8 @@ Decisions: [ADR 0001](../adr/0001-cyrius-port-with-rust-oracle.md),
 | M5 part b: acoustic meshes (`acoustic_render` complete) | ✅ 2026-11-15 (below) |
 | M5 part c: thermal renderers (`thermo`, ushma) | ✅ 2026-11-15 (below) |
 | M5 part d: fluid renderers (`fluids`, pravash) | ✅ 2026-11-15 (below) |
-| M5 `em` (D7: bijli 2.0), M5 close; M6–M10 | ☐ |
+| M5 close: the gate on three targets; `em_render` to 2.1.0 (D7) | ✅ 2026-11-15: **M5 complete**, the CPU track done |
+| MB1–MB5 (mabda); M6–M10 | ☐ |
 
 **M1.** 13,793 golden rows over nine modules pass:
 - 1,149 class-E rows are bit-identical to Rust's formula in f64 rounded once;
@@ -132,6 +133,12 @@ their own replay: pravash brings 81.5 KB of static data, leaving that replay 3.2
 filed with pravash). pravash costs a binary ~457 KB. All 15 `fluid_render.rs` tests are ported. Measurements:
 `port-parity.md` §6.7–6.8.
 
+**M5's close.** The five parity harnesses and the three renderer test files gave the same outcome for every row on
+x86_64 ELF, aarch64 (qemu) and x86_64 PE (wine) (port-parity §6.9). D7 applied: bijli 2.0.0 has not shipped, so
+2.0.0 goes without the `em` feature and `em_render` follows in 2.1.0; its 37 tests and 15 items are deferred in the
+ledgers. A PE build with `--features thermo` alone re-resolves hisab to ushma's 3.4.1 pin (L11) and rewrites `lib/`,
+so the cross-target builds use `--locked`.
+
 **Optional features.**
 - `optics` (prakash), `physics-debug` (impetus), `serde` (JSON on bayan) and `gltf` (the glTF loader, on bayan) are
   opt-in profiles: `dist/soorat-optics.cyr`, `dist/soorat-physics-debug.cyr`, `dist/soorat-serde.cyr` and
@@ -184,12 +191,12 @@ filed with pravash). pravash costs a binary ~457 KB. All 15 `fluid_render.rs` te
     26,975 rows, 26,968 pass (4,222 of them accepted: E 4,114, cr 34, R 49, ADR #14 25); 7 are pending (3 constants of
     later milestones, 4 bayan rows);
   - `cyrius audit` exits 0; `cyrius distlib --check` is current; `cyrius vet` is clean;
-  - at M4's close, both parity harnesses gave the same outcome for every row on x86_64 ELF, aarch64 (qemu) and x86_64
-    PE (wine) (port-parity §5.7).
+  - at M5's close, all five parity harnesses and the M5 renderer tests gave the same outcome for every row on x86_64
+    ELF, aarch64 (qemu) and x86_64 PE (wine) (port-parity §6.9; M4's close, §5.7).
 - **Ledgers:**
-  - surface: 912 public items, 499 ported, every M1–M4 item, `acoustic_render`, `thermo_render` and `fluid_render`
+  - surface: 912 public items, 499 ported (every M1–M5 item), 25 deferred, `em_render`'s among them (D7)
     (`scripts/surface_parity.py`);
-  - Rust tests: 502, 316 ported, every M1–M4 test and all of `acoustic_render`, `thermo_render` and `fluid_render`
+  - Rust tests: 502, 316 ported (every M1–M5 test), 40 deferred, `em_render`'s 37 among them (D7)
     (`docs/development/rust-test-ledger.md`);
   - benches: 34 of 35 Rust benches twinned, plus 36 extras (`docs/benchmarks-rust-v-cyrius.md`).
 
@@ -222,9 +229,9 @@ kiran (rendering), salai (editor viewport), joshua (visualization): all still Ru
 
 ## Next
 
-**M5's `em` part** follows D7: bijli 2.0.0 (its M7) has not shipped (bijli's port is at its M5), so 2.0.0 goes
-without the `em` feature and `em_render` follows in 2.1.0. Then **M5 closes** with the three-target gate. The `ranga` feature cannot be combined
-with `acoustics` or `thermo` until L18 lands, and `acoustics` with `fluids` warns on `logging_init` until L20 does.
+**The GPU track.** M6 (the GPU core) needs mabda's MB1 and MB2 (plan §8), done in mabda's repository. mabda is at
+4.2.0; the render-tier request (L2–L6) is filed and not yet started. The `ranga` feature cannot be combined with
+`acoustics` or `thermo` until L18 lands, and `acoustics` with `fluids` warns on `logging_init` until L20 does.
 
 **Performance items carried forward:** `mul_mat4` at about 120 ns (M4's shadow matrices call it). The correctly
 rounded sRGB `pow` (200–285 ns a call) no longer runs per texel: M4 part b encodes faces by threshold search.

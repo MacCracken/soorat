@@ -80,7 +80,8 @@ FILES = {
     "src/acoustic_render.rs": ("M5", ["tests/acoustic_render.tcyr"]),
     "src/thermo_render.rs": ("M5", ["tests/thermo_render.tcyr"]),
     "src/fluid_render.rs": ("M5", ["tests/fluid_render.tcyr"]),
-    "src/em_render.rs": ("M5", ["tests/em_render.tcyr"]),  # D7: deferred with the module if bijli 2.0 hasn't shipped
+    # em_render: D7 deferred it to 2.1.0 at M5's close (bijli 2.0 had not shipped): WHOLE_FILE, EM.
+    "src/em_render.rs": ("—", []),
     "src/texture.rs": ("M6", ["tests/texture.tcyr"]),
     "src/render_target.rs": ("M6", ["tests/render_target.tcyr"]),
     "src/compute.rs": ("M6", ["tests/compute.tcyr"]),
@@ -184,7 +185,9 @@ REASONS = {
     ("src/drm.rs", "connector_summary_debug"): L10,
 }
 # Rust file -> the reason for each of its tests (the whole file has no port).
-WHOLE_FILE = {"src/egui_bridge.rs": EGUI, "tests/oracle.rs": ORACLE, "tests/shaders.rs": NAGA}
+EM = ("deferred: D7, applied at M5's close (2026-11-15): bijli 2.0.0, whose M7 carries the visualization types "
+      "em_render reads, has not shipped, so 2.0.0 goes without the `em` feature and em_render follows in 2.1.0")
+WHOLE_FILE = {"src/egui_bridge.rs": EGUI, "src/em_render.rs": EM, "tests/oracle.rs": ORACLE, "tests/shaders.rs": NAGA}
 
 # Code fence info strings rustdoc compiles or lists as a test; any other tag is another language.
 RUST_TAGS = {"rust", "ignore", "no_run", "should_panic", "compile_fail", "edition2015", "edition2018",
