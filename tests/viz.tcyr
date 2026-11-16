@@ -1,0 +1,205 @@
+# viz.tcyr — the ported tests of Rust 1.2.0's src/viz.rs (M3 part a), all 14. The golden rows (tests/golden/viz.tsv,
+# its .e.tsv) are replayed by tests/parity.tcyr.
+
+include "tests/lib.cyr"
+include "tests/support.cyr"
+
+var A = 0;
+var M = 0;
+
+# The f32 bits of the integer k.
+fn f(k): i64 { return f32_from(f64_from(k)); }
+
+# White (a heatmap colour callback).
+fn white4(ctx, ix, iz, out) {
+    t_set4(out, 0x3F800000, 0x3F800000, 0x3F800000, 0x3F800000);
+    return out;
+}
+
+# (ix, iz, 0, 1) (a heatmap colour callback).
+fn ixiz(ctx, ix, iz, out) {
+    t_set4(out, f(ix), f(iz), 0, 0x3F800000);
+    return out;
+}
+
+# White (a height-field colour callback).
+fn white5(ctx, ix, iz, y, out) { return white4(ctx, ix, iz, out); }
+
+# Height 2 everywhere.
+fn h_two(ctx, ix, iz) { return 0x40000000; }
+
+# Height ix.
+fn h_ix(ctx, ix, iz) { return f(ix); }
+
+# Height NaN at (1, 1) and +inf elsewhere.
+fn h_bad(ctx, ix, iz) {
+    if (ix == 1 && iz == 1) { return 0x7FC00000; }
+    return 0x7F800000;
+}
+
+# Height 0 everywhere.
+fn h_zero(ctx, ix, iz) { return 0; }
+
+# The tests' grid: nx × nz cells from (−1, 0.5, 2), 0.5 × 0.25.
+fn grid(nx, nz): i64 {
+    var g = alloc(sizeof(SrXzGrid));
+    store64(g, nx);
+    store64(g + 8, nz);
+    t_set4(g + 16, 0xBF800000, 0x40000000, 0x3F000000, 0x3F000000);
+    store32(g + 32, 0x3E800000);
+    return g;
+}
+
+# The tests' height field: cols × rows from the origin, spacing (dx, dz).
+fn hf(cols, rows, dx, dz): i64 {
+    var h = alloc(sizeof(SrHeightField));
+    store64(h, cols);
+    store64(h + 8, rows);
+    t_set4(h + 16, 0, 0, dx, dz);
+    return h;
+}
+
+# 1 when grid_is_backed(dims a × b × c (n of them), data).
+fn backed(n, a, b, c, data): i64 {
+    var d = alloc(24);
+    store64(d, a);
+    store64(d + 8, b);
+    store64(d + 16, c);
+    return sr_grid_is_backed(d, n, data, "t");
+}
+
+# Runs the ported viz tests.
+fn main() {
+    alloc_init();
+    A = arena_allocator_growable(1 << 20);
+    M = alloc(sizeof(SrMeshData));
+    var out = alloc(16);
+    var one = 0x3F800000;
+
+    test_group("xz_heatmap_faces_plus_y");
+    sr_xz_heatmap_mesh(grid(3, 2), &white4, 0, A, M);
+    assert(load64(M + 8) == 24 && load64(M + 24) == 36, "24 vertices, 36 indices");
+    assert(t_winding_ok(M) == 1, "counter-clockwise about +Y");
+
+    test_group("xz_heatmap_positions_and_colors");
+    sr_xz_heatmap_mesh(grid(2, 1), &ixiz, 0, A, M);
+    var vb = load64(M);
+    assert(load32(vb) == 0xBF800000 && load32(vb + 4) == 0x3F000000 && load32(vb + 8) == 0x40000000, "v0 (-1, 0.5, 2)");
+    assert(load32(vb + 96) == 0xBF000000 && load32(vb + 104) == 0x40100000, "v2 (-0.5, 0.5, 2.25)");
+    assert(load32(vb + 4 * 48 + 32) == one && load32(vb + 4 * 48 + 36) == 0, "v4's colour (1, 0, 0, 1)");
+    assert(load32(vb + 7 * 48 + 24) == 0x3F000000 && load32(vb + 7 * 48 + 28) == one, "v7's UV (0.5, 1)");
+
+    test_group("xz_heatmap_empty_grid");
+    sr_xz_heatmap_mesh(grid(0, 5), &white4, 0, A, M);
+    assert(load64(M + 8) == 0 && load64(M + 24) == 0, "0 × 5");
+    sr_xz_heatmap_mesh(grid(0 - 1, 2), &white4, 0, A, M);
+    assert(load64(M + 8) == 0 && load64(M + 24) == 0, "usize::MAX × 2");
+
+    test_group("grid_backing_checks");
+    assert(backed(2, 2, 3, 0, 6) == 1 && backed(2, 2, 3, 0, 10) == 1, "backed");
+    assert(backed(2, 2, 3, 0, 5) == 0 && backed(2, 0, 3, 0, 10) == 0, "short, empty");
+    assert(backed(2, 0 - 1, 2, 0, 10) == 0 && backed(3, 100000, 1, 100000, 0) == 0, "overflow, no data");
+
+    test_group("finite_min_max_ignores_non_finite");
+    var vals = alloc(40);
+    var nan: f64 = 0.0 / 0.0;
+    var inf: f64 = 1.0 / 0.0;
+    var ninf: f64 = 0.0 - inf;
+    var two: f64 = 2.0;
+    var mone: f64 = 0.0 - 1.0;
+    store64(vals, nan);
+    store64(vals + 8, two);
+    store64(vals + 16, inf);
+    store64(vals + 24, mone);
+    store64(vals + 32, ninf);
+    var mm = alloc(16);
+    var t1, v1 = sr_finite_min_max(vals, 5, mm);
+    var lo: f64 = load64(mm);
+    var hi: f64 = load64(mm + 8);
+    assert(is_some(t1) == 1 && lo == mone && hi == two, "(-1, 2)");
+    var t2, v2 = sr_finite_min_max(vals, 1, mm);
+    assert(is_none(t2) == 1, "NaN only: None");
+    var t3, v3 = sr_finite_min_max(vals, 0, mm);
+    assert(is_none(t3) == 1, "empty: None");
+
+    test_group("unit_t_edges");
+    assert(sr_unit_t(5.0, 0.0, 10.0) == 0x3F000000, "0.5");
+    assert(sr_unit_t(nan, 0.0, 10.0) == 0, "NaN -> 0");
+    assert(sr_unit_t(3.0, 3.0, 3.0) == 0, "empty range -> 0");
+    assert(sr_unit_t(20.0, 0.0, 10.0) == one, "clamped to 1");
+
+    test_group("signed_t_is_zero_centred");
+    var m2: f64 = 0.0 - 2.0;
+    assert(sr_signed_t(0.0, 0.0, 1.0) == 0 && sr_signed_t(1.0, 0.0, 1.0) == one, "0, 1");
+    assert(sr_signed_t(m2, m2, 1.0) == 0xBF800000 && sr_signed_t(1.0, m2, 1.0) == 0x3F000000, "-1, 0.5");
+    assert(sr_signed_t(nan, mone, 1.0) == 0 && sr_signed_t(1.0, 0.0, 0.0) == 0, "NaN, zero scale");
+
+    test_group("magnitude_t_uses_absolute_value");
+    assert(sr_magnitude_t(mone, mone, 1.0) == one && sr_magnitude_t(1.0, mone, 1.0) == one, "1, 1");
+    assert(sr_magnitude_t(0.0, mone, 1.0) == 0 && sr_magnitude_t(inf, mone, 1.0) == 0, "0, inf -> 0");
+
+    test_group("with_alpha_clamps");
+    assert(load32(sr_with_alpha(SR_COLOR_RED, 0x40000000, out) + 12) == one, "2 -> 1");
+    assert(load32(sr_with_alpha(SR_COLOR_RED, 0xBF000000, out) + 12) == 0, "-0.5 -> 0");
+    assert(load32(sr_with_alpha(SR_COLOR_RED, 0x7FC00000, out) + 12) == 0, "NaN -> 0");
+
+    test_group("heightfield_flat_and_upward");
+    sr_heightfield_mesh(hf(4, 3, one, one), &h_two, 0, &white5, 0, A, M);
+    assert(load64(M + 8) == 12 && load64(M + 24) == 36, "12 vertices, 36 indices");
+    var flat = 1;
+    var k = 0;
+    while (k < 12) {
+        var p = load64(M) + k * 48;
+        if (load32(p + 12) != 0 || load32(p + 16) != one || load32(p + 20) != 0 || load32(p + 4) != 0x40000000) {
+            flat = 0;
+        }
+        k = k + 1;
+    }
+    assert(flat == 1 && t_winding_ok(M) == 1, "normals (0, 1, 0), y = 2, upward");
+
+    test_group("heightfield_edge_slope_not_halved");
+    sr_heightfield_mesh(hf(4, 2, one, one), &h_ix, 0, &white5, 0, A, M);
+    var expect: f64 = 0.0 - 0.7071067811865476;
+    var tol: f64 = 0.000001;
+    var same = 1;
+    k = 0;
+    while (k < load64(M + 8)) {
+        var q = load64(M) + k * 48;
+        var ny: f64 = 0.0 - t_vf(q, 4);
+        if (t_near(t_vf(q, 3), expect, tol) == 0 || t_near(ny, expect, tol) == 0) { same = 0; }
+        k = k + 1;
+    }
+    assert(same == 1, "every normal normalize(-1, 1, 0), edges included");
+
+    test_group("heightfield_sanitizes_non_finite");
+    sr_heightfield_mesh(hf(3, 3, one, one), &h_bad, 0, &white5, 0, A, M);
+    assert(load64(M + 8) == 9 && load64(M + 24) == 24, "9 vertices, 24 indices");
+    assert(t_all_finite(load64(M), 9 * 12) == 1, "every value finite");
+
+    test_group("heightfield_degenerate_sizes");
+    sr_heightfield_mesh(hf(0, 3, one, one), &h_zero, 0, &white5, 0, A, M);
+    assert(load64(M + 8) == 0 && load64(M + 24) == 0, "0 columns: empty");
+    sr_heightfield_mesh(hf(3, 1, one, one), &h_zero, 0, &white5, 0, A, M);
+    assert(load64(M + 8) == 3 && load64(M + 24) == 0, "one row: vertices, no triangles");
+    sr_heightfield_mesh(hf(3, 3, 0, 0), &h_ix, 0, &white5, 0, A, M);
+    var upn = 1;
+    k = 0;
+    while (k < 9) {
+        var r = load64(M) + k * 48;
+        if (load32(r + 12) != 0 || load32(r + 16) != one || load32(r + 20) != 0) { upn = 0; }
+        k = k + 1;
+    }
+    assert(upn == 1, "zero spacing: normals (0, 1, 0)");
+
+    test_group("lattice_matches_sphere_winding");
+    sr_sphere(8, 6, A, M);
+    store64(M + 16, sr_lattice_indices(6, 8, A));
+    store64(M + 24, 6 * 8 * 6);
+    assert(t_winding_ok(M) == 1, "outward");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

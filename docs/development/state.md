@@ -28,7 +28,8 @@ Decisions: [ADR 0001](../adr/0001-cyrius-port-with-rust-oracle.md),
 | M1 part b2: colour `optics` + serde (prakash, bayan) | ✅ 2026-11-15: **M1 complete** |
 | M2 part a: sprite, batch | ✅ 2026-11-15 (below) |
 | M2 part b: text, ui, debug geometry | ✅ 2026-11-15: **M2 complete** |
-| M3–M10 | ☐ |
+| M3 part a: primitives, viz, terrain | ✅ 2026-11-15 (below) |
+| M3 parts b (animation) and c (GLB loader); M4–M10 | ☐ |
 
 **M1.** 13,793 golden rows over nine modules pass:
 - 1,149 class-E rows are bit-identical to Rust's formula in f64 rounded once;
@@ -47,6 +48,10 @@ the batch loops are 4–9× Rust. Measurements: `port-parity.md` §3.
 **M2 part b.** `src/text.cyr`, `src/ui.cyr`, `src/debug_geom.cyr` and the `physics-debug` profile's
 `src/debug_collider.cyr` (ADR 0002 #21, #22): 479 `text`, 151 `debug` and 60 `debug_collider` rows pass, 1 through a
 correctly rounded row. All 113 M2 items, 69 tests and 16 benches are done.
+
+**M3 part a.** `src/primitives.cyr`, `src/viz.cyr` and `src/terrain.cyr` (ADR 0002 #23): 637 golden rows pass, 36
+of them class E (the geometry in f64, rounded once). All 37 Rust tests are ported; the 4 bench twins run 4.3–8.1×
+Rust. `create_terrain_mesh` uploads to the GPU, so it moved to M6. Measurements: `port-parity.md` §4.
 
 **Optional features.**
 - `optics` (prakash), `physics-debug` (impetus) and `serde` (JSON on bayan) are opt-in profiles:
@@ -124,8 +129,9 @@ kiran (rendering), salai (editor viewport), joshua (visualization): all still Ru
 
 ## Next
 
-**M3 (geometry and animation)**: primitives, terrain, viz, animation (CUBICSPLINE per ADR 0002 #13) and the GLB
-loader (bayan, chitra; D6). Its Rust twins are the `terrain/*`, `animation/*` and `primitives/*` benches.
+**M3 part b (animation)**: keyframe sampling (LINEAR, STEP, and CUBICSPLINE per ADR 0002 #13), slerp and joint
+chains, with the `animation/compute_joints_*` twins. Then **part c**, the GLB loader (bayan, chitra; D6), which
+fills `SrMeshData.material_index`.
 
 **Performance items carried forward:** `mul_mat4` at about 120 ns (M4's shadow matrices call it); the correctly
 rounded sRGB `pow` at 200–285 ns a call (M4's face encoding calls it three times a texel). port-parity §2.2 has the

@@ -112,6 +112,9 @@ SPLITS = {
     "error": {"RenderError::impl From<mabda::GpuError> for RenderError": "M6"},
     # instancing: InstanceBuffer is mabda's GPU buffer object (M6, with mabda); InstanceData is a layout (M1).
     "instancing": {"InstanceBuffer": "M6"},
+    # terrain: the CPU mesh (generate_terrain, flat_heightmap, TerrainConfig, TerrainData) is M3;
+    # create_terrain_mesh uploads it with mabda (M6).
+    "terrain": {"create_terrain_mesh": "M6"},
 }
 # Every `#[repr(C)]` struct and its fields: §3.1's M1 row ("the 15 `#[repr(C)]` types", src/layout.cyr, probe P1).
 # Its methods and trait impls stay with its module.

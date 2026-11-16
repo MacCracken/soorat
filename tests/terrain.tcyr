@@ -1,0 +1,109 @@
+# terrain.tcyr — the ported tests of Rust 1.2.0's src/terrain.rs (M3 part a), all 11. The golden rows
+# (tests/golden/terrain.tsv, its .e.tsv) are replayed by tests/parity.tcyr.
+
+include "tests/lib.cyr"
+include "tests/support.cyr"
+
+var A = 0;
+var M = 0;
+
+# A default config with width × depth cells.
+fn cfg(w, d): i64 {
+    var c = SrTerrainConfig_default(alloc(sizeof(SrTerrainConfig)));
+    store64(c, w);
+    store64(c + 8, d);
+    return c;
+}
+
+# Runs the ported terrain tests.
+fn main() {
+    alloc_init();
+    A = arena_allocator_growable(1 << 20);
+    M = alloc(sizeof(SrTerrainData));
+    var one = 0x3F800000;
+
+    test_group("terrain_winds_upward");
+    var hs = alloc(80);
+    var k = 0;
+    var c037 = 0x3EBD70A4;
+    while (k < 20) {
+        store32(hs + k * 4, ganita_f32_sin(_sr_f32_mul(f32_from(f64_from(k)), c037)));
+        k = k + 1;
+    }
+    sr_generate_terrain(cfg(4, 3), hs, 20, A, M);
+    assert(t_winding_ok(M) == 1, "upward");
+
+    test_group("terrain_config_default");
+    var d = cfg(64, 64);
+    assert(load64(d) == 64 && load64(d + 8) == 64, "64 × 64");
+
+    test_group("flat_terrain_generates_correct_counts");
+    sr_generate_terrain(cfg(4, 4), sr_flat_heightmap(4, 4, A), 25, A, M);
+    assert(load64(M + 8) == 25 && load64(M + 24) == 96, "25 vertices, 96 indices");
+
+    test_group("flat_terrain_normals_point_up");
+    sr_generate_terrain(cfg(2, 2), sr_flat_heightmap(2, 2, A), 9, A, M);
+    var tol: f64 = 0.01;
+    var fone: f64 = 1.0;
+    var up = 1;
+    k = 0;
+    while (k < 9) {
+        if (t_near(t_vf(load64(M) + k * 48, 4), fone, tol) == 0) { up = 0; }
+        k = k + 1;
+    }
+    assert(up == 1, "normals up");
+
+    test_group("flat_terrain_height_zero");
+    var zero = 1;
+    k = 0;
+    while (k < 9) {
+        if (t_vf(load64(M) + k * 48, 1) != 0.0) { zero = 0; }
+        k = k + 1;
+    }
+    assert(zero == 1, "y = 0");
+
+    test_group("terrain_uv_corners");
+    sr_generate_terrain(cfg(1, 1), sr_flat_heightmap(1, 1, A), 4, A, M);
+    var vb = load64(M);
+    assert(load32(vb + 24) == 0 && load32(vb + 28) == 0, "(0, 0)");
+    assert(load32(vb + 72) == one && load32(vb + 76) == 0, "(1, 0)");
+    assert(load32(vb + 120) == 0 && load32(vb + 124) == one, "(0, 1)");
+    assert(load32(vb + 168) == one && load32(vb + 172) == one, "(1, 1)");
+
+    test_group("terrain_centered_at_origin");
+    var c10 = cfg(2, 2);
+    store32(c10 + 16, 0x41200000);
+    store32(c10 + 20, 0x41200000);
+    sr_generate_terrain(c10, sr_flat_heightmap(2, 2, A), 9, A, M);
+    assert(load32(load64(M)) == 0xC0A00000 && load32(load64(M) + 8) == 0xC0A00000, "(-5, 0, -5)");
+
+    test_group("terrain_height_scale");
+    var c5 = cfg(1, 1);
+    store32(c5 + 24, 0x40A00000);
+    var ones = alloc(16);
+    t_set4(ones, one, one, one, one);
+    sr_generate_terrain(c5, ones, 4, A, M);
+    assert_eq(load32(load64(M) + 4), 0x40A00000, "y = 5");
+
+    test_group("flat_heightmap_size");
+    var fh = sr_flat_heightmap(10, 20, A);
+    assert(fh != 0 && load32(fh + (11 * 21 - 1) * 4) == 0, "11 × 21 zeros");
+
+    test_group("terrain_indices_valid");
+    sr_generate_terrain(cfg(3, 3), sr_flat_heightmap(3, 3, A), 16, A, M);
+    assert(t_indices_in_range(M) == 1, "in range");
+
+    test_group("generate_terrain_zero_size");
+    sr_generate_terrain(cfg(0, 0), 0, 0, A, M);
+    assert(load64(M + 8) == 0 && load64(M + 24) == 0, "0 × 0: empty");
+    sr_generate_terrain(cfg(0, 4), 0, 0, A, M);
+    assert(load64(M + 8) == 0, "0 wide: empty");
+    sr_generate_terrain(cfg(5, 0), 0, 0, A, M);
+    assert(load64(M + 8) == 0, "0 deep: empty");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

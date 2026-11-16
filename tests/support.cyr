@@ -108,3 +108,59 @@ fn t_set4(p, a, b, c, d) {
     store32(p + 12, d);
     return p;
 }
+
+# The f64 of vertex v's float k (v an SrVertex3D: position 0–2, normal 3–5, UV 6–7, colour 8–11).
+#must_use
+fn t_vf(v, k): f64 {
+    var x: f64 = f32_to(load32(v + k * 4));
+    return x;
+}
+
+# 1 when every non-degenerate triangle of the mesh m (an SrMeshData) winds counter-clockwise about its vertices'
+# normals: the geometric normal (b − a) × (c − a) · the summed vertex normals > 0, triangles with |g|² < 1e-12
+# skipped. Rust's `assert_winding_matches_normals`, in f64 from the f32 positions.
+#must_use
+fn t_winding_ok(m): i64 {
+    var vb = load64(m);
+    var ib = load64(m + 16);
+    var ni = load64(m + 24);
+    if (ni % 3 != 0) { return 0; }
+    var eps: f64 = 0.000000000001;
+    var zero: f64 = 0.0;
+    var t = 0;
+    while (t < ni) {
+        var a = vb + (load32(ib + t * 4) & 0xFFFFFFFF) * 48;
+        var b = vb + (load32(ib + t * 4 + 4) & 0xFFFFFFFF) * 48;
+        var c = vb + (load32(ib + t * 4 + 8) & 0xFFFFFFFF) * 48;
+        var ux: f64 = t_vf(b, 0) - t_vf(a, 0);
+        var uy: f64 = t_vf(b, 1) - t_vf(a, 1);
+        var uz: f64 = t_vf(b, 2) - t_vf(a, 2);
+        var wx: f64 = t_vf(c, 0) - t_vf(a, 0);
+        var wy: f64 = t_vf(c, 1) - t_vf(a, 1);
+        var wz: f64 = t_vf(c, 2) - t_vf(a, 2);
+        var gx: f64 = (uy * wz) - (uz * wy);
+        var gy: f64 = (uz * wx) - (ux * wz);
+        var gz: f64 = (ux * wy) - (uy * wx);
+        var area2: f64 = ((gx * gx) + (gy * gy)) + (gz * gz);
+        if (area2 >= eps) {
+            var nx: f64 = (t_vf(a, 3) + t_vf(b, 3)) + t_vf(c, 3);
+            var ny: f64 = (t_vf(a, 4) + t_vf(b, 4)) + t_vf(c, 4);
+            var nz: f64 = (t_vf(a, 5) + t_vf(b, 5)) + t_vf(c, 5);
+            var d: f64 = ((gx * nx) + (gy * ny)) + (gz * nz);
+            if (d <= zero) { return 0; }
+        }
+        t = t + 3;
+    }
+    return 1;
+}
+
+# 1 when every index of the mesh m is below its vertex count.
+#must_use
+fn t_indices_in_range(m): i64 {
+    var i = 0;
+    while (i < load64(m + 24)) {
+        if ((load32(load64(m + 16) + i * 4) & 0xFFFFFFFF) >= load64(m + 8)) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}

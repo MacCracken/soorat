@@ -85,6 +85,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `tests/parity_features.tcyr`, replaying every optional feature's rows.
   - 690 golden rows pass (`text` 479, `debug` 151, `debug_collider` 60), one through its correctly rounded row.
   - 31 Rust tests ported; `debug_draw/*` twins.
+- **M3 part a: primitives, viz and terrain** (`src/primitives.cyr`, `src/viz.cyr`, `src/terrain.cyr`; ADR 0002 #23).
+  - `sr_cube`, `sr_sphere`, `sr_plane`, `sr_cylinder`; the visualization helpers (`unit_t` and kin, heat and signed
+    colour maps, XZ heatmaps, height fields, lattice indices), with Rust's closures as a function and a context
+    pointer; `sr_generate_terrain` and `sr_flat_heightmap`. Meshes go into the caller's `SrMeshData` from the
+    caller's allocator; `material_index: None` is `SR_MATERIAL_NONE`.
+  - 637 golden rows pass (`primitives` 28, `viz` 599, `terrain` 10). The geometry is f64 rounded once (D4 rule b),
+    and 36 rows match that value where Rust's f32 differs: by up to 70 ulp on cylinders, 33 on spheres, 2 on
+    height-field and terrain normals.
+  - All 37 Rust tests ported (`tests/{primitives,viz,terrain}.tcyr`, a winding check in `tests/support.cyr`);
+    `terrain/*` and `primitives/sphere_32x16` twins (`tests/geom.bcyr`). `create_terrain_mesh` moved to M6 (GPU).
+
+### Performance (M3)
+- sphere: each column's `cos θ` and `sin θ` computed once, not once per ring (the same values).
+  `primitives/sphere_32x16` 68.1 → 24.8 µs (−64 %). Every golden row is unchanged.
 
 ### Performance (M2)
 - debug geometry: each line's two vertices written inline, and a circle's `sin`/`cos` table cached for its segment

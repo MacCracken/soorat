@@ -46,6 +46,9 @@ Every port's harness reads the same files. This README records what is specific 
 | `text` | M2 | 479 | `src/m_text.rs` | glyph rectangles, and the sprites of text and UI batches (A) |
 | `debug` | M2 | 151 | `src/m_debug.rs` | `LineBatch`'s lines and wire shapes (A; circles C, `debug.cr.tsv`) |
 | `debug_collider` | M2 | 60 | `src/m_debug.rs` | `LineBatch::collider` over impetus 1.4.0's shapes (the oracle turns on `physics-debug`), C. Replayed by tests/parity_features.tcyr |
+| `primitives` | M3 | 28 | `src/m_geom.rs` | the cube (A); spheres from 0 × 0 (clamped) to 32 × 16, planes and cylinders up to 100 segments (E). `primitives.e.tsv`: 23 rows where f64-once differs |
+| `viz` | M3 | 599 | `src/m_geom.rs` | `unit_t`, `signed_t`, `magnitude_t` on a grid with NaN, ±∞, ±0 and empty ranges; `finite_min_max`, the grid checks, `with_alpha` (A); `heat_rgba`, `signed_rgba` (B); XZ heatmaps and height fields with non-finite heights, zero spacing and single rows (E); `lattice_indices` (A). `viz.e.tsv`: 8 rows |
+| `terrain` | M3 | 10 | `src/m_geom.rs` | `TerrainConfig::default`, `flat_heightmap` (A); six terrains from 0 × 5 to 32 × 32, one with a short height map and one with a NaN height (E). `terrain.e.tsv`: 5 rows |
 | `tables` | M1 | 5,215 | `src/m_tables.rs` | `environment`'s f16 and sRGB conversions, through the oracle hooks. f16 ⇄ f32 (A, 64 values a row): every subnormal half, every exponent's mantissa edges, every rounding midpoint ± 1 ulp, NaN payloads. sRGB (C): dense grids, each knee ± 2 ulp; `tables.cr.tsv` holds the 3 rows where glibc's `powf` misrounds. The 256-entry decode table (A), which `gen_tables.py` turns into `src/tables_data.cyr` |
 
 ## Format 1

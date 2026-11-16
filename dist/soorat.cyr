@@ -10,6 +10,8 @@ include "lib/ganita.cyr"
 include "lib/freelist.cyr"
 include "lib/result.cyr"
 include "lib/alloc.cyr"
+include "lib/tagged.cyr"
+include "lib/fnptr.cyr"
 
 # --- error.cyr ---
 
@@ -108,6 +110,12 @@ fn sr_error_message(code): i64 {
 # Emits `msg` (a C string: "soorat::<module>: <message>") as a sakshi WARN event.
 fn _sr_warn(msg): i64 {
     sakshi_warn(msg, strlen(msg));
+    return 0;
+}
+
+# Emits `msg` as a sakshi DEBUG event (shown when the consumer sets sakshi's level to DEBUG or TRACE).
+fn _sr_debug(msg): i64 {
+    sakshi_debug(msg, strlen(msg));
     return 0;
 }
 
@@ -2680,4 +2688,862 @@ fn SrLineBatch_is_empty(b): i64 {
 #must_use
 fn SrLineBatch_vertex_count(b): i64 {
     return load64(b + 8);
+}
+
+# --- viz.cyr ---
+
+# viz.cyr — Rust 1.2.0's src/viz.rs (M3 part a): the helpers soorat's science visualizations share (M5), and the
+# lattice the sphere uses.
+#
+# Rust keeps the module crate-private (its items are `pub` only for the oracle hooks); here its names are soorat's
+# own, `sr_` like the rest. Rust's closures (`color_at(ix, iz)`, `height(ix, iz)`) are a function and a context
+# pointer, called through `fncall` (`&fn` gives the address): `color_fn(ctx, ix, iz, out)` writes 4 f32 at out,
+# `height_fn(ctx, ix, iz)` returns f32 bits, a height field's `color_fn(ctx, ix, iz, y, out)` also gets the height. A
+# mesh is written into an `SrMeshData` from the caller's allocator (`alloc_via`, a frame arena: ADR 0002 #6).
+#
+# **Precision (D4 rule b, ADR 0002 #4).** Positions, normals and texture coordinates are GPU geometry: each output is
+# Rust's formula evaluated in f64 from its f32 inputs and rounded once, class E against `<module>.e.tsv` where that
+# differs from Rust's f32 sequence. A struct's f32 fields (a grid's `dx`) are inputs, as they are in Rust. The
+# normalizations (`unit_t` and the rest) are f64 already and narrow once, as Rust does: class A.
+
+# A mesh: vertex_count SrVertex3D (48 bytes each) at vertices, index_count u32 at indices, and its glTF material's
+# index, or SR_MATERIAL_NONE (Rust's `material_index: Option<usize>`). Mirrors `MeshData` (src/gltf_loader.rs).
+struct SrMeshData { vertices; vertex_count; indices; index_count; material_index; }
+# No material (Rust's `None`): usize::MAX, which no glTF material index reaches. Every mesh built here has none.
+var SR_MATERIAL_NONE = 0 - 1;
+struct SrXzGrid { nx; nz; origin_x: f32; origin_z: f32; y: f32; dx: f32; dz: f32; }
+struct SrHeightField { cols; rows; origin_x: f32; origin_z: f32; dx: f32; dz: f32; }
+
+# The most quads a u32-indexed heatmap holds (u32::MAX / 4). Mirrors `MAX_QUADS`.
+var SR_MAX_QUADS = 1073741823;
+# The cap on a visualization's tessellation. Mirrors `MAX_SEGMENTS`.
+var SR_MAX_SEGMENTS = 1024;
+
+# A quad's two triangles on the XZ plane, counter-clockwise about +Y: a pointer to 6 u32. Mirrors `XZ_QUAD_INDICES`.
+var _sr_xz_quad_data[24];
+var SR_XZ_QUAD_INDICES = &_sr_xz_quad_data;
+
+fn _sr_xz_quad_init(): i64 {
+    store32(SR_XZ_QUAD_INDICES, 0);
+    store32(SR_XZ_QUAD_INDICES + 4, 3);
+    store32(SR_XZ_QUAD_INDICES + 8, 2);
+    store32(SR_XZ_QUAD_INDICES + 12, 0);
+    store32(SR_XZ_QUAD_INDICES + 16, 2);
+    store32(SR_XZ_QUAD_INDICES + 20, 1);
+    return 1;
+}
+var _sr_xz_quad_ready = _sr_xz_quad_init();
+
+# f32::EPSILON and f64::EPSILON, widened / as bits.
+var _SR_VIZ_EPS32: f64 = f32_to(0x34000000);
+var _SR_VIZ_EPS64: f64 = 0.0000000000000002220446049250313;
+
+# ── sizes and ranges ─────────────────────────────────────────────────────────────────
+
+# The product of the n dimensions at dims (8-byte words): Some(product), or None when it overflows (Rust's usize is
+# u64; this one stops at i64::MAX, which no allocation reaches). Mirrors `grid_len`.
+#must_use
+fn sr_grid_len(dims, n): Option {
+    var acc = 1;
+    var i = 0;
+    while (i < n) {
+        var d = load64(dims + i * 8);
+        if (d < 0) { return None(); }
+        if (d != 0 && acc > 9223372036854775807 / d) { return None(); }
+        acc = acc * d;
+        i = i + 1;
+    }
+    return Some(acc);
+}
+
+# 1 when a grid of the n dimensions at dims is non-empty and its data (data_len values) covers it; 0 otherwise,
+# warning (soorat::viz) when the data is short or the size overflows. what names the grid in Rust's event. Mirrors
+# `grid_is_backed`.
+#must_use
+fn sr_grid_is_backed(dims, n, data_len, what): i64 {
+    var t, v = sr_grid_len(dims, n);
+    if (is_none(t) == 1) {
+        _sr_warn("soorat::viz: visualization grid size overflows — skipping");
+        return 0;
+    }
+    if (v == 0) { return 0; }
+    if (v <= data_len) { return 1; }
+    _sr_warn("soorat::viz: visualization grid larger than its data — skipping");
+    return 0;
+}
+
+# 1 when the f64 x is finite.
+#must_use
+fn _sr_f64_finite(x: f64): i64 {
+    var d: f64 = x - x;
+    var zero: f64 = 0.0;
+    if (d == zero) { return 1; }
+    return 0;
+}
+
+# The smallest and largest finite values of the n f64 at values: Some(out) with (min, max) at out, or None when
+# none is finite; as Rust's `f64::min` / `max` fold, a tie (+0 against −0) takes the later value. Mirrors
+# `finite_min_max`.
+fn sr_finite_min_max(values, n, out): Option {
+    var found = 0;
+    var lo: f64 = 0.0;
+    var hi: f64 = 0.0;
+    var i = 0;
+    while (i < n) {
+        var v: f64 = load64(values + i * 8);
+        if (_sr_f64_finite(v) == 1) {
+            if (found == 0) {
+                lo = v;
+                hi = v;
+                found = 1;
+            } else {
+                # Rust's `lo.min(v)` / `hi.max(v)`: equal operands (±0 included) give v.
+                if (v <= lo) { lo = v; }
+                if (v >= hi) { hi = v; }
+            }
+        }
+        i = i + 1;
+    }
+    if (found == 0) { return None(); }
+    store64(out, lo);
+    store64(out + 8, hi);
+    return Some(out);
+}
+
+# x narrowed to f32 and clamped to [lo, hi] (f32 bits), as Rust's `(x as f32).clamp(lo, hi)`.
+#must_use
+fn _sr_narrow_clamp(x: f64, lo, hi): i64 {
+    return _sr_clamp32(f32_from(x), lo, hi);
+}
+
+# max(|min|, |max|), ignoring a NaN operand as Rust's `f64::max` does.
+#must_use
+fn _sr_abs_scale(mn: f64, mx: f64): f64 {
+    var a: f64 = _sr_abs64(mn);
+    var b: f64 = _sr_abs64(mx);
+    var r: f64 = _sr_max64(a, b);
+    return r;
+}
+
+# v's place in [min, max] as f32 bits in [0, 1]; 0 for a non-finite v or a range that is NaN or ≤ f64::EPSILON.
+# The arguments are f64 bits. Mirrors `unit_t`.
+#must_use
+fn sr_unit_t(v: f64, mn: f64, mx: f64): i64 {
+    var range: f64 = mx - mn;
+    if (_sr_f64_finite(v) == 0 || range != range || range <= _SR_VIZ_EPS64) { return 0; }
+    var q: f64 = (v - mn) / range;
+    return _sr_narrow_clamp(q, 0, 0x3F800000);
+}
+
+# v / max(|min|, |max|) as f32 bits in [−1, 1]; 0 for a non-finite v or a scale that is NaN or ≤ f64::EPSILON.
+# Mirrors `signed_t`.
+#must_use
+fn sr_signed_t(v: f64, mn: f64, mx: f64): i64 {
+    var scale: f64 = _sr_abs_scale(mn, mx);
+    if (_sr_f64_finite(v) == 0 || scale != scale || scale <= _SR_VIZ_EPS64) { return 0; }
+    var q: f64 = v / scale;
+    return _sr_narrow_clamp(q, 0xBF800000, 0x3F800000);
+}
+
+# |v| / max(|min|, |max|) as f32 bits in [0, 1]; 0 as sr_signed_t. Mirrors `magnitude_t`.
+#must_use
+fn sr_magnitude_t(v: f64, mn: f64, mx: f64): i64 {
+    var scale: f64 = _sr_abs_scale(mn, mx);
+    if (_sr_f64_finite(v) == 0 || scale != scale || scale <= _SR_VIZ_EPS64) { return 0; }
+    var av: f64 = _sr_abs64(v);
+    var q: f64 = av / scale;
+    return _sr_narrow_clamp(q, 0, 0x3F800000);
+}
+
+# The heat-map colour of t with its alpha replaced by alpha (f32 bits), as 4 f32 at out. Mirrors `heat_rgba`.
+fn sr_heat_rgba(t, alpha, out) {
+    sr_visualization_heat_map(t, out);
+    store32(out + 12, alpha);
+    return out;
+}
+
+# The signed colour of t with alpha alpha, as 4 f32 at out. Mirrors `signed_rgba`.
+fn sr_signed_rgba(t, alpha, out) {
+    sr_signed_value_color(t, out);
+    store32(out + 12, alpha);
+    return out;
+}
+
+# base's r, g, b with alpha clamped to [0, 1] (0 when not finite), as 4 f32 at out. Mirrors `with_alpha`.
+fn sr_with_alpha(base, alpha, out) {
+    var a = 0;
+    if ((alpha & 0x7F800000) != 0x7F800000) { a = _sr_clamp32(alpha, 0, 0x3F800000); }
+    store32(out, load32(base));
+    store32(out + 4, load32(base + 4));
+    store32(out + 8, load32(base + 8));
+    store32(out + 12, a);
+    return out;
+}
+
+# ── meshes ───────────────────────────────────────────────────────────────────────────
+
+# Rounds (x, y, z) once to f32 and stores them at p.
+fn _sr_put3(p, x: f64, y: f64, z: f64) {
+    store32(p, f32_from(x));
+    store32(p + 4, f32_from(y));
+    store32(p + 8, f32_from(z));
+    return p;
+}
+
+# Rounds (u, w) once to f32 and stores them at p.
+fn _sr_put2(p, u: f64, w: f64) {
+    store32(p, f32_from(u));
+    store32(p + 4, f32_from(w));
+    return p;
+}
+
+# Fills out (an SrMeshData) with an empty mesh; returns out.
+fn _sr_mesh_empty(out) {
+    store64(out, 0);
+    store64(out + 8, 0);
+    store64(out + 16, 0);
+    store64(out + 24, 0);
+    store64(out + 32, SR_MATERIAL_NONE);
+    return out;
+}
+
+# Allocates nv vertices and ni indices from a into out: 1, or 0 when an allocation fails (out empty).
+fn _sr_mesh_alloc(a, out, nv, ni): i64 {
+    _sr_mesh_empty(out);
+    var vb = 0;
+    var ib = 0;
+    if (nv > 0) { vb = alloc_via(a, nv * 48); }
+    if (ni > 0) { ib = alloc_via(a, ni * 4); }
+    if ((nv > 0 && vb == 0) || (ni > 0 && ib == 0)) { return 0; }
+    store64(out, vb);
+    store64(out + 8, nv);
+    store64(out + 16, ib);
+    store64(out + 24, ni);
+    return 1;
+}
+
+# A colour-per-cell heatmap on the XZ plane at height y: one quad of 4 vertices (normal +Y) per cell, (ix, iz) at
+# (origin + i·d … origin + (i + 1)·d), UVs i / n, coloured by color_fn(ctx, ix, iz, out). Empty when the grid is
+# empty or has more than SR_MAX_QUADS cells (warning). Into out (an SrMeshData) from the allocator a: out, or 0.
+# Mirrors `xz_heatmap_mesh`.
+fn sr_xz_heatmap_mesh(grid, color_fn, ctx, a, out) {
+    var nx = load64(grid);
+    var nz = load64(grid + 8);
+    if (nx <= 0 || nz <= 0 || nx > 9223372036854775807 / nz) { return _sr_mesh_empty(out); }
+    var cells = nx * nz;
+    if (cells > SR_MAX_QUADS) {
+        _sr_warn("soorat::viz: heatmap exceeds u32 index range — skipping");
+        return _sr_mesh_empty(out);
+    }
+    if (_sr_mesh_alloc(a, out, cells * 4, cells * 6) == 0) { return 0; }
+    var vb = load64(out);
+    var ib = load64(out + 16);
+    var ox: f64 = f32_to(load32(grid + 16));
+    var oz: f64 = f32_to(load32(grid + 20));
+    var gy: f64 = f32_to(load32(grid + 24));
+    var dx: f64 = f32_to(load32(grid + 28));
+    var dz: f64 = f32_to(load32(grid + 32));
+    var one: f64 = 1.0;
+    var inx: f64 = one / f64_from(nx);
+    var inz: f64 = one / f64_from(nz);
+    var color[16];
+    var k = 0;
+    var iz = 0;
+    while (iz < nz) {
+        var fz: f64 = f64_from(iz);
+        var z0: f64 = oz + (fz * dz);
+        var z1: f64 = z0 + dz;
+        var v0: f64 = fz * inz;
+        var fz1: f64 = f64_from(iz + 1);
+        var v1: f64 = fz1 * inz;
+        var ix = 0;
+        while (ix < nx) {
+            fncall4(color_fn, ctx, ix, iz, &color);
+            var fx: f64 = f64_from(ix);
+            var x0: f64 = ox + (fx * dx);
+            var x1: f64 = x0 + dx;
+            var u0: f64 = fx * inx;
+            var fx1: f64 = f64_from(ix + 1);
+            var u1: f64 = fx1 * inx;
+            var v = vb + k * 192;
+            _sr_put3(v, x0, gy, z0);
+            _sr_put2(v + 24, u0, v0);
+            _sr_put3(v + 48, x1, gy, z0);
+            _sr_put2(v + 72, u1, v0);
+            _sr_put3(v + 96, x1, gy, z1);
+            _sr_put2(v + 120, u1, v1);
+            _sr_put3(v + 144, x0, gy, z1);
+            _sr_put2(v + 168, u0, v1);
+            var j = 0;
+            while (j < 4) {
+                var q = v + j * 48;
+                store32(q + 12, 0);
+                store32(q + 16, 0x3F800000);
+                store32(q + 20, 0);
+                store64(q + 32, load64(&color));
+                store64(q + 40, load64(&color + 8));
+                j = j + 1;
+            }
+            var base = k * 4;
+            var m = 0;
+            while (m < 6) {
+                store32(ib + (k * 6 + m) * 4, base + load32(SR_XZ_QUAD_INDICES + m * 4));
+                m = m + 1;
+            }
+            k = k + 1;
+            ix = ix + 1;
+        }
+        iz = iz + 1;
+    }
+    return out;
+}
+
+# The negated slope across sample i of a row or column (stride apart, n samples) of the f32 heights at h, by central
+# difference (one-sided at the ends), in f64: (h[lo] − h[hi]) / ((hi − lo)·step), 0 when that span is NaN or within
+# f32::EPSILON of 0.
+#must_use
+fn _sr_neg_slope(h, i, stride, n, step: f64): f64 {
+    var lo = i - 1;
+    if (lo < 0) { lo = 0; }
+    var hi = i + 1;
+    if (hi > n - 1) { hi = n - 1; }
+    var span: f64 = f64_from(hi - lo) * step;
+    var zero: f64 = 0.0;
+    var as: f64 = _sr_abs64(span);
+    if (span != span || as <= _SR_VIZ_EPS32) { return zero; }
+    var a: f64 = f32_to(load32(h + lo * stride * 4));
+    var b: f64 = f32_to(load32(h + hi * stride * 4));
+    var r: f64 = (a - b) / span;
+    return r;
+}
+
+# A height-field mesh: a vertex per sample (cols × rows), at (origin_x + ix·dx, height, origin_z + iz·dz), its normal
+# from the central-difference slopes, UVs ix / (cols − 1), coloured by color_fn(cctx, ix, iz, y, out); heights from
+# height_fn(hctx, ix, iz), a non-finite one read as 0. Two triangles per cell, counter-clockwise about +Y. Empty
+# for 0 samples or more than u32::MAX (warning). Into out from the allocator a: out, or 0. Mirrors
+# `heightfield_mesh`.
+fn sr_heightfield_mesh(hf, height_fn, hctx, color_fn, cctx, a, out) {
+    var cols = load64(hf);
+    var rows = load64(hf + 8);
+    if (cols <= 0 || rows <= 0 || cols > 9223372036854775807 / rows) { return _sr_mesh_empty(out); }
+    var count = cols * rows;
+    if (count > 4294967295) {
+        _sr_warn("soorat::viz: height field exceeds u32 index range — skipping");
+        return _sr_mesh_empty(out);
+    }
+    var quads = (cols - 1) * (rows - 1);
+    var hs = alloc_via(a, count * 4);
+    if (hs == 0) { return 0; }
+    if (_sr_mesh_alloc(a, out, count, quads * 6) == 0) { return 0; }
+    var vb = load64(out);
+    var ib = load64(out + 16);
+    var iz = 0;
+    while (iz < rows) {
+        var ix = 0;
+        while (ix < cols) {
+            var h = fncall3(height_fn, hctx, ix, iz) & 0xFFFFFFFF;
+            if ((h & 0x7F800000) == 0x7F800000) { h = 0; }
+            store32(hs + (iz * cols + ix) * 4, h);
+            ix = ix + 1;
+        }
+        iz = iz + 1;
+    }
+    var one: f64 = 1.0;
+    var cu = cols - 1;
+    if (cu < 1) { cu = 1; }
+    var cv = rows - 1;
+    if (cv < 1) { cv = 1; }
+    var inv_u: f64 = one / f64_from(cu);
+    var inv_v: f64 = one / f64_from(cv);
+    var ox: f64 = f32_to(load32(hf + 16));
+    var oz: f64 = f32_to(load32(hf + 20));
+    var dx: f64 = f32_to(load32(hf + 24));
+    var dz: f64 = f32_to(load32(hf + 28));
+    iz = 0;
+    while (iz < rows) {
+        var row = hs + iz * cols * 4;
+        var ix2 = 0;
+        while (ix2 < cols) {
+            var yb = load32(row + ix2 * 4);
+            var y: f64 = f32_to(yb);
+            var sx: f64 = _sr_neg_slope(row, ix2, 1, cols, dx);
+            var sz: f64 = _sr_neg_slope(hs + ix2 * 4, iz, cols, rows, dz);
+            var len: f64 = f64_sqrt(((sx * sx) + one) + (sz * sz));
+            var fx: f64 = f64_from(ix2);
+            var fz: f64 = f64_from(iz);
+            var v = vb + (iz * cols + ix2) * 48;
+            _sr_put3(v, ox + (fx * dx), y, oz + (fz * dz));
+            _sr_put3(v + 12, sx / len, one / len, sz / len);
+            _sr_put2(v + 24, fx * inv_u, fz * inv_v);
+            fncall5(color_fn, cctx, ix2, iz, yb, v + 32);
+            ix2 = ix2 + 1;
+        }
+        iz = iz + 1;
+    }
+    var k = 0;
+    var r = 0;
+    while (r < rows - 1) {
+        var c = 0;
+        while (c < cols - 1) {
+            var tl = r * cols + c;
+            var p = ib + k * 24;
+            store32(p, tl);
+            store32(p + 4, tl + cols);
+            store32(p + 8, tl + 1);
+            store32(p + 12, tl + 1);
+            store32(p + 16, tl + cols);
+            store32(p + 20, tl + cols + 1);
+            k = k + 1;
+            c = c + 1;
+        }
+        r = r + 1;
+    }
+    return out;
+}
+
+# The triangle indices of a (rows + 1) × (cols + 1) vertex lattice, two per cell, (tl, tr, bl) and (tr, br, bl):
+# rows · cols · 6 u32 allocated from a, or 0 (also for an empty lattice). Mirrors `lattice_indices`.
+fn sr_lattice_indices(rows, cols, a): i64 {
+    var n = rows * cols * 6;
+    if (n <= 0) { return 0; }
+    var ib = alloc_via(a, n * 4);
+    if (ib == 0) { return 0; }
+    _sr_lattice_into(rows, cols, ib);
+    return ib;
+}
+
+# Writes the lattice indices of sr_lattice_indices at ib.
+fn _sr_lattice_into(rows, cols, ib) {
+    var stride = cols + 1;
+    var k = 0;
+    var r = 0;
+    while (r < rows) {
+        var c = 0;
+        while (c < cols) {
+            var tl = r * stride + c;
+            var p = ib + k * 24;
+            store32(p, tl);
+            store32(p + 4, tl + 1);
+            store32(p + 8, tl + stride);
+            store32(p + 12, tl + 1);
+            store32(p + 16, tl + stride + 1);
+            store32(p + 20, tl + stride);
+            k = k + 1;
+            c = c + 1;
+        }
+        r = r + 1;
+    }
+    return ib;
+}
+
+# --- primitives.cyr ---
+
+# primitives.cyr — Rust 1.2.0's src/primitives.rs (M3 part a): unit cube, UV sphere, plane and cylinder meshes.
+#
+# Each writes an `SrMeshData` (src/viz.cyr) from the caller's allocator a: out, or 0 when an allocation fails.
+# Vertices are SrVertex3D (48 bytes), white; triangles wind counter-clockwise seen from outside, as Rust's do.
+#
+# **Precision (D4 rule b; plan §6.2, tessellation).** The sphere's, cylinder's and plane's vertices are Rust's
+# formulas evaluated in f64 and rounded once: the angle step · i and its sin and cos are f64, where Rust rounds the
+# angle to f32 before its f32 sin/cos. Rust's f32 constants (`PI`, `TAU`) are widened exactly, so the formula is
+# Rust's. Class E against tests/golden/primitives.e.tsv where that differs from Rust's f32 result. The cube is
+# constants: class A.
+
+var _SR_PI32: f64 = f32_to(0x40490FDB);     # std::f32::consts::PI
+var _SR_TAU32: f64 = f32_to(0x40C90FDB);    # std::f32::consts::TAU
+
+# White, as an SrVertex3D's color (two words).
+var _SR_WHITE_LO = 0x3F8000003F800000;
+var _SR_WHITE_HI = 0x3F8000003F800000;
+
+# Writes one vertex's colour (white) at the vertex v.
+fn _sr_v3d_white(v) {
+    store64(v + 32, _SR_WHITE_LO);
+    store64(v + 40, _SR_WHITE_HI);
+    return v;
+}
+
+# Writes a vertex of f32 bits: position (px, py, pz), normal (nx, ny, nz), UV (u, w), white.
+fn _sr_v3d_bits(v, px, py, pz, nx, ny, nz, u, w) {
+    store32(v, px);
+    store32(v + 4, py);
+    store32(v + 8, pz);
+    store32(v + 12, nx);
+    store32(v + 16, ny);
+    store32(v + 20, nz);
+    store32(v + 24, u);
+    store32(v + 28, w);
+    return _sr_v3d_white(v);
+}
+
+# ── cube ─────────────────────────────────────────────────────────────────────────────
+
+# f32 bits of 0, ±0.5 and ±1.
+var _SR_P0 = 0;
+var _SR_PH = 0x3F000000;
+var _SR_NH = 0xBF000000;
+var _SR_P1 = 0x3F800000;
+var _SR_N1 = 0xBF800000;
+
+# One cube face: normal (nx, ny, nz) and corners ca … cd, each an (x, y, z) of ±0.5 given as sign bits (bit 2 x,
+# bit 1 y, bit 0 z: 1 is +0.5), UVs (0, 1), (1, 1), (1, 0), (0, 0); indices base + 0 1 2 2 3 0.
+fn _sr_cube_face(vb, ib, f, nx, ny, nz, ca, cb, cc, cd) {
+    var corners[32];
+    store64(&corners, ca);
+    store64(&corners + 8, cb);
+    store64(&corners + 16, cc);
+    store64(&corners + 24, cd);
+    var uvs[64];
+    store64(&uvs, _SR_P0);
+    store64(&uvs + 8, _SR_P1);
+    store64(&uvs + 16, _SR_P1);
+    store64(&uvs + 24, _SR_P1);
+    store64(&uvs + 32, _SR_P1);
+    store64(&uvs + 40, _SR_P0);
+    store64(&uvs + 48, _SR_P0);
+    store64(&uvs + 56, _SR_P0);
+    var j = 0;
+    while (j < 4) {
+        var c = load64(&corners + j * 8);
+        var x = _SR_NH;
+        var y = _SR_NH;
+        var z = _SR_NH;
+        if ((c & 4) != 0) { x = _SR_PH; }
+        if ((c & 2) != 0) { y = _SR_PH; }
+        if ((c & 1) != 0) { z = _SR_PH; }
+        _sr_v3d_bits(vb + (f * 4 + j) * 48, x, y, z, nx, ny, nz, load64(&uvs + j * 16), load64(&uvs + j * 16 + 8));
+        j = j + 1;
+    }
+    var base = f * 4;
+    var p = ib + f * 24;
+    store32(p, base);
+    store32(p + 4, base + 1);
+    store32(p + 8, base + 2);
+    store32(p + 12, base + 2);
+    store32(p + 16, base + 3);
+    store32(p + 20, base);
+    return 0;
+}
+
+# The unit cube centred at the origin: 6 faces of 4 vertices (24) with their own normals, 36 indices. Mirrors `cube`.
+fn sr_cube(a, out) {
+    if (_sr_mesh_alloc(a, out, 24, 36) == 0) { return 0; }
+    var vb = load64(out);
+    var ib = load64(out + 16);
+    # +Z, −Z, +X, −X, +Y, −Y, corners as (x, y, z) sign bits in Rust's order.
+    _sr_cube_face(vb, ib, 0, _SR_P0, _SR_P0, _SR_P1, 1, 5, 7, 3);
+    _sr_cube_face(vb, ib, 1, _SR_P0, _SR_P0, _SR_N1, 4, 0, 2, 6);
+    _sr_cube_face(vb, ib, 2, _SR_P1, _SR_P0, _SR_P0, 5, 4, 6, 7);
+    _sr_cube_face(vb, ib, 3, _SR_N1, _SR_P0, _SR_P0, 0, 1, 3, 2);
+    _sr_cube_face(vb, ib, 4, _SR_P0, _SR_P1, _SR_P0, 3, 7, 6, 2);
+    _sr_cube_face(vb, ib, 5, _SR_P0, _SR_N1, _SR_P0, 0, 4, 5, 1);
+    return out;
+}
+
+# ── sphere ───────────────────────────────────────────────────────────────────────────
+
+# A UV sphere of radius 0.5: (rings + 1) × (segments + 1) vertices, ring y at φ = (y / rings)·π, column x at
+# θ = (x / segments)·τ, normal (sin φ cos θ, cos φ, sin φ sin θ), UV (x / segments, y / rings); the lattice's
+# triangles (sr_lattice_indices). segments is at least 3 and rings at least 2. Each column's cos θ and sin θ are
+# computed once, into 16·(segments + 1) bytes of scratch from a, not once per ring. Mirrors `sphere`.
+fn sr_sphere(segments, rings, a, out) {
+    var seg = segments & 0xFFFFFFFF;
+    var rng = rings & 0xFFFFFFFF;
+    if (seg < 3) { seg = 3; }
+    if (rng < 2) { rng = 2; }
+    var trig = alloc_via(a, (seg + 1) * 16);
+    if (trig == 0) { return 0; }
+    if (_sr_mesh_alloc(a, out, (rng + 1) * (seg + 1), rng * seg * 6) == 0) { return 0; }
+    var vb = load64(out);
+    var half: f64 = 0.5;
+    var fseg: f64 = f64_from(seg);
+    var frng: f64 = f64_from(rng);
+    var k = 0;
+    while (k <= seg) {
+        var fk: f64 = f64_from(k);
+        var tk: f64 = (fk / fseg) * _SR_TAU32;
+        store64(trig + k * 16, f64_cos(tk));
+        store64(trig + k * 16 + 8, f64_sin(tk));
+        k = k + 1;
+    }
+    k = 0;
+    var y = 0;
+    while (y <= rng) {
+        var fy: f64 = f64_from(y);
+        var vv: f64 = fy / frng;
+        var phi: f64 = vv * _SR_PI32;
+        var sp: f64 = f64_sin(phi);
+        var cp: f64 = f64_cos(phi);
+        var x = 0;
+        while (x <= seg) {
+            var fx: f64 = f64_from(x);
+            var u: f64 = fx / fseg;
+            var ct: f64 = load64(trig + x * 16);
+            var st: f64 = load64(trig + x * 16 + 8);
+            var nx: f64 = sp * ct;
+            var nz: f64 = sp * st;
+            var v = vb + k * 48;
+            _sr_put3(v, nx * half, cp * half, nz * half);
+            _sr_put3(v + 12, nx, cp, nz);
+            _sr_put2(v + 24, u, vv);
+            _sr_v3d_white(v);
+            k = k + 1;
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+    _sr_lattice_into(rng, seg, load64(out + 16));
+    return out;
+}
+
+# ── plane ────────────────────────────────────────────────────────────────────────────
+
+# A unit plane on XZ centred at the origin, normal +Y: (n + 1)² vertices at (x / n − 0.5, 0, z / n − 0.5), UV
+# (x / n, z / n), two triangles per cell (tl, bl, tr), (tr, bl, br); n = subdivisions, at least 1. Mirrors `plane`.
+fn sr_plane(subdivisions, a, out) {
+    var divs = subdivisions & 0xFFFFFFFF;
+    if (divs < 1) { divs = 1; }
+    var cols = divs + 1;
+    if (_sr_mesh_alloc(a, out, cols * cols, divs * divs * 6) == 0) { return 0; }
+    var vb = load64(out);
+    var ib = load64(out + 16);
+    var half: f64 = 0.5;
+    var fd: f64 = f64_from(divs);
+    var z = 0;
+    while (z < cols) {
+        var fz: f64 = f64_from(z);
+        var tz: f64 = fz / fd;
+        var x = 0;
+        while (x < cols) {
+            var fx: f64 = f64_from(x);
+            var tx: f64 = fx / fd;
+            var v = vb + (z * cols + x) * 48;
+            _sr_put3(v, tx - half, 0.0, tz - half);
+            store32(v + 12, 0);
+            store32(v + 16, 0x3F800000);
+            store32(v + 20, 0);
+            _sr_put2(v + 24, tx, tz);
+            _sr_v3d_white(v);
+            x = x + 1;
+        }
+        z = z + 1;
+    }
+    var k = 0;
+    z = 0;
+    while (z < divs) {
+        var x2 = 0;
+        while (x2 < divs) {
+            var tl = z * cols + x2;
+            var p = ib + k * 24;
+            store32(p, tl);
+            store32(p + 4, tl + cols);
+            store32(p + 8, tl + 1);
+            store32(p + 12, tl + 1);
+            store32(p + 16, tl + cols);
+            store32(p + 20, tl + cols + 1);
+            k = k + 1;
+            x2 = x2 + 1;
+        }
+        z = z + 1;
+    }
+    return out;
+}
+
+# ── cylinder ─────────────────────────────────────────────────────────────────────────
+
+# A cylinder of radius 0.5 and height 1 about Y: two side rings of segments + 1 vertices at angles (τ / segments)·i,
+# then a top and a bottom cap (centre plus a ring of segments), 4·segments + 4 vertices and 12·segments indices.
+# segments is at least 3. Mirrors `cylinder`.
+fn sr_cylinder(segments, a, out) {
+    var seg = segments & 0xFFFFFFFF;
+    if (seg < 3) { seg = 3; }
+    if (_sr_mesh_alloc(a, out, 4 * seg + 4, 12 * seg) == 0) { return 0; }
+    var vb = load64(out);
+    var ib = load64(out + 16);
+    var half: f64 = 0.5;
+    var fseg: f64 = f64_from(seg);
+    var step: f64 = _SR_TAU32 / fseg;
+    var k = 0;
+    var yi = 0;
+    while (yi <= 1) {
+        var y: f64 = f64_from(yi) - half;
+        var i = 0;
+        while (i <= seg) {
+            var fi: f64 = f64_from(i);
+            var ang: f64 = step * fi;
+            var nx: f64 = f64_cos(ang);
+            var nz: f64 = f64_sin(ang);
+            var v = vb + k * 48;
+            _sr_put3(v, nx * half, y, nz * half);
+            store32(v + 12, f32_from(nx));
+            store32(v + 16, 0);
+            store32(v + 20, f32_from(nz));
+            _sr_put2(v + 24, fi / fseg, f64_from(yi));
+            _sr_v3d_white(v);
+            k = k + 1;
+            i = i + 1;
+        }
+        yi = yi + 1;
+    }
+    var ring = seg + 1;
+    var n = 0;
+    var s = 0;
+    while (s < seg) {
+        var p = ib + n * 4;
+        store32(p, s);
+        store32(p + 4, s + ring);
+        store32(p + 8, s + 1);
+        store32(p + 12, s + ring);
+        store32(p + 16, s + ring + 1);
+        store32(p + 20, s + 1);
+        n = n + 6;
+        s = s + 1;
+    }
+    var cap = 0;
+    while (cap < 2) {
+        var cy = _SR_PH;
+        var ny = _SR_P1;
+        if (cap == 1) {
+            cy = _SR_NH;
+            ny = _SR_N1;
+        }
+        var center = k;
+        _sr_v3d_bits(vb + k * 48, 0, cy, 0, 0, ny, 0, _SR_PH, _SR_PH);
+        k = k + 1;
+        var j = 0;
+        while (j < seg) {
+            var fj: f64 = f64_from(j);
+            var a2: f64 = step * fj;
+            var c: f64 = f64_cos(a2) * half;
+            var sn: f64 = f64_sin(a2) * half;
+            var v2 = vb + k * 48;
+            store32(v2, f32_from(c));
+            store32(v2 + 4, cy);
+            store32(v2 + 8, f32_from(sn));
+            store32(v2 + 12, 0);
+            store32(v2 + 16, ny);
+            store32(v2 + 20, 0);
+            _sr_put2(v2 + 24, c + half, sn + half);
+            _sr_v3d_white(v2);
+            k = k + 1;
+            j = j + 1;
+        }
+        var t = 0;
+        while (t < seg) {
+            var nxt = t + 1;
+            if (nxt >= seg) { nxt = 0; }
+            var q = ib + n * 4;
+            store32(q, center);
+            if (cap == 0) {
+                store32(q + 4, center + 1 + nxt);
+                store32(q + 8, center + 1 + t);
+            } else {
+                store32(q + 4, center + 1 + t);
+                store32(q + 8, center + 1 + nxt);
+            }
+            n = n + 3;
+            t = t + 1;
+        }
+        cap = cap + 1;
+    }
+    return out;
+}
+
+# --- terrain.cyr ---
+
+# terrain.cyr — Rust 1.2.0's src/terrain.rs (M3 part a): height-map terrain meshes.
+#
+# `SrTerrainConfig` (width, depth as u32; world_width, world_depth, height_scale as f32 at 16, 20, 24) is filled by
+# the caller, or by SrTerrainConfig_default. `SrTerrainData` is an SrMeshData (src/viz.cyr) without the material
+# index, as Rust's `TerrainData` is. The mesh is sr_heightfield_mesh's, so its geometry is class E (D4 rule b); the
+# HeightField's f32 fields (origin = −world · 0.5, d = world / cells) are Rust's f32 values. `create_terrain_mesh`
+# uploads to the GPU: M6.
+
+struct SrTerrainConfig { width; depth; world_width: f32; world_depth: f32; height_scale: f32; }
+struct SrTerrainData { vertices; vertex_count; indices; index_count; }
+
+# 64 × 64 cells over 64 × 64 world units, heights × 10, into out. Mirrors `impl Default for TerrainConfig`.
+fn SrTerrainConfig_default(out) {
+    store64(out, 64);
+    store64(out + 8, 64);
+    store32(out + 16, 0x42800000);
+    store32(out + 20, 0x42800000);
+    store32(out + 24, 0x41200000);
+    return out;
+}
+
+# The terrain's height-callback context: the heights, how many, the row length and the scale.
+struct _SrTerrainCtx { heights; n; cols; scale; }
+
+# heights[iz·cols + ix] · scale in f32, or 0 past the end of the heights (sr_heightfield_mesh's height_fn).
+fn _sr_terrain_height(ctx, ix, iz): i64 {
+    var i = iz * load64(ctx + 16) + ix;
+    if (i >= load64(ctx + 8)) { return 0; }
+    return _sr_f32_mul(load32(load64(ctx) + i * 4), load64(ctx + 24));
+}
+
+# White (sr_heightfield_mesh's color_fn).
+fn _sr_terrain_white(ctx, ix, iz, y, out) {
+    store64(out, 0x3F8000003F800000);
+    store64(out + 8, 0x3F8000003F800000);
+    return out;
+}
+
+# Sets the terrain data out to nv vertices at vb and ni indices at ib; returns out.
+fn _sr_terrain_set(out, vb, nv, ib, ni) {
+    store64(out, vb);
+    store64(out + 8, nv);
+    store64(out + 16, ib);
+    store64(out + 24, ni);
+    return out;
+}
+
+# The terrain mesh of config over the n heights at heights (row-major, (width + 1) × (depth + 1); a missing sample is 0,
+# with a DEBUG event), into out (an SrTerrainData) from the allocator a: out, or 0 when an allocation fails. Empty,
+# with a WARN event, when width or depth is 0. Mirrors `generate_terrain`.
+fn sr_generate_terrain(config, heights, n, a, out) {
+    var w = load64(config) & 0xFFFFFFFF;
+    var d = load64(config + 8) & 0xFFFFFFFF;
+    if (w == 0 || d == 0) {
+        _sr_warn("soorat::terrain: generate_terrain: width or depth is 0 — returning empty terrain");
+        return _sr_terrain_set(out, 0, 0, 0, 0);
+    }
+    var cols = w + 1;
+    var rows = d + 1;
+    if (n < cols * rows) {
+        _sr_debug("soorat::terrain: generate_terrain: heightmap shorter than grid — missing samples are 0");
+    }
+    var hf: SrHeightField;
+    hf.cols = cols;
+    hf.rows = rows;
+    var hp = &hf;
+    var ww = load32(config + 16);
+    var wd = load32(config + 20);
+    var half = 0x3F000000;
+    store32(hp + 16, _sr_f32_mul(ww ^ 0x80000000, half));
+    store32(hp + 20, _sr_f32_mul(wd ^ 0x80000000, half));
+    store32(hp + 24, _sr_f32_div(ww, _sr_i64_to_f32(w)));
+    store32(hp + 28, _sr_f32_div(wd, _sr_i64_to_f32(d)));
+    var ctx: _SrTerrainCtx;
+    ctx.heights = heights;
+    ctx.n = n;
+    ctx.cols = cols;
+    ctx.scale = load32(config + 24);
+    var m: SrMeshData;
+    var mp = &m;
+    if (sr_heightfield_mesh(hp, &_sr_terrain_height, &ctx, &_sr_terrain_white, 0, a, mp) == 0) {
+        _sr_terrain_set(out, 0, 0, 0, 0);
+        return 0;
+    }
+    return _sr_terrain_set(out, load64(mp), load64(mp + 8), load64(mp + 16), load64(mp + 24));
+}
+
+# A zero height map for a width × depth terrain: (width + 1)·(depth + 1) f32 zeros allocated from a, or 0. Mirrors
+# `flat_heightmap` (its length is (width + 1)·(depth + 1)).
+fn sr_flat_heightmap(width, depth, a): i64 {
+    var n = ((width & 0xFFFFFFFF) + 1) * ((depth & 0xFFFFFFFF) + 1);
+    var p = alloc_via(a, n * 4);
+    if (p == 0) { return 0; }
+    memset(p, 0, n * 4);
+    return p;
 }

@@ -696,3 +696,62 @@ These run at setup, not per frame. The first full run of the three read slow aga
   truncated `€` as U+FFFD, a fourth glyph.
 - **A cache can be a parity-neutral speed-up** when it returns exactly the values it replaces: the circle's trig
   table changed no golden row.
+
+## 4. M3: geometry and animation (part a, 2026-11-15)
+
+### 4.1 Parity
+
+| Module | Rows | Classes | Result |
+|---|---|---|---|
+| `primitives` | 28 | A, E | the cube identical (A). Spheres from 0 × 0 (clamped to 3 × 2) to 32 × 16, planes, and cylinders up to 100 segments: 23 rows differ from Rust's f32 and match the f64-once value bit for bit (`primitives.e.tsv`) |
+| `viz` | 599 | A, B, E | `unit_t`, `signed_t`, `magnitude_t`, `finite_min_max`, the grid checks, the colour maps, `with_alpha` and `lattice_indices`: all identical. Heatmaps and height fields (non-finite heights, zero spacing, single rows): 8 rows class E |
+| `terrain` | 10 | A, E | the default and `flat_heightmap` identical; six terrains (0 × 5 to 32 × 32, a short height map, a NaN height): 5 rows class E |
+
+How far Rust's f32 sits from the f64-once value on the 36 class-E rows:
+
+| Function | Values that differ | Largest difference |
+|---|---|---|
+| `sphere` | 10,954 of 39,996 (27.4 %) | 33 ulp where \|v\| ≥ 1e-6, plus 770 values below 1e-6; 2.7e-7 absolute |
+| `cylinder` | 2,186 of 12,096 (18.1 %) | 70 ulp where \|v\| ≥ 1e-6, plus 76 values below 1e-6; 3.7e-7 absolute |
+| `plane` | 150 of 2,076 (7.2 %) | 3 ulp |
+| `xz_heatmap_mesh` | 498 of 13,536 (3.7 %) | 1 ulp |
+| `heightfield_mesh` | 122 of 1,200 (10.2 %) | 2 ulp |
+| `generate_terrain` | 1,394 of 15,396 (9.1 %) | 2 ulp |
+
+- The tessellation differences are the ones §7 predicted: Rust rounds the angle `(i / n) · τ` to f32 before `sin`
+  and `cos`.
+- The height-field normals (§7's open row) are within 2 ulp in f32. They are f64 under D4(b), the same rule as
+  every other mesh: one formula, and the terrain twins stay inside §11's band.
+- **The f64 `sin` and `cos` agree with glibc's once narrowed.** No geometry row needed a correctly rounded side
+  table.
+
+### 4.2 Speed (`taskset -c 10 cyrius bench`; two runs agreed)
+
+| Bench | Rust | Cyrius | Ratio | Plan §11 |
+|---|---|---|---|---|
+| `terrain/generate_32x32` | 12.5 µs | 98.0 µs | 7.84× | 4–10× |
+| `terrain/generate_64x64` | 48.1 µs | 378 µs | 7.86× | 4–10× |
+| `terrain/generate_256x256` | 734 µs | 5.90 ms | 8.05× | 4–10× |
+| `primitives/sphere_32x16` | 5.84 µs | 24.9 µs | 4.26× | 4–10× |
+
+- **Sphere, first cut against final.** The first cut called `sin` and `cos` for every vertex, but θ repeats on every
+  ring. Computing each column's pair once, into scratch from the caller's arena, took `sphere_32x16` from 68.1 to
+  24.8 µs (−64 %). The bench compared the vertex bytes with the uncached form's, and no golden row changed.
+- A terrain vertex costs about 90 ns. That covers two callbacks through `fncall` (height and colour), two clamped
+  slopes, a `sqrt` and four f64 divisions.
+- **Core 2 was busy.** A long-running process from another project sat on core 2 during this part. Every bench ran
+  2× slow there, the old ones included (`debug_draw/wire_box_100` 45 µs against its recorded 23.8 µs). The recorded
+  run is on core 10, with its SMT sibling idle. Every core on this machine (a Ryzen 7 5800H) is the same Zen 3 core.
+  There the old benches reproduce their history: `wire_box_100` 23.6 µs, `math/mul_mat4` 121 ns.
+
+### 4.3 What part a taught
+
+- **Two agreeing runs are not proof of a quiet machine.** Four contended runs agreed with each other at 2× slow.
+  Check that the core is idle (`/proc/stat`) and that a known bench reproduces its recorded figure.
+- **A twin is found by its literal name.** `bench_record.py` reads `bench_new("<name>")`. A helper that took the name
+  as a variable hid three twins until the name moved to the call site.
+- **A Rust struct's home decides its surface.** `MeshData` is defined in `gltf_loader.rs` with a
+  `material_index: Option<usize>`, so it grew that field now (`SR_MATERIAL_NONE`), not at part c. `TerrainData` has
+  no such field, so the terrain builds into a local `SrMeshData` and copies the four words it has.
+- **Rust's `f32::min`/`max` keep the later operand on a ±0 tie.** `finite_min_max` over `[-0.0, 0.0]` gives
+  `(0.0, 0.0)` (golden row `set 3`). The golden rows caught it, and `validate.py` now compares bits.

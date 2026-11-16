@@ -6,3 +6,5 @@ ganita
 freelist
 result
 alloc
+tagged
+fnptr

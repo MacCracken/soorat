@@ -11,4 +11,7 @@ sprite
 text
 debug
 debug_collider
+primitives
+viz
+terrain
 json

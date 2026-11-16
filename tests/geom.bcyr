@@ -1,0 +1,64 @@
+# geom.bcyr — twins of Rust 1.2.0's `terrain/*` and `primitives/*` benches (M3 part a). Each iteration builds a
+# fresh mesh, as Rust's does (a Vec each), into a frame arena reset per iteration (ADR 0002 #6).
+
+include "tests/lib.cyr"
+
+var _sink = 0;
+
+# Times n terrain builds of config over the heights (cnt of them) as the bench b.
+fn bench_terrain(b, config, heights, cnt, a, out, n): i64 {
+    bench_batch_start(b);
+    var i = 0;
+    while (i < n) {
+        reset_via(a);
+        sr_generate_terrain(config, heights, cnt, a, out);
+        _sink = load64(out + 8);
+        i = i + 1;
+    }
+    bench_batch_stop(b, n);
+    bench_report(b);
+    return 0;
+}
+
+# Runs the geometry benches.
+fn main(): i64 {
+    alloc_init();
+    var a = arena_allocator_growable(1 << 23);
+    var out = alloc(sizeof(SrMeshData));
+    var cfg = SrTerrainConfig_default(alloc(sizeof(SrTerrainConfig)));
+    var hs = alloc(257 * 257 * 4);
+    var c001 = 0x3C23D70A;
+    var i = 0;
+
+    store64(cfg, 32);
+    store64(cfg + 8, 32);
+    bench_terrain(bench_new("terrain/generate_32x32"), cfg, hs, 33 * 33, a, out, 2000);
+
+    store64(cfg, 64);
+    store64(cfg + 8, 64);
+    bench_terrain(bench_new("terrain/generate_64x64"), cfg, hs, 65 * 65, a, out, 500);
+
+    while (i < 257 * 257) {
+        store32(hs + i * 4, ganita_f32_sin(_sr_f32_mul(_sr_i64_to_f32(i), c001)));
+        i = i + 1;
+    }
+    store64(cfg, 256);
+    store64(cfg + 8, 256);
+    bench_terrain(bench_new("terrain/generate_256x256"), cfg, hs, 257 * 257, a, out, 30);
+
+    var bs = bench_new("primitives/sphere_32x16");
+    bench_batch_start(bs);
+    i = 0;
+    while (i < 5000) {
+        reset_via(a);
+        sr_sphere(32, 16, a, out);
+        _sink = load64(out + 8);
+        i = i + 1;
+    }
+    bench_batch_stop(bs, 5000);
+    bench_report(bs);
+    return 0;
+}
+
+var r = main();
+sys_exit_group(r);

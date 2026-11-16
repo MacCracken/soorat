@@ -13,3 +13,9 @@ fn _sr_warn(msg): i64 {
     sakshi_warn(msg, strlen(msg));
     return 0;
 }
+
+# Emits `msg` as a sakshi DEBUG event (shown when the consumer sets sakshi's level to DEBUG or TRACE).
+fn _sr_debug(msg): i64 {
+    sakshi_debug(msg, strlen(msg));
+    return 0;
+}

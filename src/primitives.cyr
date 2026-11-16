@@ -1,0 +1,310 @@
+# primitives.cyr — Rust 1.2.0's src/primitives.rs (M3 part a): unit cube, UV sphere, plane and cylinder meshes.
+#
+# Each writes an `SrMeshData` (src/viz.cyr) from the caller's allocator a: out, or 0 when an allocation fails.
+# Vertices are SrVertex3D (48 bytes), white; triangles wind counter-clockwise seen from outside, as Rust's do.
+#
+# **Precision (D4 rule b; plan §6.2, tessellation).** The sphere's, cylinder's and plane's vertices are Rust's
+# formulas evaluated in f64 and rounded once: the angle step · i and its sin and cos are f64, where Rust rounds the
+# angle to f32 before its f32 sin/cos. Rust's f32 constants (`PI`, `TAU`) are widened exactly, so the formula is
+# Rust's. Class E against tests/golden/primitives.e.tsv where that differs from Rust's f32 result. The cube is
+# constants: class A.
+
+var _SR_PI32: f64 = f32_to(0x40490FDB);     # std::f32::consts::PI
+var _SR_TAU32: f64 = f32_to(0x40C90FDB);    # std::f32::consts::TAU
+
+# White, as an SrVertex3D's color (two words).
+var _SR_WHITE_LO = 0x3F8000003F800000;
+var _SR_WHITE_HI = 0x3F8000003F800000;
+
+# Writes one vertex's colour (white) at the vertex v.
+fn _sr_v3d_white(v) {
+    store64(v + 32, _SR_WHITE_LO);
+    store64(v + 40, _SR_WHITE_HI);
+    return v;
+}
+
+# Writes a vertex of f32 bits: position (px, py, pz), normal (nx, ny, nz), UV (u, w), white.
+fn _sr_v3d_bits(v, px, py, pz, nx, ny, nz, u, w) {
+    store32(v, px);
+    store32(v + 4, py);
+    store32(v + 8, pz);
+    store32(v + 12, nx);
+    store32(v + 16, ny);
+    store32(v + 20, nz);
+    store32(v + 24, u);
+    store32(v + 28, w);
+    return _sr_v3d_white(v);
+}
+
+# ── cube ─────────────────────────────────────────────────────────────────────────────
+
+# f32 bits of 0, ±0.5 and ±1.
+var _SR_P0 = 0;
+var _SR_PH = 0x3F000000;
+var _SR_NH = 0xBF000000;
+var _SR_P1 = 0x3F800000;
+var _SR_N1 = 0xBF800000;
+
+# One cube face: normal (nx, ny, nz) and corners ca … cd, each an (x, y, z) of ±0.5 given as sign bits (bit 2 x,
+# bit 1 y, bit 0 z: 1 is +0.5), UVs (0, 1), (1, 1), (1, 0), (0, 0); indices base + 0 1 2 2 3 0.
+fn _sr_cube_face(vb, ib, f, nx, ny, nz, ca, cb, cc, cd) {
+    var corners[32];
+    store64(&corners, ca);
+    store64(&corners + 8, cb);
+    store64(&corners + 16, cc);
+    store64(&corners + 24, cd);
+    var uvs[64];
+    store64(&uvs, _SR_P0);
+    store64(&uvs + 8, _SR_P1);
+    store64(&uvs + 16, _SR_P1);
+    store64(&uvs + 24, _SR_P1);
+    store64(&uvs + 32, _SR_P1);
+    store64(&uvs + 40, _SR_P0);
+    store64(&uvs + 48, _SR_P0);
+    store64(&uvs + 56, _SR_P0);
+    var j = 0;
+    while (j < 4) {
+        var c = load64(&corners + j * 8);
+        var x = _SR_NH;
+        var y = _SR_NH;
+        var z = _SR_NH;
+        if ((c & 4) != 0) { x = _SR_PH; }
+        if ((c & 2) != 0) { y = _SR_PH; }
+        if ((c & 1) != 0) { z = _SR_PH; }
+        _sr_v3d_bits(vb + (f * 4 + j) * 48, x, y, z, nx, ny, nz, load64(&uvs + j * 16), load64(&uvs + j * 16 + 8));
+        j = j + 1;
+    }
+    var base = f * 4;
+    var p = ib + f * 24;
+    store32(p, base);
+    store32(p + 4, base + 1);
+    store32(p + 8, base + 2);
+    store32(p + 12, base + 2);
+    store32(p + 16, base + 3);
+    store32(p + 20, base);
+    return 0;
+}
+
+# The unit cube centred at the origin: 6 faces of 4 vertices (24) with their own normals, 36 indices. Mirrors `cube`.
+fn sr_cube(a, out) {
+    if (_sr_mesh_alloc(a, out, 24, 36) == 0) { return 0; }
+    var vb = load64(out);
+    var ib = load64(out + 16);
+    # +Z, −Z, +X, −X, +Y, −Y, corners as (x, y, z) sign bits in Rust's order.
+    _sr_cube_face(vb, ib, 0, _SR_P0, _SR_P0, _SR_P1, 1, 5, 7, 3);
+    _sr_cube_face(vb, ib, 1, _SR_P0, _SR_P0, _SR_N1, 4, 0, 2, 6);
+    _sr_cube_face(vb, ib, 2, _SR_P1, _SR_P0, _SR_P0, 5, 4, 6, 7);
+    _sr_cube_face(vb, ib, 3, _SR_N1, _SR_P0, _SR_P0, 0, 1, 3, 2);
+    _sr_cube_face(vb, ib, 4, _SR_P0, _SR_P1, _SR_P0, 3, 7, 6, 2);
+    _sr_cube_face(vb, ib, 5, _SR_P0, _SR_N1, _SR_P0, 0, 4, 5, 1);
+    return out;
+}
+
+# ── sphere ───────────────────────────────────────────────────────────────────────────
+
+# A UV sphere of radius 0.5: (rings + 1) × (segments + 1) vertices, ring y at φ = (y / rings)·π, column x at
+# θ = (x / segments)·τ, normal (sin φ cos θ, cos φ, sin φ sin θ), UV (x / segments, y / rings); the lattice's
+# triangles (sr_lattice_indices). segments is at least 3 and rings at least 2. Each column's cos θ and sin θ are
+# computed once, into 16·(segments + 1) bytes of scratch from a, not once per ring. Mirrors `sphere`.
+fn sr_sphere(segments, rings, a, out) {
+    var seg = segments & 0xFFFFFFFF;
+    var rng = rings & 0xFFFFFFFF;
+    if (seg < 3) { seg = 3; }
+    if (rng < 2) { rng = 2; }
+    var trig = alloc_via(a, (seg + 1) * 16);
+    if (trig == 0) { return 0; }
+    if (_sr_mesh_alloc(a, out, (rng + 1) * (seg + 1), rng * seg * 6) == 0) { return 0; }
+    var vb = load64(out);
+    var half: f64 = 0.5;
+    var fseg: f64 = f64_from(seg);
+    var frng: f64 = f64_from(rng);
+    var k = 0;
+    while (k <= seg) {
+        var fk: f64 = f64_from(k);
+        var tk: f64 = (fk / fseg) * _SR_TAU32;
+        store64(trig + k * 16, f64_cos(tk));
+        store64(trig + k * 16 + 8, f64_sin(tk));
+        k = k + 1;
+    }
+    k = 0;
+    var y = 0;
+    while (y <= rng) {
+        var fy: f64 = f64_from(y);
+        var vv: f64 = fy / frng;
+        var phi: f64 = vv * _SR_PI32;
+        var sp: f64 = f64_sin(phi);
+        var cp: f64 = f64_cos(phi);
+        var x = 0;
+        while (x <= seg) {
+            var fx: f64 = f64_from(x);
+            var u: f64 = fx / fseg;
+            var ct: f64 = load64(trig + x * 16);
+            var st: f64 = load64(trig + x * 16 + 8);
+            var nx: f64 = sp * ct;
+            var nz: f64 = sp * st;
+            var v = vb + k * 48;
+            _sr_put3(v, nx * half, cp * half, nz * half);
+            _sr_put3(v + 12, nx, cp, nz);
+            _sr_put2(v + 24, u, vv);
+            _sr_v3d_white(v);
+            k = k + 1;
+            x = x + 1;
+        }
+        y = y + 1;
+    }
+    _sr_lattice_into(rng, seg, load64(out + 16));
+    return out;
+}
+
+# ── plane ────────────────────────────────────────────────────────────────────────────
+
+# A unit plane on XZ centred at the origin, normal +Y: (n + 1)² vertices at (x / n − 0.5, 0, z / n − 0.5), UV
+# (x / n, z / n), two triangles per cell (tl, bl, tr), (tr, bl, br); n = subdivisions, at least 1. Mirrors `plane`.
+fn sr_plane(subdivisions, a, out) {
+    var divs = subdivisions & 0xFFFFFFFF;
+    if (divs < 1) { divs = 1; }
+    var cols = divs + 1;
+    if (_sr_mesh_alloc(a, out, cols * cols, divs * divs * 6) == 0) { return 0; }
+    var vb = load64(out);
+    var ib = load64(out + 16);
+    var half: f64 = 0.5;
+    var fd: f64 = f64_from(divs);
+    var z = 0;
+    while (z < cols) {
+        var fz: f64 = f64_from(z);
+        var tz: f64 = fz / fd;
+        var x = 0;
+        while (x < cols) {
+            var fx: f64 = f64_from(x);
+            var tx: f64 = fx / fd;
+            var v = vb + (z * cols + x) * 48;
+            _sr_put3(v, tx - half, 0.0, tz - half);
+            store32(v + 12, 0);
+            store32(v + 16, 0x3F800000);
+            store32(v + 20, 0);
+            _sr_put2(v + 24, tx, tz);
+            _sr_v3d_white(v);
+            x = x + 1;
+        }
+        z = z + 1;
+    }
+    var k = 0;
+    z = 0;
+    while (z < divs) {
+        var x2 = 0;
+        while (x2 < divs) {
+            var tl = z * cols + x2;
+            var p = ib + k * 24;
+            store32(p, tl);
+            store32(p + 4, tl + cols);
+            store32(p + 8, tl + 1);
+            store32(p + 12, tl + 1);
+            store32(p + 16, tl + cols);
+            store32(p + 20, tl + cols + 1);
+            k = k + 1;
+            x2 = x2 + 1;
+        }
+        z = z + 1;
+    }
+    return out;
+}
+
+# ── cylinder ─────────────────────────────────────────────────────────────────────────
+
+# A cylinder of radius 0.5 and height 1 about Y: two side rings of segments + 1 vertices at angles (τ / segments)·i,
+# then a top and a bottom cap (centre plus a ring of segments), 4·segments + 4 vertices and 12·segments indices.
+# segments is at least 3. Mirrors `cylinder`.
+fn sr_cylinder(segments, a, out) {
+    var seg = segments & 0xFFFFFFFF;
+    if (seg < 3) { seg = 3; }
+    if (_sr_mesh_alloc(a, out, 4 * seg + 4, 12 * seg) == 0) { return 0; }
+    var vb = load64(out);
+    var ib = load64(out + 16);
+    var half: f64 = 0.5;
+    var fseg: f64 = f64_from(seg);
+    var step: f64 = _SR_TAU32 / fseg;
+    var k = 0;
+    var yi = 0;
+    while (yi <= 1) {
+        var y: f64 = f64_from(yi) - half;
+        var i = 0;
+        while (i <= seg) {
+            var fi: f64 = f64_from(i);
+            var ang: f64 = step * fi;
+            var nx: f64 = f64_cos(ang);
+            var nz: f64 = f64_sin(ang);
+            var v = vb + k * 48;
+            _sr_put3(v, nx * half, y, nz * half);
+            store32(v + 12, f32_from(nx));
+            store32(v + 16, 0);
+            store32(v + 20, f32_from(nz));
+            _sr_put2(v + 24, fi / fseg, f64_from(yi));
+            _sr_v3d_white(v);
+            k = k + 1;
+            i = i + 1;
+        }
+        yi = yi + 1;
+    }
+    var ring = seg + 1;
+    var n = 0;
+    var s = 0;
+    while (s < seg) {
+        var p = ib + n * 4;
+        store32(p, s);
+        store32(p + 4, s + ring);
+        store32(p + 8, s + 1);
+        store32(p + 12, s + ring);
+        store32(p + 16, s + ring + 1);
+        store32(p + 20, s + 1);
+        n = n + 6;
+        s = s + 1;
+    }
+    var cap = 0;
+    while (cap < 2) {
+        var cy = _SR_PH;
+        var ny = _SR_P1;
+        if (cap == 1) {
+            cy = _SR_NH;
+            ny = _SR_N1;
+        }
+        var center = k;
+        _sr_v3d_bits(vb + k * 48, 0, cy, 0, 0, ny, 0, _SR_PH, _SR_PH);
+        k = k + 1;
+        var j = 0;
+        while (j < seg) {
+            var fj: f64 = f64_from(j);
+            var a2: f64 = step * fj;
+            var c: f64 = f64_cos(a2) * half;
+            var sn: f64 = f64_sin(a2) * half;
+            var v2 = vb + k * 48;
+            store32(v2, f32_from(c));
+            store32(v2 + 4, cy);
+            store32(v2 + 8, f32_from(sn));
+            store32(v2 + 12, 0);
+            store32(v2 + 16, ny);
+            store32(v2 + 20, 0);
+            _sr_put2(v2 + 24, c + half, sn + half);
+            _sr_v3d_white(v2);
+            k = k + 1;
+            j = j + 1;
+        }
+        var t = 0;
+        while (t < seg) {
+            var nxt = t + 1;
+            if (nxt >= seg) { nxt = 0; }
+            var q = ib + n * 4;
+            store32(q, center);
+            if (cap == 0) {
+                store32(q + 4, center + 1 + nxt);
+                store32(q + 8, center + 1 + t);
+            } else {
+                store32(q + 4, center + 1 + t);
+                store32(q + 8, center + 1 + nxt);
+            }
+            n = n + 3;
+            t = t + 1;
+        }
+        cap = cap + 1;
+    }
+    return out;
+}

@@ -23,6 +23,7 @@ mod m_color;
 mod m_color_optics;
 mod m_constants;
 mod m_debug;
+mod m_geom;
 mod m_json;
 mod m_layout;
 mod m_lights;
@@ -218,6 +219,9 @@ fn main() {
         m_text::module(),
         m_debug::module(),
         m_debug::collider_module(),
+        m_geom::primitives(),
+        m_geom::viz(),
+        m_geom::terrain(),
         m_json::module(),
     ];
 

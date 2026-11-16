@@ -1,0 +1,87 @@
+# primitives.tcyr — the ported tests of Rust 1.2.0's src/primitives.rs (M3 part a), all 12. The golden rows
+# (tests/golden/primitives.tsv, its .e.tsv) are replayed by tests/parity.tcyr.
+
+include "tests/lib.cyr"
+include "tests/support.cyr"
+
+var A = 0;
+var M = 0;
+
+# Runs the ported primitives tests.
+fn main() {
+    alloc_init();
+    A = arena_allocator_growable(1 << 20);
+    M = alloc(sizeof(SrMeshData));
+
+    test_group("all_primitives_wind_outward");
+    assert(t_winding_ok(sr_cube(A, M)) == 1, "cube");
+    assert(t_winding_ok(sr_sphere(16, 8, A, M)) == 1, "sphere(16, 8)");
+    assert(t_winding_ok(sr_plane(4, A, M)) == 1, "plane(4)");
+    assert(t_winding_ok(sr_cylinder(12, A, M)) == 1, "cylinder(12)");
+
+    test_group("cube_geometry");
+    sr_cube(A, M);
+    assert(load64(M + 8) == 24 && load64(M + 24) == 36, "24 vertices, 36 indices");
+
+    test_group("cube_indices_valid");
+    assert(t_indices_in_range(sr_cube(A, M)) == 1, "in range");
+
+    test_group("sphere_geometry");
+    sr_sphere(16, 8, A, M);
+    assert(load64(M + 8) > 0 && load64(M + 24) > 0 && t_indices_in_range(M) == 1, "non-empty, in range");
+
+    test_group("sphere_normals_unit");
+    sr_sphere(8, 4, A, M);
+    var tol: f64 = 0.01;
+    var one: f64 = 1.0;
+    var unit = 1;
+    var k = 0;
+    while (k < load64(M + 8)) {
+        var v = load64(M) + k * 48;
+        var len: f64 = f64_sqrt(((t_vf(v, 3) * t_vf(v, 3)) + (t_vf(v, 4) * t_vf(v, 4))) + (t_vf(v, 5) * t_vf(v, 5)));
+        if (t_near(len, one, tol) == 0) { unit = 0; }
+        k = k + 1;
+    }
+    assert(unit == 1, "every normal is unit");
+
+    test_group("plane_geometry");
+    sr_plane(4, A, M);
+    assert(load64(M + 8) == 25 && load64(M + 24) == 96, "25 vertices, 96 indices");
+
+    test_group("plane_flat_normals");
+    sr_plane(2, A, M);
+    var up = 1;
+    k = 0;
+    while (k < load64(M + 8)) {
+        var p = load64(M) + k * 48;
+        if (load32(p + 12) != 0 || load32(p + 16) != 0x3F800000 || load32(p + 20) != 0) { up = 0; }
+        k = k + 1;
+    }
+    assert(up == 1, "every normal (0, 1, 0)");
+
+    test_group("cylinder_geometry");
+    sr_cylinder(16, A, M);
+    assert(load64(M + 8) > 0 && load64(M + 24) > 0 && t_indices_in_range(M) == 1, "non-empty, in range");
+
+    test_group("sphere_minimum_segments");
+    sr_sphere(1, 1, A, M);
+    assert(load64(M + 8) > 0 && load64(M + 24) > 0, "clamped to 3 × 2");
+
+    test_group("sphere_zero_segments");
+    sr_sphere(0, 0, A, M);
+    assert(load64(M + 8) > 0 && t_indices_in_range(M) == 1, "clamped, valid");
+
+    test_group("plane_zero_subdivisions");
+    sr_plane(0, A, M);
+    assert(load64(M + 8) > 0 && load64(M + 24) > 0 && t_indices_in_range(M) == 1, "clamped to 1, valid");
+
+    test_group("cylinder_zero_segments");
+    sr_cylinder(0, A, M);
+    assert(load64(M + 8) > 0 && load64(M + 24) > 0 && t_indices_in_range(M) == 1, "clamped to 3, valid");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

@@ -20,10 +20,11 @@ dce = true
 #   math / ganita — f64_sqrt and the f32 tier (f32_to / f32_from, ganita_f32_*), port plan §9.1
 #   sakshi        — tracing's events (src/log.cyr), port plan §1.1
 #   tagged / result — the value-form Option and Result (src/error.cyr)
+#   fnptr         — fncall: Rust's closures as function pointers (src/viz.cyr)
 #   freelist      — fl_alloc / fl_free: storage an object owns and frees in its `_drop` (src/lod.cyr), port plan §9.4
 [deps]
 stdlib = ["string", "fmt", "alloc", "vec", "str", "syscalls", "io", "args", "math", "ganita", "tagged", "result",
-    "freelist", "sakshi"]
+    "freelist", "sakshi", "fnptr"]
 
 # Optional dependencies, each behind a feature (ADR 0002 #9: Rust's Cargo features). A feature's code is a separate
 # file outside `[lib]`, bundled by its `[lib.<feature>]` profile (dist/soorat-<feature>.cyr) and including its
@@ -79,6 +80,9 @@ modules = [
     "src/text.cyr",
     "src/ui.cyr",
     "src/debug_geom.cyr",
+    "src/viz.cyr",
+    "src/primitives.cyr",
+    "src/terrain.cyr",
 ]
 
 # The `optics` feature's bundle, dist/soorat-optics.cyr: the library plus Color's prakash conversions.
@@ -99,6 +103,9 @@ modules = [
     "src/text.cyr",
     "src/ui.cyr",
     "src/debug_geom.cyr",
+    "src/viz.cyr",
+    "src/primitives.cyr",
+    "src/terrain.cyr",
     "src/color_optics.cyr",
 ]
 
@@ -122,6 +129,9 @@ modules = [
     "src/text.cyr",
     "src/ui.cyr",
     "src/debug_geom.cyr",
+    "src/viz.cyr",
+    "src/primitives.cyr",
+    "src/terrain.cyr",
     "src/json.cyr",
 ]
 
@@ -143,5 +153,8 @@ modules = [
     "src/text.cyr",
     "src/ui.cyr",
     "src/debug_geom.cyr",
+    "src/viz.cyr",
+    "src/primitives.cyr",
+    "src/terrain.cyr",
     "src/debug_collider.cyr",
 ]

@@ -1064,6 +1064,357 @@ def check_debug(name):
     return bad, cr
 
 
+# ── primitives, viz, terrain: geometry in two paths (Rust's f32 sequence; f64 once for class E) ─────────────
+
+PI32 = from_bits(0x40490FDB)
+EPS32 = from_bits(0x34000000)
+WHITE4 = [1.0, 1.0, 1.0, 1.0]
+
+
+def _q(f32):
+    """The rounding after each operation: r32 for Rust's f32 path, none for the f64 path."""
+    return r32 if f32 else (lambda x: x)
+
+
+def vtx(pos, nrm, uv, col):
+    return [r32(x) for x in list(pos) + list(nrm) + list(uv)] + list(col)
+
+
+def sphere_mesh(seg, rings, f32, trig=None):
+    q = _q(f32)
+    seg, rings = max(seg, 3), max(rings, 2)
+    vs = []
+    for y in range(rings + 1):
+        v = q(y / rings)
+        phi = q(v * PI32)
+        for x in range(seg + 1):
+            u = q(x / seg)
+            th = q(u * TAU32)
+            if trig is not None:
+                sp, cp, st, ct = trig(y, x, phi, th)
+            elif f32:
+                sp, cp, st, ct = (trig_cr(f, a) for f, a in ((math.sin, phi), (math.cos, phi), (math.sin, th), (math.cos, th)))
+            else:
+                sp, cp, st, ct = math.sin(phi), math.cos(phi), math.sin(th), math.cos(th)
+            nx, ny, nz = q(sp * ct), cp, q(sp * st)
+            vs.append(vtx((q(nx * 0.5), q(ny * 0.5), q(nz * 0.5)), (nx, ny, nz), (u, v), WHITE4))
+    idx = lattice(rings, seg)
+    return vs, idx
+
+
+def lattice(rows, cols):
+    out, stride = [], cols + 1
+    for r in range(rows):
+        for c in range(cols):
+            tl = r * stride + c
+            out += [tl, tl + 1, tl + stride, tl + 1, tl + stride + 1, tl + stride]
+    return out
+
+
+def plane_mesh(divs, f32):
+    q = _q(f32)
+    divs = max(divs, 1)
+    cols = divs + 1
+    vs = []
+    for z in range(cols):
+        for x in range(cols):
+            tx, tz = q(x / divs), q(z / divs)
+            vs.append(vtx((q(tx - 0.5), 0.0, q(tz - 0.5)), (0.0, 1.0, 0.0), (tx, tz), WHITE4))
+    idx = []
+    for z in range(divs):
+        for x in range(divs):
+            tl = z * cols + x
+            idx += [tl, tl + cols, tl + 1, tl + 1, tl + cols, tl + cols + 1]
+    return vs, idx
+
+
+def cylinder_mesh(seg, f32, trig=None):
+    q = _q(f32)
+    seg = max(seg, 3)
+    step = q(TAU32 / seg)
+
+    def sc(i):
+        a = q(step * i)
+        if trig is not None:
+            return trig(i, a)
+        if f32:
+            return trig_cr(math.sin, a), trig_cr(math.cos, a)
+        return math.sin(a), math.cos(a)
+    vs = []
+    for yi in (0, 1):
+        y = yi - 0.5
+        for i in range(seg + 1):
+            sn, cs = sc(i)
+            vs.append(vtx((q(cs * 0.5), y, q(sn * 0.5)), (cs, 0.0, sn), (q(i / seg), float(yi)), WHITE4))
+    idx = []
+    ring = seg + 1
+    for i in range(seg):
+        idx += [i, i + ring, i + 1, i + ring, i + ring + 1, i + 1]
+    for cy, ny, top in ((0.5, 1.0, True), (-0.5, -1.0, False)):
+        center = len(vs)
+        vs.append(vtx((0.0, cy, 0.0), (0.0, ny, 0.0), (0.5, 0.5), WHITE4))
+        for i in range(seg):
+            sn, cs = sc(i)
+            c, s2 = q(cs * 0.5), q(sn * 0.5)
+            vs.append(vtx((c, cy, s2), (0.0, ny, 0.0), (q(c + 0.5), q(s2 + 0.5)), WHITE4))
+        for i in range(seg):
+            nxt = i + 1 if i + 1 < seg else 0
+            idx += [center, center + 1 + nxt, center + 1 + i] if top else [center, center + 1 + i, center + 1 + nxt]
+    return vs, idx
+
+
+def xz_mesh(nx, nz, ox, oz, gy, dx, dz, f32):
+    q = _q(f32)
+    if nx == 0 or nz == 0:
+        return [], []
+    inx, inz = q(1.0 / nx), q(1.0 / nz)
+    vs, idx = [], []
+    for iz in range(nz):
+        z0 = q(oz + q(iz * dz))
+        z1 = q(z0 + dz)
+        v0, v1 = q(iz * inz), q((iz + 1) * inz)
+        for ix in range(nx):
+            col = [r32(ix / 16.0), r32(iz / 16.0), 0.5, 1.0]
+            x0 = q(ox + q(ix * dx))
+            x1 = q(x0 + dx)
+            u0, u1 = q(ix * inx), q((ix + 1) * inx)
+            base = len(vs)
+            for pos, uv in (((x0, gy, z0), (u0, v0)), ((x1, gy, z0), (u1, v0)), ((x1, gy, z1), (u1, v1)), ((x0, gy, z1), (u0, v1))):
+                vs.append(vtx(pos, (0.0, 1.0, 0.0), uv, col))
+            idx += [base + i for i in (0, 3, 2, 0, 2, 1)]
+    return vs, idx
+
+
+def hf_mesh(cols, rows, ox, oz, dx, dz, height, color, f32):
+    q = _q(f32)
+    if cols == 0 or rows == 0:
+        return [], []
+    hs = []
+    for iz in range(rows):
+        for ix in range(cols):
+            h = height(ix, iz)
+            hs.append(h if math.isfinite(h) else 0.0)
+
+    def slope(base, i, stride, n, step):
+        lo, hi = max(i - 1, 0), min(i + 1, n - 1)
+        span = q((hi - lo) * step)
+        if math.isnan(span) or abs(span) <= EPS32:
+            return 0.0
+        return q(q(hs[base + lo * stride] - hs[base + hi * stride]) / span)
+    inu, inv = q(1.0 / max(cols - 1, 1)), q(1.0 / max(rows - 1, 1))
+    vs = []
+    for iz in range(rows):
+        for ix in range(cols):
+            y = hs[iz * cols + ix]
+            sx = slope(iz * cols, ix, 1, cols, dx)
+            sz = slope(ix, iz, cols, rows, dz)
+            ln = q(math.sqrt(q(q(q(sx * sx) + 1.0) + q(sz * sz))))
+            vs.append(vtx((q(ox + q(ix * dx)), y, q(oz + q(iz * dz))), (q(sx / ln), q(1.0 / ln), q(sz / ln)),
+                          (q(ix * inu), q(iz * inv)), color(ix, iz, y)))
+    idx = []
+    for r in range(rows - 1):
+        for c in range(cols - 1):
+            tl = r * cols + c
+            idx += [tl, tl + cols, tl + 1, tl + 1, tl + cols, tl + cols + 1]
+    return vs, idx
+
+
+def flat(vs):
+    return [x for v in vs for x in v]
+
+
+def explain_vertices(rust, mine, alts):
+    """True when every 12-float vertex of Rust's that differs from mine equals one of alts(k)'s candidates."""
+    for k in range(len(mine) // 12):
+        got = rust[12 * k:12 * k + 12]
+        if not same(mine[12 * k:12 * k + 12], got) and not any(same(a, got) for a in alts(k)):
+            return False
+    return True
+
+
+def unit_t_ref(v, mn, mx):
+    rng = mx - mn
+    if not math.isfinite(v) or math.isnan(rng) or rng <= 2.220446049250313e-16:
+        return 0.0
+    return clamp32(r32((v - mn) / rng), 0.0, 1.0)
+
+
+def abs_scale(mn, mx):
+    a, b = abs(mn), abs(mx)
+    if math.isnan(a):
+        return b
+    if math.isnan(b):
+        return a
+    return a if a >= b else b
+
+
+def signed_t_ref(v, mn, mx, mag):
+    sc = abs_scale(mn, mx)
+    if not math.isfinite(v) or math.isnan(sc) or sc <= 2.220446049250313e-16:
+        return 0.0
+    return clamp32(r32(abs(v) / sc), 0.0, 1.0) if mag else clamp32(r32(v / sc), -1.0, 1.0)
+
+
+def check_geom(name, plat):
+    """Re-derives every row of primitives, viz or terrain; returns (rows that differ, its class-E rows)."""
+    path = os.path.join(GOLDEN, name + ".tsv")
+    if not os.path.exists(path):
+        return 0, []
+    _, body = rows(path)
+    bad, erows = 0, []
+    for fn, cls, ins, outs, note in body:
+        x, iv = g_values(ins), i_values(ins)
+        rust_f, rust_i = g_values(outs), i_values(outs)
+        once = None
+        ok = True
+        if fn == "cube":
+            vs, idx = cube_ref()
+            ok = same(flat(vs), rust_f) and idx == rust_i
+        elif fn == "sphere":
+            seg, rg = iv
+            vs, idx = sphere_mesh(seg, rg, True)
+            seg2, rg2 = max(seg, 3), max(rg, 2)
+
+            def alts(k, seg2=seg2, rg2=rg2):
+                yy, xx = divmod(k, seg2 + 1)
+                v = r32(yy / rg2)
+                phi = r32(v * PI32)
+                u = r32(xx / seg2)
+                th = r32(u * TAU32)
+                base = [trig_cr(f, a) for f, a in ((math.sin, phi), (math.cos, phi), (math.sin, th), (math.cos, th))]
+                out = []
+                for d in [(a, b, c, e) for a in (-1, 0, 1) for b in (-1, 0, 1) for c in (-1, 0, 1) for e in (-1, 0, 1)]:
+                    sp, cp, st, ct = (ulp_step(b, s) for b, s in zip(base, d))
+                    nx, nz = r32(sp * ct), r32(sp * st)
+                    out.append(vtx((r32(nx * 0.5), r32(cp * 0.5), r32(nz * 0.5)), (nx, cp, nz), (u, v), WHITE4))
+                return out
+            ok = idx == rust_i and explain_vertices(rust_f, flat(vs), alts)
+            once = flat(sphere_mesh(seg, rg, False)[0])
+        elif fn == "plane":
+            vs, idx = plane_mesh(iv[0], True)
+            ok = same(flat(vs), rust_f) and idx == rust_i
+            once = flat(plane_mesh(iv[0], False)[0])
+        elif fn == "cylinder":
+            vs, idx = cylinder_mesh(iv[0], True)
+            seg = max(iv[0], 3)
+            fv = flat(vs)
+
+            def alts(k, seg=seg, fv=fv):
+                # Any vertex of this cylinder is a function of one angle's (sin, cos): rebuild the vertex from each
+                # ±1 ulp variant of every angle's pair that could have produced it (the angle is found by trying all).
+                out = []
+                step = r32(TAU32 / seg)
+                for i in range(seg + 1):
+                    a = r32(step * i)
+                    s0, c0 = trig_cr(math.sin, a), trig_cr(math.cos, a)
+                    for ds in (-1, 0, 1):
+                        for dc in (-1, 0, 1):
+                            sn, cs = ulp_step(s0, ds), ulp_step(c0, dc)
+                            for yi in (0, 1):
+                                out.append(vtx((r32(cs * 0.5), yi - 0.5, r32(sn * 0.5)), (cs, 0.0, sn), (r32(i / seg), float(yi)), WHITE4))
+                            for cy, ny in ((0.5, 1.0), (-0.5, -1.0)):
+                                c, s2 = r32(cs * 0.5), r32(sn * 0.5)
+                                out.append(vtx((c, cy, s2), (0.0, ny, 0.0), (r32(c + 0.5), r32(s2 + 0.5)), WHITE4))
+                return out
+            ok = idx == rust_i and explain_vertices(rust_f, fv, alts)
+            once = flat(cylinder_mesh(iv[0], False)[0])
+        elif fn in ("unit_t", "signed_t", "magnitude_t"):
+            v, mn, mx = f64_tok_values(ins)
+            got = unit_t_ref(v, mn, mx) if fn == "unit_t" else signed_t_ref(v, mn, mx, fn == "magnitude_t")
+            ok = same([got], rust_f)
+        elif fn == "finite_min_max":
+            vals = [v for v in f64_tok_values(ins) if math.isfinite(v)]
+            lo = hi = None
+            for v in vals:   # Rust's lo.min(v) / hi.max(v): a tie (±0) takes v
+                lo = v if lo is None or not lo < v else lo
+                hi = v if hi is None or not hi > v else hi
+            want = [] if lo is None else [struct.unpack("<Q", struct.pack("<d", z))[0] for z in (lo, hi)]
+            ok = outs == "n:" if not vals else f64_bits_tokens(outs) == want
+        elif fn == "grid_len":
+            prod = 1
+            for d in iv:
+                prod *= d
+            ok = outs == "n:" if prod >= 2 ** 64 else rust_i == [prod]
+        elif fn == "grid_is_backed":
+            dims, data_len = iv[:-1], iv[-1]
+            prod = 1
+            for d in dims:
+                prod *= d
+            ok = rust_i == [1 if 0 < prod < 2 ** 64 and prod <= data_len else 0]
+        elif fn in ("heat_rgba", "signed_rgba"):
+            c = heat_map(x[0]) if fn == "heat_rgba" else signed_color(x[0])
+            ok = same(c[0:3] + [x[1]], rust_f)
+        elif fn == "with_alpha":
+            a = clamp32(x[4], 0.0, 1.0) if math.isfinite(x[4]) else 0.0
+            ok = same(x[0:3] + [a], rust_f)
+        elif fn == "xz_heatmap_mesh":
+            nx, nz = iv
+            vs, idx = xz_mesh(nx, nz, *x[0:5], True)
+            ok = same(flat(vs), rust_f) and idx == rust_i
+            once = flat(xz_mesh(nx, nz, *x[0:5], False)[0])
+        elif fn == "heightfield_mesh":
+            cols, rws = iv
+            hs = x[4:]
+
+            def hgt(ix, iz, hs=hs, cols=cols):
+                return hs[iz * cols + ix]
+
+            def col(ix, iz, y):
+                return [y, float(ix), float(iz), 1.0]
+            vs, idx = hf_mesh(cols, rws, *x[0:4], hgt, col, True)
+            ok = same(flat(vs), rust_f) and idx == rust_i
+            once = flat(hf_mesh(cols, rws, *x[0:4], hgt, col, False)[0])
+        elif fn == "lattice_indices":
+            ok = rust_i == lattice(iv[0], iv[1])
+        elif fn == "TerrainConfig::default":
+            ok = rust_i == [64, 64] and same([64.0, 64.0, 10.0], rust_f)
+        elif fn == "generate_terrain":
+            w, dp = iv
+            ww, wd, hsc = x[0:3]
+            heights = x[3:]
+            if w == 0 or dp == 0:
+                vs, idx = [], []
+                ok = rust_f == [] and rust_i == []
+            else:
+                cols = w + 1
+
+                def hgt(ix, iz, heights=heights, cols=cols, hsc=hsc):
+                    i = iz * cols + ix
+                    return r32(heights[i] * hsc) if i < len(heights) else 0.0
+                args = (cols, dp + 1, r32(-ww * 0.5), r32(-wd * 0.5), r32(ww / w), r32(wd / dp), hgt, lambda a, b, c: WHITE4)
+                vs, idx = hf_mesh(*args, True)
+                ok = same(flat(vs), rust_f) and idx == rust_i
+                once = flat(hf_mesh(*args, False)[0])
+        elif fn == "flat_heightmap":
+            ok = rust_i == [(iv[0] + 1) * (iv[1] + 1)]
+        else:
+            ok = False
+            print(f"{name}: {fn}: no re-derivation in validate.py")
+        if not ok:
+            bad += 1
+            print(f"{name}: {fn} {note}: re-derived outputs differ from the corpus")
+        elif cls == "E" and once is not None and not same(once, rust_f):
+            erows.append(f"{fn}\t{ins}\t{g_tokens(outs, once)}\t{note}: f64 once vs Rust f32")
+    return bad, erows
+
+
+def cube_ref():
+    faces = [((0, 0, 1), [(-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]),
+             ((0, 0, -1), [(1, -1, -1), (-1, -1, -1), (-1, 1, -1), (1, 1, -1)]),
+             ((1, 0, 0), [(1, -1, 1), (1, -1, -1), (1, 1, -1), (1, 1, 1)]),
+             ((-1, 0, 0), [(-1, -1, -1), (-1, -1, 1), (-1, 1, 1), (-1, 1, -1)]),
+             ((0, 1, 0), [(-1, 1, 1), (1, 1, 1), (1, 1, -1), (-1, 1, -1)]),
+             ((0, -1, 0), [(-1, -1, -1), (1, -1, -1), (1, -1, 1), (-1, -1, 1)])]
+    uvs = [(0.0, 1.0), (1.0, 1.0), (1.0, 0.0), (0.0, 0.0)]
+    vs, idx = [], []
+    for n, ps in faces:
+        base = len(vs)
+        for p, uv in zip(ps, uvs):
+            vs.append(vtx(tuple(0.5 * c for c in p), tuple(float(c) for c in n), uv, WHITE4))
+        idx += [base, base + 1, base + 2, base + 2, base + 3, base]
+    return vs, idx
+
+
 def main():
     failures = 0
     head, body = rows(os.path.join(GOLDEN, "math.tsv"))
@@ -1091,13 +1442,19 @@ def main():
     failures += check_color_optics()
     failures += check_json()
     failures += check_text()
+    sides_e = []
     lbad, lcr = check_lights(plat)
     tbad, tcr = check_tables(plat)
     sbad, scr = check_sprite()
     dbad, dcr = check_debug("debug")
     cbad, ccr = check_debug("debug_collider")
     failures += lbad + tbad + sbad + dbad + cbad
-    sides = [
+    for gname in ("primitives", "viz", "terrain"):
+        gbad, gerows = check_geom(gname, plat)
+        failures += gbad
+        sides_e.append((gname + ".e.tsv", "class-E rows (ADR 0002 #4, D4 rule b): Rust's formula in f64, rounded once to "
+                        "f32, where that differs from Rust's f32 outputs", gerows))
+    sides = sides_e + [
         ("lights.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's outputs with each f32 cos correctly "
          "rounded (glibc's f64 cos, rounded once), where glibc's cosf differs", lcr),
         ("tables.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's sRGB transfer functions with powf "

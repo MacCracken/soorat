@@ -29,6 +29,8 @@
 #   sprite.cr.tsv; the limit batches as FNV-1a digests).
 # - M2 part b: `text` (glyph rectangles, text and UI batches) and `debug` (the line batch; circles class C at 0 ulp
 #   against debug.cr.tsv). `debug_collider` is tests/parity_features.tcyr's.
+# - M3 part a: `primitives`, `viz`, `terrain` (geometry class E against <module>.e.tsv); `constants`' MAX_QUADS,
+#   MAX_SEGMENTS, XZ_QUAD_INDICES.
 
 # The library first: a file that declares an `enum` (src/error.cyr) must be included before any top-level statement.
 include "tests/lib.cyr"
@@ -43,6 +45,23 @@ include "tests/parity_core.cyr"
 # ── constants (M1: IDENTITY_MAT4; the rest arrive with their modules) ────────────────
 
 fn _par_constants(fp, fl): i64 {
+    if (_par_eq(fp, fl, "const::MAX_QUADS") == 1) {
+        _par_got_i(SR_MAX_QUADS);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "const::MAX_SEGMENTS") == 1) {
+        _par_got_i(SR_MAX_SEGMENTS);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "const::XZ_QUAD_INDICES") == 1) {
+        _par_got_seq(6);
+        var q = 0;
+        while (q < 6) {
+            _par_got_i(load32(SR_XZ_QUAD_INDICES + q * 4));
+            q = q + 1;
+        }
+        return 1;
+    }
     if (_par_eq(fp, fl, "const::MAX_LIGHTS") == 1) {
         _par_got_i(SR_MAX_LIGHTS);
         return 1;
@@ -506,6 +525,189 @@ fn _par_debug(fp, fl): i64 {
     return done;
 }
 
+# ── primitives, viz, terrain (src/primitives.cyr, src/viz.cyr, src/terrain.cyr) ──────
+
+var _par_arena = arena_allocator_growable(1 << 22);
+var _par_mesh = alloc(32);
+var _par_words = alloc(8 * 1024);
+var _par_heights = alloc(4 * 4096);
+
+# Appends a mesh (an SrMeshData): its vertices as v:12n f32, then its indices as v:m u32.
+fn _par_got_mesh(m) {
+    _par_got_g32s(load64(m), load64(m + 8) * 12);
+    var n = load64(m + 24);
+    _par_got_seq(n);
+    var i = 0;
+    while (i < n) {
+        _par_got_i(load32(load64(m + 16) + i * 4) & 0xFFFFFFFF);
+        i = i + 1;
+    }
+    return 0;
+}
+
+# The heatmap colour the golden rows use: (ix / 16, iz / 16, 0.5, 1).
+fn _par_xz_color(ctx, ix, iz, out) {
+    var d: f64 = 16.0;
+    var a: f64 = f64_from(ix) / d;
+    var b: f64 = f64_from(iz) / d;
+    store32(out, f32_from(a));
+    store32(out + 4, f32_from(b));
+    store32(out + 8, 0x3F000000);
+    store32(out + 12, 0x3F800000);
+    return out;
+}
+
+# The height-field height the golden rows use: the row's heights, row-major (ctx = the row length).
+fn _par_hf_height(ctx, ix, iz) {
+    return load32(_par_heights + (iz * ctx + ix) * 4);
+}
+
+# The height-field colour the golden rows use: (y, ix, iz, 1).
+fn _par_hf_color(ctx, ix, iz, y, out) {
+    store32(out, y);
+    store32(out + 4, f32_from(f64_from(ix)));
+    store32(out + 8, f32_from(f64_from(iz)));
+    store32(out + 12, 0x3F800000);
+    return out;
+}
+
+fn _par_geom(fp, fl): i64 {
+    reset_via(_par_arena);
+    var a = _par_arena;
+    var m = _par_mesh;
+    if (_par_eq(fp, fl, "cube") == 1) { return _par_got_mesh(sr_cube(a, m)) + 1; }
+    if (_par_eq(fp, fl, "sphere") == 1) { return _par_got_mesh(sr_sphere(_par_in(0), _par_in(1), a, m)) + 1; }
+    if (_par_eq(fp, fl, "plane") == 1) { return _par_got_mesh(sr_plane(_par_in(0), a, m)) + 1; }
+    if (_par_eq(fp, fl, "cylinder") == 1) { return _par_got_mesh(sr_cylinder(_par_in(0), a, m)) + 1; }
+    if (_par_eq(fp, fl, "unit_t") == 1) {
+        _par_got_g(sr_unit_t(_par_in(0), _par_in(1), _par_in(2)));
+        return 1;
+    }
+    if (_par_eq(fp, fl, "signed_t") == 1) {
+        _par_got_g(sr_signed_t(_par_in(0), _par_in(1), _par_in(2)));
+        return 1;
+    }
+    if (_par_eq(fp, fl, "magnitude_t") == 1) {
+        _par_got_g(sr_magnitude_t(_par_in(0), _par_in(1), _par_in(2)));
+        return 1;
+    }
+    if (_par_eq(fp, fl, "finite_min_max") == 1) {
+        var n = _par_in(0);
+        var i = 0;
+        while (i < n) {
+            store64(_par_words + i * 8, _par_in(1 + i));
+            i = i + 1;
+        }
+        var t, v = sr_finite_min_max(_par_words, n, _par_gr);
+        if (is_none(t) == 1) {
+            _par_got_none();
+        } else {
+            _par_got_f(load64(_par_gr));
+            _par_got_f(load64(_par_gr + 8));
+        }
+        return 1;
+    }
+    if (_par_eq(fp, fl, "grid_len") == 1 || _par_eq(fp, fl, "grid_is_backed") == 1) {
+        var nd = _par_in(0);
+        var j = 0;
+        while (j < nd) {
+            store64(_par_words + j * 8, _par_in(1 + j));
+            j = j + 1;
+        }
+        if (_par_eq(fp, fl, "grid_len") == 1) {
+            var gt, gv = sr_grid_len(_par_words, nd);
+            if (is_none(gt) == 1) {
+                _par_got_none();
+            } else {
+                _par_got_i(gv);
+            }
+        } else {
+            _par_got_i(sr_grid_is_backed(_par_words, nd, _par_in(1 + nd), "test"));
+        }
+        return 1;
+    }
+    if (_par_eq(fp, fl, "heat_rgba") == 1) {
+        _par_got_g32s(sr_heat_rgba(_par_in(0), _par_in(1), _par_gr), 4);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "signed_rgba") == 1) {
+        _par_got_g32s(sr_signed_rgba(_par_in(0), _par_in(1), _par_gr), 4);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "with_alpha") == 1) {
+        var ka = _par_in_g32s(0, _par_ga);
+        _par_got_g32s(sr_with_alpha(_par_ga, _par_in(ka), _par_gr), 4);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "xz_heatmap_mesh") == 1) {
+        _par_in_g32s(2, _par_ga);
+        var g: SrXzGrid;
+        g.nx = _par_in(0);
+        g.nz = _par_in(1);
+        var gp = &g;
+        var k = 0;
+        while (k < 5) {
+            store32(gp + 16 + k * 4, load32(_par_ga + k * 4));
+            k = k + 1;
+        }
+        return _par_got_mesh(sr_xz_heatmap_mesh(gp, &_par_xz_color, 0, a, m)) + 1;
+    }
+    if (_par_eq(fp, fl, "heightfield_mesh") == 1) {
+        var kh = _par_in_g32s(2, _par_ga);
+        _par_in_g32s(kh, _par_heights);
+        var hf: SrHeightField;
+        hf.cols = _par_in(0);
+        hf.rows = _par_in(1);
+        var hp = &hf;
+        var c = 0;
+        while (c < 4) {
+            store32(hp + 16 + c * 4, load32(_par_ga + c * 4));
+            c = c + 1;
+        }
+        return _par_got_mesh(sr_heightfield_mesh(hp, &_par_hf_height, _par_in(0), &_par_hf_color, 0, a, m)) + 1;
+    }
+    if (_par_eq(fp, fl, "lattice_indices") == 1) {
+        var lr = _par_in(0);
+        var lc = _par_in(1);
+        var ib = sr_lattice_indices(lr, lc, a);
+        var nl = lr * lc * 6;
+        _par_got_seq(nl);
+        var x = 0;
+        while (x < nl) {
+            _par_got_i(load32(ib + x * 4) & 0xFFFFFFFF);
+            x = x + 1;
+        }
+        return 1;
+    }
+    if (_par_eq(fp, fl, "TerrainConfig::default") == 1) {
+        var cfg = SrTerrainConfig_default(_par_gr);
+        _par_got_i(load64(cfg));
+        _par_got_i(load64(cfg + 8));
+        _par_got_g32s(cfg + 16, 3);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "generate_terrain") == 1) {
+        var kt = _par_in_g32s(2, _par_ga);
+        var nh = _par_in(kt);
+        _par_in_g32s(kt, _par_heights);
+        var tc: SrTerrainConfig;
+        tc.width = _par_in(0);
+        tc.depth = _par_in(1);
+        var tp = &tc;
+        store32(tp + 16, load32(_par_ga));
+        store32(tp + 20, load32(_par_ga + 4));
+        store32(tp + 24, load32(_par_ga + 8));
+        return _par_got_mesh(sr_generate_terrain(tp, _par_heights, nh, a, m)) + 1;
+    }
+    if (_par_eq(fp, fl, "flat_heightmap") == 1) {
+        _par_got_i((_par_in(0) + 1) * (_par_in(1) + 1));
+        var fh = sr_flat_heightmap(_par_in(0), _par_in(1), a);
+        if (fh == 0) { return 0 - 1; }
+        return 1;
+    }
+    return 0;
+}
+
 # ── json (src/json.cyr) ──────────────────────────────────────────────────────────────
 
 fn _par_json(fp, fl): i64 {
@@ -678,6 +880,9 @@ fn _par_dispatch(mp, ml, fp, fl): i64 {
     if (_par_eq(mp, ml, "sprite") == 1) { return _par_sprite(fp, fl); }
     if (_par_eq(mp, ml, "text") == 1) { return _par_text(fp, fl); }
     if (_par_eq(mp, ml, "debug") == 1) { return _par_debug(fp, fl); }
+    if (_par_eq(mp, ml, "primitives") == 1 || _par_eq(mp, ml, "viz") == 1 || _par_eq(mp, ml, "terrain") == 1) {
+        return _par_geom(fp, fl);
+    }
     return 0;
 }
 

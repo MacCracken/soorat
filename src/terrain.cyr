@@ -1,0 +1,96 @@
+# terrain.cyr — Rust 1.2.0's src/terrain.rs (M3 part a): height-map terrain meshes.
+#
+# `SrTerrainConfig` (width, depth as u32; world_width, world_depth, height_scale as f32 at 16, 20, 24) is filled by
+# the caller, or by SrTerrainConfig_default. `SrTerrainData` is an SrMeshData (src/viz.cyr) without the material
+# index, as Rust's `TerrainData` is. The mesh is sr_heightfield_mesh's, so its geometry is class E (D4 rule b); the
+# HeightField's f32 fields (origin = −world · 0.5, d = world / cells) are Rust's f32 values. `create_terrain_mesh`
+# uploads to the GPU: M6.
+
+struct SrTerrainConfig { width; depth; world_width: f32; world_depth: f32; height_scale: f32; }
+struct SrTerrainData { vertices; vertex_count; indices; index_count; }
+
+# 64 × 64 cells over 64 × 64 world units, heights × 10, into out. Mirrors `impl Default for TerrainConfig`.
+fn SrTerrainConfig_default(out) {
+    store64(out, 64);
+    store64(out + 8, 64);
+    store32(out + 16, 0x42800000);
+    store32(out + 20, 0x42800000);
+    store32(out + 24, 0x41200000);
+    return out;
+}
+
+# The terrain's height-callback context: the heights, how many, the row length and the scale.
+struct _SrTerrainCtx { heights; n; cols; scale; }
+
+# heights[iz·cols + ix] · scale in f32, or 0 past the end of the heights (sr_heightfield_mesh's height_fn).
+fn _sr_terrain_height(ctx, ix, iz): i64 {
+    var i = iz * load64(ctx + 16) + ix;
+    if (i >= load64(ctx + 8)) { return 0; }
+    return _sr_f32_mul(load32(load64(ctx) + i * 4), load64(ctx + 24));
+}
+
+# White (sr_heightfield_mesh's color_fn).
+fn _sr_terrain_white(ctx, ix, iz, y, out) {
+    store64(out, 0x3F8000003F800000);
+    store64(out + 8, 0x3F8000003F800000);
+    return out;
+}
+
+# Sets the terrain data out to nv vertices at vb and ni indices at ib; returns out.
+fn _sr_terrain_set(out, vb, nv, ib, ni) {
+    store64(out, vb);
+    store64(out + 8, nv);
+    store64(out + 16, ib);
+    store64(out + 24, ni);
+    return out;
+}
+
+# The terrain mesh of config over the n heights at heights (row-major, (width + 1) × (depth + 1); a missing sample is 0,
+# with a DEBUG event), into out (an SrTerrainData) from the allocator a: out, or 0 when an allocation fails. Empty,
+# with a WARN event, when width or depth is 0. Mirrors `generate_terrain`.
+fn sr_generate_terrain(config, heights, n, a, out) {
+    var w = load64(config) & 0xFFFFFFFF;
+    var d = load64(config + 8) & 0xFFFFFFFF;
+    if (w == 0 || d == 0) {
+        _sr_warn("soorat::terrain: generate_terrain: width or depth is 0 — returning empty terrain");
+        return _sr_terrain_set(out, 0, 0, 0, 0);
+    }
+    var cols = w + 1;
+    var rows = d + 1;
+    if (n < cols * rows) {
+        _sr_debug("soorat::terrain: generate_terrain: heightmap shorter than grid — missing samples are 0");
+    }
+    var hf: SrHeightField;
+    hf.cols = cols;
+    hf.rows = rows;
+    var hp = &hf;
+    var ww = load32(config + 16);
+    var wd = load32(config + 20);
+    var half = 0x3F000000;
+    store32(hp + 16, _sr_f32_mul(ww ^ 0x80000000, half));
+    store32(hp + 20, _sr_f32_mul(wd ^ 0x80000000, half));
+    store32(hp + 24, _sr_f32_div(ww, _sr_i64_to_f32(w)));
+    store32(hp + 28, _sr_f32_div(wd, _sr_i64_to_f32(d)));
+    var ctx: _SrTerrainCtx;
+    ctx.heights = heights;
+    ctx.n = n;
+    ctx.cols = cols;
+    ctx.scale = load32(config + 24);
+    var m: SrMeshData;
+    var mp = &m;
+    if (sr_heightfield_mesh(hp, &_sr_terrain_height, &ctx, &_sr_terrain_white, 0, a, mp) == 0) {
+        _sr_terrain_set(out, 0, 0, 0, 0);
+        return 0;
+    }
+    return _sr_terrain_set(out, load64(mp), load64(mp + 8), load64(mp + 16), load64(mp + 24));
+}
+
+# A zero height map for a width × depth terrain: (width + 1)·(depth + 1) f32 zeros allocated from a, or 0. Mirrors
+# `flat_heightmap` (its length is (width + 1)·(depth + 1)).
+fn sr_flat_heightmap(width, depth, a): i64 {
+    var n = ((width & 0xFFFFFFFF) + 1) * ((depth & 0xFFFFFFFF) + 1);
+    var p = alloc_via(a, n * 4);
+    if (p == 0) { return 0; }
+    memset(p, 0, n * 4);
+    return p;
+}

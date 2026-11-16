@@ -6,5 +6,7 @@ ganita
 freelist
 result
 alloc
+tagged
+fnptr
 str
 bayan
