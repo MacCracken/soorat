@@ -39,7 +39,8 @@ Decisions: [ADR 0001](../adr/0001-cyrius-port-with-rust-oracle.md),
 | M5 part c: thermal renderers (`thermo`, ushma) | ✅ 2026-11-15 (below) |
 | M5 part d: fluid renderers (`fluids`, pravash) | ✅ 2026-11-15 (below) |
 | M5 close: the gate on three targets; `em_render` to 2.1.0 (D7) | ✅ 2026-11-15: **M5 complete**, the CPU track done |
-| MB1–MB5 (mabda); M6–M10 | ☐ |
+| MB1–MB5 (mabda) | ✅ 2026-11-16 in mabda 4.3.0 and 4.3.1 |
+| M6–M10 | ☐ (paused: see [handoff.md](handoff.md)) |
 
 **M1.** 13,793 golden rows over nine modules pass:
 - 1,149 class-E rows are bit-identical to Rust's formula in f64 rounded once;
@@ -211,7 +212,7 @@ bayan, which their consumers add to their own stdlib leaves. mabda arrives at M6
 are in the plan's §4 step 3.
 
 **Open upstream requests** (ledger, plan §10):
-- mabda: the render tier and the render-loop leaks (L2–L6, L17), the profiler's gaps (L24), and tidy-up (L12);
+- mabda: the native render path after 2.0 (L7, mabda v5.0); L2–L6, L12, L17 and L24 shipped in mabda 4.3.x;
 - name clashes: hisab/ranga (L18), agnodrm/sigil (L19), goonj/pravash (L20);
 - cyrius: f32 types (L8);
 - selah: raw-RGBA encoders (L9);
@@ -229,9 +230,11 @@ kiran (rendering), salai (editor viewport), joshua (visualization): all still Ru
 
 ## Next
 
-**The GPU track.** M6 (the GPU core) needs mabda's MB1 and MB2 (plan §8), done in mabda's repository. mabda is at
-4.2.0; the render-tier request (L2–L6) is filed and not yet started. The `ranga` feature cannot be combined with
-`acoustics` or `thermo` until L18 lands, and `acoustics` with `fluids` warns on `logging_init` until L20 does.
+**The GPU track, M6 (the GPU core), paused** while the maintainer finishes mabda's 4.4.0 and 4.5.0. mabda 4.3.0
+and 4.3.1 (2026-11-16) already shipped the whole render tier soorat asked for (MB1–MB5, L2–L6), with L17, L24 and L12,
+and soorat's GPU probes pass against 4.3.1. **The next agent starts from [handoff.md](handoff.md).** The `ranga`
+feature cannot be combined with `acoustics` or `thermo` until L18 lands, and `acoustics` with `fluids` warns on
+`logging_init` until L20 does.
 
 **Performance items carried forward:** `mul_mat4` at about 120 ns (M4's shadow matrices call it). The correctly
 rounded sRGB `pow` (200–285 ns a call) no longer runs per texel: M4 part b encodes faces by threshold search.

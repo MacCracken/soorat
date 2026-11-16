@@ -1,0 +1,25 @@
+P6/MB2-5 case: all
+mabda: DEPRECATION - AMD-on-wgpu is deprecated (v4.0.1); use BACKEND_KIND_AMD native.
+  The AMD wgpu route retires in a future release; build -D MABDA_AMD_WGPU_STRICT to enforce now.
+context OK launcher_slots=83
+adapter vendor_id=0x1002 device_id=0x1638 name=AMD Radeon Graphics (RADV RENOIR)
+shadow
+    depth(16,32) bits=0x3e800002  depth(48,32) bits=0x3f800000  pass+readback_us=3184
+  ok: shadow map: a depth-only pass writes 0.25 (+2 ULP bias) over the quad, 1.0 elsewhere
+  ok: the shadow map binds as pbr.wgsl group 2 (texture_depth_2d + LessEqual comparison sampler)
+hdr
+    texel(0,0) R=0x4400  texel(3,0) R=0x0
+  ok: bloom fs_threshold, RGBA16F in and out: 4.0 kept above the threshold, 0 below
+ibl
+    generate_mipmaps (6 faces x 4 levels) us=3648
+  ok: 6 cube faces rendered through attachment views; the RGBA16F chain generated; level 4 keeps each face
+  ok: the cube binds as pbr.wgsl group 3 (2 cube views + a 2D LUT + samplers)
+copy
+  ok: an sRGB texture copied into an sRGB render target, 1024 bytes identical
+msaa
+    full red: 2016  edge (0 < R < 255): 64
+  ok: sprite.wgsl at 4x MSAA into a multisampled target: the resolve has antialiased edges
+particles
+    dispatch+readback_us=137
+  ok: gpu_particles cs_update: 200 particles stepped exactly, the dead one and those past the count untouched
+checks ok: 8, failed: 0

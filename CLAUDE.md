@@ -19,7 +19,7 @@ kiran (game rendering), salai (editor viewport), joshua (visualization)
 
 soorat is being ported to Cyrius. Plan of record: `docs/development/soorat-port-plan.md`. Measurements:
 `docs/development/port-parity.md`. Decisions: `docs/adr/0001`, `docs/adr/0002`. Volatile status:
-`docs/development/state.md`.
+`docs/development/state.md`. **Picking the port up? Start with `docs/development/handoff.md`.**
 
 **Layout.**
 - The **repository root is the Cyrius project**: `cyrius.cyml`, `src/`, `tests/`.

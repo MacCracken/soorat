@@ -1,0 +1,539 @@
+# p6_mb25.cyr — soorat probe P6, extended for mabda's render tier MB2-MB5 (mabda 4.3.1).
+#
+# p6_mb1.cyr measured MB1 (every soorat pipeline builds, errors return, a sprite
+# draws). This file measures what soorat M6-M9 need next, with soorat 1.2.0's real
+# shaders and layouts (rust-old/src/*.wgsl, the Rust pipelines' states):
+#
+#   shadow     MB2  shadow.wgsl's depth-only pipeline (Vertex3D, LessEqual, bias 2 /
+#                   slope 2.0, cull back) draws a quad into a Depth32F shadow map in
+#                   a pass with no colour attachment; the map reads back the quad's
+#                   depth and the clear, then binds as pbr.wgsl's group 2
+#                   (texture_depth_2d + a LessEqual comparison sampler)
+#   hdr        MB3  bloom.wgsl fs_threshold reads an RGBA16F texture with HDR values
+#                   (4.0) into an RGBA16F target; the target reads back 4.0 above the
+#                   threshold and 0 below it
+#   ibl        MB3  an RGBA16F cube: each face rendered through an attachment view,
+#                   its mip chain generated on wgpu, the last level read back per
+#                   face; then pbr.wgsl's IBL group 3 (2 cube views + a 2D LUT + 3
+#                   samplers) binds it
+#   copy       MB3  an sRGB texture copied into an sRGB render target and read back
+#   msaa       MB3  sprite.wgsl at 4x MSAA into a multisampled target, resolved
+#   particles  MB4  gpu_particles.wgsl cs_update with soorat's layout (read-write
+#                   storage of 48-byte particles + a 16-byte uniform) steps 200
+#                   particles; storage readback checks each, a dead one and the ones
+#                   past the count untouched
+#   all        every case above, in one process (the default)
+#
+# MB5 (a Wayland window surface) is measured by mabda's programs/surface_wayland_e2e.cyr:
+# it needs a running compositor, which this probe's box does not have.
+#
+# Built against a mabda checkout's bundle:
+#     MABDA_DIST=/home/macro/Repos/mabda/dist/mabda.cyr sh build.sh p6_mb25 && sh run_p6_mb25.sh
+
+include "src/common.cyr"
+
+var SHADER_DIR = "../../../rust-old/src/";
+var VF = 3;
+var V = 1;
+var F = 2;
+var C = 4;
+
+var _ok = 0;
+var _failed = 0;
+
+fn load_wgsl(name, len_out): i64 {
+    var path[256];
+    memset(&path, 0, 256);
+    var dl = strlen(SHADER_DIR);
+    var nlen = strlen(name);
+    memcpy(&path, SHADER_DIR, dl);
+    memcpy(&path + dl, name, nlen);
+    memcpy(&path + dl + nlen, ".wgsl", 5);
+    return file_read_whole(&path, len_out);
+}
+
+fn module(ctx, name): i64 {
+    var lenv[8];
+    store64(&lenv, 0);
+    var src = load_wgsl(name, &lenv);
+    if (src == 0) { out("  read failed: "); out(name); nl(); return 0; }
+    var m = gpu_shader_module_create(ctx, src, load64(&lenv));
+    if (m == 0) { out("  module "); out(name); out(" FAILED: "); out(gpu_last_error_message()); nl(); }
+    return m;
+}
+
+fn ok(msg): i64 { out("  ok: "); out(msg); nl(); _ok = _ok + 1; return 0; }
+fn bad(msg): i64 {
+    out("  FAIL: ");
+    out(msg);
+    nl();
+    if (gpu_last_error() != 0) { out("    "); out(gpu_last_error_message()); nl(); }
+    _failed = _failed + 1;
+    return 1;
+}
+
+fn f32v(p, v): i64 { store32(p, f64_to_f32(v)); return 0; }
+
+fn near_bits(got, want): i64 {
+    var w = f64_to_f32(want);
+    var d = got - w;
+    if (d < 0) { d = 0 - d; }
+    if (d <= 64) { return 1; }
+    return 0;
+}
+
+# ---------------------------------------------------------------------------
+# shadow (MB2)
+# ---------------------------------------------------------------------------
+# One Vertex3D (48 B) vertex: position, normal (0,0,1), uv 0, colour white.
+fn v3(vb, i, x, y, z): i64 {
+    var p = vb + i * 48;
+    memset(p, 0, 48);
+    f32v(p, x);
+    f32v(p + 4, y);
+    f32v(p + 8, z);
+    f32v(p + 20, F64_1);
+    f32v(p + 32, F64_1);
+    f32v(p + 36, F64_1);
+    f32v(p + 40, F64_1);
+    f32v(p + 44, F64_1);
+    return 0;
+}
+
+fn case_shadow(ctx): i64 {
+    out("shadow"); nl();
+    var m = module(ctx, "shadow");
+    if (m == 0) { return bad("shadow module"); }
+    var l = gpu_bind_group_layout_new();
+    gpu_bgl_uniform(l, 0, V, 0, 0);
+    var g0 = gpu_bind_group_layout_create(ctx, l);
+    var d = gpu_pipeline_desc_new(m, "vs_main");
+    gpu_pipeline_desc_vertex_preset(d, GPU_VERTEX_LAYOUT_3D);
+    gpu_pipeline_desc_primitive(d, GPU_TOPOLOGY_TRIANGLE_LIST, GPU_CULL_BACK, GPU_FRONT_CCW);
+    gpu_pipeline_desc_depth(d, MABDA_TEXFMT_DEPTH32F, 1, GPU_COMPARE_LESS_EQUAL);
+    gpu_pipeline_desc_depth_bias(d, 2, f64_from(2), F64_0);
+    gpu_pipeline_desc_bind_group_layout(d, 0, g0);
+    var pipe = gpu_render_pipeline_create_desc(ctx, d);
+    if (pipe == 0) { return bad("shadow pipeline (depth-only)"); }
+    # light_view_proj and model: identity (2 x mat4, 128 B).
+    var u = alloc(128);
+    memset(u, 0, 128);
+    for (var i = 0; i < 4; i = i + 1) { f32v(u + i * 20, F64_1); f32v(u + 64 + i * 20, F64_1); }
+    var ub = gpu_buffer_create(ctx, 128, GPU_BUFFER_USAGE_UNIFORM | GPU_BUFFER_USAGE_COPY_DST);
+    gpu_buffer_write(ctx, ub, 0, u, 128);
+    var gd = gpu_bind_group_new(g0);
+    gpu_bg_buffer(gd, 0, ub, 0, 0);
+    var bg = gpu_bind_group_create(ctx, gd);
+    # The left half at z = 0.25, counter-clockwise (front-facing).
+    var vb = alloc(6 * 48);
+    var m1 = f64_sub(F64_0, F64_1);
+    var z = f64_div(F64_1, f64_from(4));
+    v3(vb, 0, m1, m1, z);
+    v3(vb, 1, F64_0, m1, z);
+    v3(vb, 2, F64_0, F64_1, z);
+    v3(vb, 3, m1, m1, z);
+    v3(vb, 4, F64_0, F64_1, z);
+    v3(vb, 5, m1, F64_1, z);
+    var vbuf = gpu_buffer_create(ctx, 6 * 48, GPU_BUFFER_USAGE_VERTEX | GPU_BUFFER_USAGE_COPY_DST);
+    gpu_buffer_write(ctx, vbuf, 0, vb, 6 * 48);
+    var smap = gpu_render_target_create(ctx, 64, 64, MABDA_TEXFMT_DEPTH32F, 1);
+    if (smap == 0) { return bad("Depth32F shadow map"); }
+    var pd = gpu_pass_desc_new();
+    gpu_pass_desc_depth(pd, smap, GPU_LOAD_CLEAR, F64_1);
+    var t0 = clock_now_ns();
+    var pass = gpu_render_pass_begin_desc(ctx, pd);
+    if (pass == 0) { return bad("depth-only pass"); }
+    var rc = gpu_render_pass_set_pipeline(ctx, pass, pipe);
+    rc = rc + gpu_render_pass_set_bind_group(ctx, pass, 0, bg, 0, 0);
+    rc = rc + gpu_render_pass_set_vertex_buffer(ctx, pass, 0, vbuf, 0, 0);
+    rc = rc + gpu_render_pass_draw_vertices(ctx, pass, 6, 1, 0, 0);
+    rc = rc + gpu_render_pass_end(ctx, pass);
+    if (rc != 0) { return bad("shadow pass returned an error"); }
+    var rb = alloc(64 * 64 * 4);
+    if (gpu_render_target_read(ctx, smap, rb, 64 * 64 * 4) != 0) { return bad("shadow map readback"); }
+    var t1 = clock_now_ns();
+    out("    depth(16,32) bits=");
+    outhex(load32(rb + (32 * 64 + 16) * 4));
+    out("  depth(48,32) bits=");
+    outhex(load32(rb + (32 * 64 + 48) * 4));
+    out("  pass+readback_us=");
+    outn((t1 - t0) / 1000);
+    nl();
+    if (near_bits(load32(rb + (32 * 64 + 16) * 4), z) == 0) { return bad("the quad's depth is not 0.25 (+ bias)"); }
+    if (near_bits(load32(rb + (32 * 64 + 48) * 4), F64_1) == 0) { return bad("outside the quad is not the 1.0 clear"); }
+    ok("shadow map: a depth-only pass writes 0.25 (+2 ULP bias) over the quad, 1.0 elsewhere");
+    var sl = gpu_bind_group_layout_new();
+    gpu_bgl_texture(sl, 0, F, GPU_SAMPLE_DEPTH, GPU_VIEW_2D, 0);
+    gpu_bgl_sampler(sl, 1, F, GPU_SAMPLER_COMPARISON);
+    var g2 = gpu_bind_group_layout_create(ctx, sl);
+    var cmp = gpu_sampler_object_create(ctx, GPU_FILTER_LINEAR, GPU_ADDRESS_CLAMP, GPU_COMPARE_LESS_EQUAL);
+    var g2d = gpu_bind_group_new(g2);
+    gpu_bg_texture(g2d, 0, smap);
+    gpu_bg_sampler(g2d, 1, cmp);
+    if (gpu_bind_group_create(ctx, g2d) == 0) { return bad("pbr group 2 with the shadow map"); }
+    ok("the shadow map binds as pbr.wgsl group 2 (texture_depth_2d + LessEqual comparison sampler)");
+    return 0;
+}
+
+# ---------------------------------------------------------------------------
+# hdr (MB3): bloom fs_threshold, RGBA16F in and out
+# ---------------------------------------------------------------------------
+fn bgl_tex_sampler_uniform(ctx): i64 {
+    var l = gpu_bind_group_layout_new();
+    gpu_bgl_texture(l, 0, F, GPU_SAMPLE_FLOAT, GPU_VIEW_2D, 0);
+    gpu_bgl_sampler(l, 1, F, GPU_SAMPLER_FILTERING);
+    gpu_bgl_uniform(l, 2, F, 0, 0);
+    return gpu_bind_group_layout_create(ctx, l);
+}
+
+fn case_hdr(ctx): i64 {
+    out("hdr"); nl();
+    var m = module(ctx, "bloom");
+    if (m == 0) { return bad("bloom module"); }
+    var g0 = bgl_tex_sampler_uniform(ctx);
+    var d = gpu_pipeline_desc_new(m, "vs_main");
+    gpu_pipeline_desc_fragment(d, m, "fs_threshold");
+    gpu_pipeline_desc_target(d, MABDA_TEXFMT_RGBA16F, GPU_BLEND_NONE, GPU_WRITE_ALL);
+    gpu_pipeline_desc_bind_group_layout(d, 0, g0);
+    var pipe = gpu_render_pipeline_create_desc(ctx, d);
+    if (pipe == 0) { return bad("bloom fs_threshold pipeline"); }
+    # A 4 x 4 RGBA16F source: columns 0-1 (4.0, 4.0, 4.0, 1), columns 2-3 (0.1, 0.1, 0.1, 1).
+    var src = gpu_texture_create_2d(ctx, 4, 4, MABDA_TEXFMT_RGBA16F);
+    if (src == 0) { return bad("RGBA16F texture"); }
+    var px = alloc(128);
+    for (var i = 0; i < 16; i = i + 1) {
+        var hv = 0x4400;
+        if ((i % 4) >= 2) { hv = 0x2E66; }
+        store16(px + i * 8, hv);
+        store16(px + i * 8 + 2, hv);
+        store16(px + i * 8 + 4, hv);
+        store16(px + i * 8 + 6, 0x3C00);
+    }
+    if (gpu_texture_write(ctx, src, px, 128) != 0) { return bad("RGBA16F upload (8 B / texel)"); }
+    # BloomUniforms: params (threshold 1.0, soft 0.5, intensity 1, 0), texel (0.25, 0.25).
+    var u = alloc(32);
+    memset(u, 0, 32);
+    f32v(u, F64_1);
+    f32v(u + 4, f64_div(F64_1, f64_from(2)));
+    f32v(u + 8, F64_1);
+    f32v(u + 16, f64_div(F64_1, f64_from(4)));
+    f32v(u + 20, f64_div(F64_1, f64_from(4)));
+    var ub = gpu_buffer_create(ctx, 32, GPU_BUFFER_USAGE_UNIFORM | GPU_BUFFER_USAGE_COPY_DST);
+    gpu_buffer_write(ctx, ub, 0, u, 32);
+    var samp = gpu_sampler_object_create(ctx, GPU_FILTER_LINEAR, GPU_ADDRESS_CLAMP, GPU_COMPARE_NONE);
+    var gd = gpu_bind_group_new(g0);
+    gpu_bg_texture(gd, 0, src);
+    gpu_bg_sampler(gd, 1, samp);
+    gpu_bg_buffer(gd, 2, ub, 0, 0);
+    var bg = gpu_bind_group_create(ctx, gd);
+    if (bg == 0) { return bad("bloom group"); }
+    var dst = gpu_render_target_create(ctx, 4, 4, MABDA_TEXFMT_RGBA16F, 1);
+    if (dst == 0) { return bad("RGBA16F render target"); }
+    var black = color_new(F64_0, F64_0, F64_0, F64_1);
+    var pass = gpu_render_pass_begin(ctx, dst, black);
+    var rc = gpu_render_pass_set_pipeline(ctx, pass, pipe);
+    rc = rc + gpu_render_pass_set_bind_group(ctx, pass, 0, bg, 0, 0);
+    rc = rc + gpu_render_pass_draw_vertices(ctx, pass, 3, 1, 0, 0);
+    rc = rc + gpu_render_pass_end(ctx, pass);
+    if (rc != 0) { return bad("threshold pass returned an error"); }
+    var rb = alloc(128);
+    if (gpu_render_target_read(ctx, dst, rb, 128) != 0) { return bad("RGBA16F readback"); }
+    out("    texel(0,0) R=");
+    outhex(load16(rb));
+    out("  texel(3,0) R=");
+    outhex(load16(rb + 24));
+    nl();
+    if (load16(rb) != 0x4400) { return bad("above the threshold: R is not f16 4.0 (HDR kept)"); }
+    if (load16(rb + 24) != 0) { return bad("below the threshold: R is not 0"); }
+    if (load16(rb + 6) != 0x3C00) { return bad("alpha is not 1.0"); }
+    ok("bloom fs_threshold, RGBA16F in and out: 4.0 kept above the threshold, 0 below");
+    return 0;
+}
+
+# ---------------------------------------------------------------------------
+# ibl (MB3): render into cube faces, generate the chain, bind as pbr group 3
+# ---------------------------------------------------------------------------
+fn case_ibl(ctx): i64 {
+    out("ibl"); nl();
+    var cube = gpu_texture_create_cube(ctx, 16, MABDA_TEXFMT_RGBA16F, 0);
+    if (cube == 0) { return bad("a 16 x 16 RGBA16F cube, full chain"); }
+    for (var f = 0; f < 6; f = f + 1) {
+        var v = gpu_texture_view_attachment(ctx, cube, f, 0);
+        if (v == 0) { return bad("a face attachment view"); }
+        var c = color_new(f64_div(f64_from(f), f64_from(4)), F64_1, f64_from(2), F64_1);
+        var pass = gpu_render_pass_begin(ctx, v, c);
+        if (gpu_render_pass_end(ctx, pass) != 0) { return bad("a face pass"); }
+        gpu_texture_view_release(ctx, v);
+    }
+    var t0 = clock_now_ns();
+    if (gpu_texture_generate_mipmaps(ctx, cube) != 0) { return bad("cube mip generation on wgpu"); }
+    gpu_device_wait_idle(ctx);
+    var t1 = clock_now_ns();
+    out("    generate_mipmaps (6 faces x 4 levels) us=");
+    outn((t1 - t0) / 1000);
+    nl();
+    var rb = alloc(16);
+    for (var f2 = 0; f2 < 6; f2 = f2 + 1) {
+        var lv = gpu_texture_view_create(ctx, cube, GPU_VIEW_2D, 4, 1, f2, 1);
+        if (gpu_texture_read(ctx, lv, rb, 8) != 0) { return bad("the 1 x 1 level readback"); }
+        gpu_texture_view_release(ctx, lv);
+        # f16 of f2/4: 0, 0.25, 0.5, 0.75, 1.0, 1.25
+        var want = 0;
+        if (f2 == 1) { want = 0x3400; }
+        if (f2 == 2) { want = 0x3800; }
+        if (f2 == 3) { want = 0x3A00; }
+        if (f2 == 4) { want = 0x3C00; }
+        if (f2 == 5) { want = 0x3D00; }
+        if (load16(rb) != want) { return bad("a face's last level lost its colour (R)"); }
+        if (load16(rb + 4) != 0x4000) { return bad("a face's last level lost its HDR blue (2.0)"); }
+    }
+    ok("6 cube faces rendered through attachment views; the RGBA16F chain generated; level 4 keeps each face");
+    var l = gpu_bind_group_layout_new();
+    gpu_bgl_texture(l, 0, F, GPU_SAMPLE_FLOAT, GPU_VIEW_CUBE, 0);
+    gpu_bgl_sampler(l, 1, F, GPU_SAMPLER_FILTERING);
+    gpu_bgl_texture(l, 2, F, GPU_SAMPLE_FLOAT, GPU_VIEW_CUBE, 0);
+    gpu_bgl_sampler(l, 3, F, GPU_SAMPLER_FILTERING);
+    gpu_bgl_texture(l, 4, F, GPU_SAMPLE_FLOAT, GPU_VIEW_2D, 0);
+    gpu_bgl_sampler(l, 5, F, GPU_SAMPLER_FILTERING);
+    var g3 = gpu_bind_group_layout_create(ctx, l);
+    var lut = gpu_texture_create_2d(ctx, 32, 32, MABDA_TEXFMT_RGBA16F);
+    var s = gpu_sampler_object_create(ctx, GPU_FILTER_LINEAR, GPU_ADDRESS_CLAMP, GPU_COMPARE_NONE);
+    var gd = gpu_bind_group_new(g3);
+    gpu_bg_texture(gd, 0, cube);
+    gpu_bg_sampler(gd, 1, s);
+    gpu_bg_texture(gd, 2, cube);
+    gpu_bg_sampler(gd, 3, s);
+    gpu_bg_texture(gd, 4, lut);
+    gpu_bg_sampler(gd, 5, s);
+    if (gpu_bind_group_create(ctx, gd) == 0) { return bad("pbr group 3 (IBL)"); }
+    ok("the cube binds as pbr.wgsl group 3 (2 cube views + a 2D LUT + samplers)");
+    return 0;
+}
+
+# ---------------------------------------------------------------------------
+# copy (MB3)
+# ---------------------------------------------------------------------------
+fn case_copy(ctx): i64 {
+    out("copy"); nl();
+    var src = gpu_texture_create_2d(ctx, 16, 16, MABDA_TEXFMT_RGBA8_SRGB);
+    var px = alloc(1024);
+    for (var i = 0; i < 256; i = i + 1) { store32(px + i * 4, 0xFF000000 | (i << 8) | (255 - i)); }
+    if (gpu_texture_write(ctx, src, px, 1024) != 0) { return bad("sRGB upload"); }
+    var dst = gpu_render_target_create(ctx, 16, 16, MABDA_TEXFMT_RGBA8_SRGB, 1);
+    if (gpu_texture_copy(ctx, src, dst) != 0) { return bad("texture-to-texture copy"); }
+    var rb = alloc(1024);
+    if (gpu_render_target_read(ctx, dst, rb, 1024) != 0) { return bad("readback"); }
+    if (memeq(rb, px, 1024) != 1) { return bad("the copy differs"); }
+    ok("an sRGB texture copied into an sRGB render target, 1024 bytes identical");
+    return 0;
+}
+
+# ---------------------------------------------------------------------------
+# msaa (MB3): sprite.wgsl at 4x
+# ---------------------------------------------------------------------------
+fn sprite_vertex(vb, i, x, y, u, v): i64 {
+    var p = vb + i * 32;
+    f32v(p, x);
+    f32v(p + 4, y);
+    f32v(p + 8, u);
+    f32v(p + 12, v);
+    f32v(p + 16, F64_1);
+    f32v(p + 20, F64_1);
+    f32v(p + 24, F64_0);
+    f32v(p + 28, F64_1);
+    return 0;
+}
+
+fn case_msaa(ctx): i64 {
+    out("msaa"); nl();
+    var m = module(ctx, "sprite");
+    if (m == 0) { return bad("sprite module"); }
+    var g0l = gpu_bind_group_layout_new();
+    gpu_bgl_uniform(g0l, 0, V, 0, 0);
+    var g0 = gpu_bind_group_layout_create(ctx, g0l);
+    var g1l = gpu_bind_group_layout_new();
+    gpu_bgl_texture(g1l, 0, F, GPU_SAMPLE_FLOAT, GPU_VIEW_2D, 0);
+    gpu_bgl_sampler(g1l, 1, F, GPU_SAMPLER_FILTERING);
+    var g1 = gpu_bind_group_layout_create(ctx, g1l);
+    var d = gpu_pipeline_desc_new(m, "vs_main");
+    gpu_pipeline_desc_fragment(d, m, "fs_main");
+    gpu_pipeline_desc_vertex_preset(d, GPU_VERTEX_LAYOUT_2D);
+    gpu_pipeline_desc_target(d, MABDA_TEXFMT_RGBA8, GPU_BLEND_ALPHA, GPU_WRITE_ALL);
+    gpu_pipeline_desc_bind_group_layout(d, 0, g0);
+    gpu_pipeline_desc_bind_group_layout(d, 1, g1);
+    gpu_pipeline_desc_multisample(d, 4, 0);
+    var pipe = gpu_render_pipeline_create_desc(ctx, d);
+    if (pipe == 0) { return bad("sprite pipeline at 4x"); }
+    var mat = alloc(64);
+    memset(mat, 0, 64);
+    for (var i = 0; i < 4; i = i + 1) { f32v(mat + i * 20, F64_1); }
+    var ubuf = gpu_buffer_create(ctx, 64, GPU_BUFFER_USAGE_UNIFORM | GPU_BUFFER_USAGE_COPY_DST);
+    gpu_buffer_write(ctx, ubuf, 0, mat, 64);
+    var b0 = gpu_bind_group_new(g0);
+    gpu_bg_buffer(b0, 0, ubuf, 0, 0);
+    var bg0 = gpu_bind_group_create(ctx, b0);
+    var tex = gpu_texture_create_2d_rgba8(ctx, 2, 2);
+    var tp[16];
+    for (var t = 0; t < 4; t = t + 1) { store32(&tp + t * 4, 0xFFFF00FF); }
+    gpu_texture_write(ctx, tex, &tp, 16);
+    var samp = gpu_sampler_object_create(ctx, GPU_FILTER_LINEAR, GPU_ADDRESS_CLAMP, GPU_COMPARE_NONE);
+    var b1 = gpu_bind_group_new(g1);
+    gpu_bg_texture(b1, 0, tex);
+    gpu_bg_sampler(b1, 1, samp);
+    var bg1 = gpu_bind_group_create(ctx, b1);
+    # A triangle with a long diagonal edge (antialiased at 4x).
+    var vb = alloc(96);
+    var m1 = f64_sub(F64_0, F64_1);
+    sprite_vertex(vb, 0, m1, m1, F64_0, F64_1);
+    sprite_vertex(vb, 1, F64_1, m1, F64_1, F64_1);
+    sprite_vertex(vb, 2, m1, F64_1, F64_0, F64_0);
+    var vbuf = gpu_buffer_create(ctx, 96, GPU_BUFFER_USAGE_VERTEX | GPU_BUFFER_USAGE_COPY_DST);
+    gpu_buffer_write(ctx, vbuf, 0, vb, 96);
+    var ms = gpu_render_target_create(ctx, 64, 64, MABDA_TEXFMT_RGBA8, 4);
+    if (ms == 0) { return bad("a 4x MSAA target"); }
+    var pd = gpu_pass_desc_new();
+    var black = color_new(F64_0, F64_0, F64_0, F64_1);
+    gpu_pass_desc_color(pd, ms, GPU_LOAD_CLEAR, black);
+    gpu_pass_desc_color_store(pd, 0, GPU_STORE_DISCARD);
+    var pass = gpu_render_pass_begin_desc(ctx, pd);
+    var rc = gpu_render_pass_set_pipeline(ctx, pass, pipe);
+    rc = rc + gpu_render_pass_set_bind_group(ctx, pass, 0, bg0, 0, 0);
+    rc = rc + gpu_render_pass_set_bind_group(ctx, pass, 1, bg1, 0, 0);
+    rc = rc + gpu_render_pass_set_vertex_buffer(ctx, pass, 0, vbuf, 0, 0);
+    rc = rc + gpu_render_pass_draw_vertices(ctx, pass, 3, 1, 0, 0);
+    rc = rc + gpu_render_pass_end(ctx, pass);
+    if (rc != 0) { return bad("MSAA sprite pass returned an error"); }
+    var rb = alloc(64 * 64 * 4);
+    if (gpu_render_target_read(ctx, ms, rb, 64 * 64 * 4) != 0) { return bad("resolve readback"); }
+    var partial = 0;
+    var full = 0;
+    for (var k = 0; k < 64 * 64; k = k + 1) {
+        var r = load8(rb + k * 4);
+        if (r == 255) { full = full + 1; }
+        if (r > 0) { if (r < 255) { partial = partial + 1; } }
+    }
+    out("    full red: ");
+    outn(full);
+    out("  edge (0 < R < 255): ");
+    outn(partial);
+    nl();
+    if (full < 1000) { return bad("the sprite triangle did not resolve red"); }
+    if (partial < 16) { return bad("no antialiased edge pixels"); }
+    ok("sprite.wgsl at 4x MSAA into a multisampled target: the resolve has antialiased edges");
+    return 0;
+}
+
+# ---------------------------------------------------------------------------
+# particles (MB4)
+# ---------------------------------------------------------------------------
+fn case_particles(ctx): i64 {
+    out("particles"); nl();
+    var m = module(ctx, "gpu_particles");
+    if (m == 0) { return bad("gpu_particles module"); }
+    var l = gpu_bind_group_layout_new();
+    gpu_bgl_storage(l, 0, C, 0, 0, 0);
+    gpu_bgl_uniform(l, 1, C, 0, 16);
+    var g0 = gpu_bind_group_layout_create(ctx, l);
+    var cd = gpu_compute_desc_new(m, "cs_update");
+    gpu_compute_desc_bind_group_layout(cd, 0, g0);
+    var pipe = gpu_compute_pipeline_create_desc(ctx, cd);
+    if (pipe == 0) { return bad("cs_update pipeline (rw storage + uniform)"); }
+    var n = 256;
+    var h = alloc(n * 48);
+    memset(h, 0, n * 48);
+    for (var i = 0; i < n; i = i + 1) {
+        f32v(h + i * 48, f64_from(i));
+        f32v(h + i * 48 + 12, F64_1);          # life
+        f32v(h + i * 48 + 28, F64_1);          # size
+    }
+    store32(h + 5 * 48 + 12, 0);               # particle 5 is dead
+    var pbuf = gpu_buffer_create(ctx, n * 48, GPU_BUFFER_USAGE_STORAGE | GPU_BUFFER_USAGE_COPY_SRC | GPU_BUFFER_USAGE_COPY_DST);
+    gpu_buffer_write(ctx, pbuf, 0, h, n * 48);
+    # SimParams: dt 0.5, gravity_y -2, damping 1.0 (pow(1, 30) = 1), count 200.
+    var sp[16];
+    f32v(&sp, f64_div(F64_1, f64_from(2)));
+    f32v(&sp + 4, f64_from(0 - 2));
+    f32v(&sp + 8, F64_1);
+    store32(&sp + 12, 200);
+    var ubuf = gpu_buffer_create(ctx, 16, GPU_BUFFER_USAGE_UNIFORM | GPU_BUFFER_USAGE_COPY_DST);
+    gpu_buffer_write(ctx, ubuf, 0, &sp, 16);
+    var gd = gpu_bind_group_new(g0);
+    gpu_bg_buffer(gd, 0, pbuf, 0, 0);
+    gpu_bg_buffer(gd, 1, ubuf, 0, 16);
+    var bg = gpu_bind_group_create(ctx, gd);
+    if (bg == 0) { return bad("particle group"); }
+    var t0 = clock_now_ns();
+    var cp = gpu_compute_pass_begin(ctx);
+    if (cp == 0) { return bad("compute pass"); }
+    var rc = gpu_compute_pass_set_pipeline(ctx, cp, pipe);
+    rc = rc + gpu_compute_pass_set_bind_group(ctx, cp, 0, bg, 0, 0);
+    rc = rc + gpu_compute_pass_dispatch(ctx, cp, 4, 1, 1);
+    rc = rc + gpu_compute_pass_end(ctx, cp);
+    if (rc != 0) { return bad("the compute pass returned an error"); }
+    var back = alloc(n * 48);
+    if (gpu_buffer_read(ctx, pbuf, 0, back, n * 48) != 0) { return bad("storage readback"); }
+    var t1 = clock_now_ns();
+    out("    dispatch+readback_us=");
+    outn((t1 - t0) / 1000);
+    nl();
+    var py = f64_to_f32(f64_sub(F64_0, f64_div(F64_1, f64_from(2))));
+    var vy = f64_to_f32(f64_sub(F64_0, F64_1));
+    var life = f64_to_f32(f64_div(F64_1, f64_from(2)));
+    for (var j = 0; j < 200; j = j + 1) {
+        if (j == 5) { continue; }
+        var p = back + j * 48;
+        if (load32(p) != f64_to_f32(f64_from(j))) { return bad("position.x changed"); }
+        if (load32(p + 4) != py) { return bad("position.y is not -0.5"); }
+        if (load32(p + 12) != life) { return bad("life is not 0.5"); }
+        if (load32(p + 20) != vy) { return bad("velocity.y is not -1"); }
+    }
+    if (memeq(back + 5 * 48, h + 5 * 48, 48) != 1) { return bad("the dead particle moved"); }
+    if (memeq(back + 220 * 48, h + 220 * 48, 48) != 1) { return bad("a particle past the count moved"); }
+    ok("gpu_particles cs_update: 200 particles stepped exactly, the dead one and those past the count untouched");
+    return 0;
+}
+
+fn summary(): i64 {
+    out("checks ok: ");
+    outn(_ok);
+    out(", failed: ");
+    outn(_failed);
+    nl();
+    if (_failed != 0) { return 1; }
+    return 0;
+}
+
+fn ctx_up(preinit_ptr): i64 {
+    var res_tag, res = gpu_context_from_preinit(preinit_ptr);
+    if (is_err_result(res_tag) == 1) { out("SKIP: no GPU"); nl(); return 0; }
+    out("context OK launcher_slots=");
+    outn(wgpu_launcher_slot_count());
+    nl();
+    print_adapter(res);
+    return res;
+}
+
+fn mabda_main(fn_table_ptr, preinit_ptr): i64 {
+    wgpu_ffi_init_table(fn_table_ptr);
+    var mode = arg(1);
+    if (mode == 0) { mode = "all"; }
+    out("P6/MB2-5 case: ");
+    out(mode);
+    nl();
+    var ctx = ctx_up(preinit_ptr);
+    if (ctx == 0) { return 0; }
+    var all = eq(mode, "all");
+    if (all == 1) { case_shadow(ctx); }
+    if (eq(mode, "shadow") == 1) { case_shadow(ctx); }
+    if (all == 1) { case_hdr(ctx); }
+    if (eq(mode, "hdr") == 1) { case_hdr(ctx); }
+    if (all == 1) { case_ibl(ctx); }
+    if (eq(mode, "ibl") == 1) { case_ibl(ctx); }
+    if (all == 1) { case_copy(ctx); }
+    if (eq(mode, "copy") == 1) { case_copy(ctx); }
+    if (all == 1) { case_msaa(ctx); }
+    if (eq(mode, "msaa") == 1) { case_msaa(ctx); }
+    if (all == 1) { case_particles(ctx); }
+    if (eq(mode, "particles") == 1) { case_particles(ctx); }
+    return summary();
+}

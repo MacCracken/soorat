@@ -1,0 +1,9 @@
+P6/MB1 case: draw
+mabda: DEPRECATION - AMD-on-wgpu is deprecated (v4.0.1); use BACKEND_KIND_AMD native.
+  The AMD wgpu route retires in a future release; build -D MABDA_AMD_WGPU_STRICT to enforce now.
+context OK backend_kind=1 launcher_slots=83
+adapter vendor_id=0x1002 device_id=0x1638 name=AMD Radeon Graphics (RADV RENOIR)
+  sprite  [RGBA8 target for readback] ... pipeline OK  create_us=264
+  draw-time calls rc=0 render_pass_end rc=0
+  pixel(16,32) bytes=0xff0000ff  pixel(48,32) bytes=0xff000000
+sprite drawn through MB1: left half = texture (magenta) x vertex colour (yellow) = red; right half clear

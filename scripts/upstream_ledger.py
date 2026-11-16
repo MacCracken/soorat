@@ -50,7 +50,7 @@ STANDINS = {
 }
 # Row -> why no marker is due.
 NO_STANDIN = {
-    "L2–L6": "no stand-in is allowed (D3, §0.1): a mabda stand-in would be wgpu FFI in soorat; the GPU track waits",
+    "L2–L6": "no stand-in is allowed (D3, §0.1): a mabda stand-in would be wgpu FFI in soorat; shipped in mabda 4.3.x",
     "L7": "none: the native shader path follows 2.0 (§13)",
     "L11": "a pin tidy-up in the science crates (P4: hisab 3.5.0 serves all five); no soorat code",
     "L12": "mabda's own pin and dependency scope (P5); no soorat code",
@@ -58,9 +58,9 @@ NO_STANDIN = {
     "L14": "the repairs are docs and the manifest (state.md), not code",
     "L15": "none needed by 2.0 (D5: the application owns the window)",
     "L16": "D7, applied at M5's close: bijli 2.0 had not shipped, so em_render follows in 2.1.0; no stand-in code",
-    "L17": "none: a launcher change in mabda, landing with L2–L6",
+    "L17": "none: a launcher change in mabda, landed with L2–L6 in 4.3.0",
     "L23": "bayan's JSON verdicts where serde_json's differ: the glTF rows are named (ADR 0002 #14), no stand-in code",
-    "L24": "none before M6: soorat's profiler arrives with mabda there (moved from M4), and M6 decides one if needed",
+    "L24": "none: resolved in mabda 4.3.0, before soorat's profiler arrives with mabda at M6",
     "L25": "none: pravash's static data only shapes soorat's test layout (the fluids replay is its own harness)",
     "L18": "none possible (a dependency's names): the `ranga` feature excludes `acoustics` and `thermo` until it lands",
     "L19": "a manifest arrangement (agnodrm only behind the `drm` feature, cyrius.cyml), not code",

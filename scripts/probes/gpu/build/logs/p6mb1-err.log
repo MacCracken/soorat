@@ -1,0 +1,50 @@
+P6/MB1 case: err
+mabda: DEPRECATION - AMD-on-wgpu is deprecated (v4.0.1); use BACKEND_KIND_AMD native.
+  The AMD wgpu route retires in a future release; build -D MABDA_AMD_WGPU_STRICT to enforce now.
+context OK backend_kind=1 launcher_slots=83
+adapter vendor_id=0x1002 device_id=0x1638 name=AMD Radeon Graphics (RADV RENOIR)
+  invalid WGSL ... module=0x0 last_shader_error=-121 (wgpu rejected the module (gpu_last_error_message() has the reason))
+    Validation Error
+
+Caused by:
+  In wgpuDeviceCreateShaderModule
+    
+Shader validation error: Entry point vs_main at Vertex is invalid
+  ┌─ :1:63
+  │
+1 │ @vertex fn vs_main() -> @builtin(position) vec4<f32> { return 1u; }
+  │                                                               ^^ naga::ir::Expression [0]
+  │
+  = The `return` expression Some([0]) does not match the declared return type Some([0])
+
+
+      The `return` expression Some([0]) does not match the declared return type Some([0])
+
+  bloom with fs_main (no such entry point) ... FAILED: validation error (gpu_last_error_message() has the reason)
+    Validation Error
+
+Caused by:
+  In wgpuDeviceCreateRenderPipeline
+    Error matching ShaderStages(FRAGMENT) shader requirements against the pipeline
+      Unable to find entry point 'fs_main'
+
+  sprite without its vertex buffer (Location[0] not provided) ... FAILED: validation error (gpu_last_error_message() has the reason)
+    Validation Error
+
+Caused by:
+  In wgpuDeviceCreateRenderPipeline
+    Error matching ShaderStages(VERTEX) shader requirements against the pipeline
+      Location[0] Float32x2 interpolated as Some(Perspective) with sampling Some(Center) is not provided by the previous stage outputs
+        Input is not provided by the earlier stage in the pipeline
+
+  sprite with a mismatched group-0 layout ... FAILED: validation error (gpu_last_error_message() has the reason)
+    Validation Error
+
+Caused by:
+  In wgpuDeviceCreateRenderPipeline
+    Error matching ShaderStages(VERTEX) shader requirements against the pipeline
+      Shader global ResourceBinding { group: 0, binding: 0 } is not available in the pipeline layout
+        Visibility flags don't include the shader stage
+
+  sprite  [Vertex2D 32 B; g0 uniform(V); g1 tex+sampler; alpha blend] ... pipeline OK  create_us=245
+process alive after 3 rejected pipelines; a valid pipeline afterwards: OK

@@ -1,0 +1,513 @@
+# p6_mb1.cyr — soorat probe P6, extended for mabda's render tier MB1 (mabda 4.3.0).
+#
+# P6 (p6_wgsl.cyr) ran soorat's nine WGSL shaders through mabda 4.2.0: 9/9 modules,
+# 2/9 pipelines, and any validation error aborted the process. This file is the same
+# measurement against mabda's MB1 tier. It needs a mabda with MB1, so it is built
+# against a mabda checkout's bundle:
+#     MABDA_DIST=/home/macro/Repos/mabda/dist/mabda.cyr sh build.sh p6_mb1 && sh run_p6_mb1.sh
+#
+# Cases (argv, read from /proc/self/cmdline):
+#   pipes          every soorat render pipeline through gpu_render_pipeline_create_desc
+#                  with soorat 1.2.0's real layouts and states, in ONE process:
+#                  sprite, line, pbr, pbr_skinned, shadow (depth-only), ssao,
+#                  bloom x3 entry points (fs_threshold / fs_blur_h / fs_blur_v),
+#                  postprocess x2 (fs_main with bloom, fs_no_bloom)
+#   pipe <name>    one shader's pipelines
+#   err            validation errors return instead of aborting: a module that does
+#                  not compile, a pipeline naming an entry point the module lacks,
+#                  a pipeline whose layout does not match its WGSL; then a valid
+#                  pipeline builds in the same process
+#   draw <name>    (MB1 part E) a frame through the descriptor + draw-time calls
+#
+# Layout sources: soorat 1.2.0's src/pipeline.rs (sprite), debug_draw.rs (line),
+# mesh_pipeline.rs (pbr), shadow.rs, ssao.rs, hdr.rs (bloom), postprocess.rs.
+# pbr_skinned.wgsl has no Rust pipeline in 1.2.0; its layout is read off its WGSL.
+# Every Rust `uniform_buffer` is non-dynamic with no minimum size, `texture_2d` is a
+# filterable float 2D texture, `sampler` is filtering (mabda 1.0's builder).
+# Colour targets: the surface format stands in as BGRA8 sRGB, the HDR targets are
+# RGBA16F (hdr.rs FORMAT), depth is Depth32F (mesh_pipeline.rs DepthBuffer::FORMAT).
+
+include "src/common.cyr"
+
+var SHADER_DIR = "../../../rust-old/src/";
+var VF = 3;    # GPU_STAGE_VERTEX | GPU_STAGE_FRAGMENT
+var V = 1;
+var F = 2;
+
+var _ok = 0;
+var _failed = 0;
+
+fn load_wgsl(name, len_out): i64 {
+    var path[256];
+    memset(&path, 0, 256);
+    var dl = strlen(SHADER_DIR);
+    var nlen = strlen(name);
+    memcpy(&path, SHADER_DIR, dl);
+    memcpy(&path + dl, name, nlen);
+    memcpy(&path + dl + nlen, ".wgsl", 5);
+    return file_read_whole(&path, len_out);
+}
+
+fn module(ctx, name): i64 {
+    var lenv[8];
+    store64(&lenv, 0);
+    var src = load_wgsl(name, &lenv);
+    if (src == 0) { out("  read failed: "); out(name); nl(); return 0; }
+    var m = gpu_shader_module_create(ctx, src, load64(&lenv));
+    if (m == 0) {
+        out("  module ");
+        out(name);
+        out(" FAILED: ");
+        out(gpu_last_error_message());
+        nl();
+    }
+    return m;
+}
+
+fn bgl_create(ctx, l): i64 {
+    var h = gpu_bind_group_layout_create(ctx, l);
+    if (h == 0) { out("  bind group layout FAILED: "); out(gpu_last_error_message()); nl(); }
+    return h;
+}
+
+# Create + report one pipeline. `what` names it in the log.
+fn finish(ctx, d, what): i64 {
+    gpu_error_clear();
+    var t0 = clock_now_ns();
+    var p = gpu_render_pipeline_create_desc(ctx, d);
+    var t1 = clock_now_ns();
+    out("  ");
+    out(what);
+    if (p == 0) {
+        out(" ... FAILED: ");
+        out(gpu_err_name(gpu_last_error()));
+        nl();
+        out("    ");
+        out(gpu_last_error_message());
+        nl();
+        _failed = _failed + 1;
+        return 0;
+    }
+    out(" ... pipeline OK  create_us=");
+    outn((t1 - t0) / 1000);
+    nl();
+    _ok = _ok + 1;
+    return p;
+}
+
+# Group layouts shared by several shaders.
+fn bgl_uniform(ctx, vis): i64 {
+    var l = gpu_bind_group_layout_new();
+    gpu_bgl_uniform(l, 0, vis, 0, 0);
+    return bgl_create(ctx, l);
+}
+
+fn bgl_tex_sampler(ctx): i64 {
+    var l = gpu_bind_group_layout_new();
+    gpu_bgl_texture(l, 0, F, GPU_SAMPLE_FLOAT, GPU_VIEW_2D, 0);
+    gpu_bgl_sampler(l, 1, F, GPU_SAMPLER_FILTERING);
+    return bgl_create(ctx, l);
+}
+
+fn bgl_tex_sampler_uniform(ctx): i64 {
+    var l = gpu_bind_group_layout_new();
+    gpu_bgl_texture(l, 0, F, GPU_SAMPLE_FLOAT, GPU_VIEW_2D, 0);
+    gpu_bgl_sampler(l, 1, F, GPU_SAMPLER_FILTERING);
+    gpu_bgl_uniform(l, 2, F, 0, 0);
+    return bgl_create(ctx, l);
+}
+
+fn bgl_shadow_map(ctx): i64 {
+    var l = gpu_bind_group_layout_new();
+    gpu_bgl_texture(l, 0, F, GPU_SAMPLE_DEPTH, GPU_VIEW_2D, 0);
+    gpu_bgl_sampler(l, 1, F, GPU_SAMPLER_COMPARISON);
+    return bgl_create(ctx, l);
+}
+
+fn bgl_mesh_uniforms(ctx): i64 {
+    var l = gpu_bind_group_layout_new();
+    gpu_bgl_uniform(l, 0, VF, 0, 0);   # camera
+    gpu_bgl_uniform(l, 1, F, 0, 0);    # light_array
+    gpu_bgl_uniform(l, 2, F, 0, 0);    # material
+    gpu_bgl_uniform(l, 3, VF, 0, 0);   # shadow
+    return bgl_create(ctx, l);
+}
+
+fn pipe_sprite(ctx): i64 {
+    var m = module(ctx, "sprite");
+    if (m == 0) { _failed = _failed + 1; return 0; }
+    var d = gpu_pipeline_desc_new(m, "vs_main");
+    gpu_pipeline_desc_fragment(d, m, "fs_main");
+    gpu_pipeline_desc_vertex_preset(d, GPU_VERTEX_LAYOUT_2D);
+    gpu_pipeline_desc_target(d, MABDA_TEXFMT_BGRA8_SRGB, GPU_BLEND_ALPHA, GPU_WRITE_ALL);
+    gpu_pipeline_desc_bind_group_layout(d, 0, bgl_uniform(ctx, V));
+    gpu_pipeline_desc_bind_group_layout(d, 1, bgl_tex_sampler(ctx));
+    finish(ctx, d, "sprite  [Vertex2D 32 B; g0 uniform(V); g1 tex+sampler; alpha blend]");
+    return 0;
+}
+
+fn pipe_line(ctx): i64 {
+    var m = module(ctx, "line");
+    if (m == 0) { _failed = _failed + 1; return 0; }
+    var d = gpu_pipeline_desc_new(m, "vs_main");
+    gpu_pipeline_desc_fragment(d, m, "fs_main");
+    gpu_pipeline_desc_vertex_preset(d, GPU_VERTEX_LAYOUT_LINE);
+    gpu_pipeline_desc_primitive(d, GPU_TOPOLOGY_LINE_LIST, GPU_CULL_NONE, GPU_FRONT_CCW);
+    gpu_pipeline_desc_target(d, MABDA_TEXFMT_BGRA8_SRGB, GPU_BLEND_ALPHA, GPU_WRITE_ALL);
+    gpu_pipeline_desc_depth(d, MABDA_TEXFMT_DEPTH32F, 0, GPU_COMPARE_LESS_EQUAL);
+    gpu_pipeline_desc_bind_group_layout(d, 0, bgl_uniform(ctx, V));
+    finish(ctx, d, "line    [LineVertex 28 B; LineList; depth LessEqual, no write; g0 uniform(V)]");
+    return 0;
+}
+
+fn pipe_pbr(ctx): i64 {
+    var m = module(ctx, "pbr");
+    if (m == 0) { _failed = _failed + 1; return 0; }
+    var g3 = gpu_bind_group_layout_new();
+    gpu_bgl_texture(g3, 0, F, GPU_SAMPLE_FLOAT, GPU_VIEW_CUBE, 0);
+    gpu_bgl_sampler(g3, 1, F, GPU_SAMPLER_FILTERING);
+    gpu_bgl_texture(g3, 2, F, GPU_SAMPLE_FLOAT, GPU_VIEW_CUBE, 0);
+    gpu_bgl_sampler(g3, 3, F, GPU_SAMPLER_FILTERING);
+    gpu_bgl_texture(g3, 4, F, GPU_SAMPLE_FLOAT, GPU_VIEW_2D, 0);
+    gpu_bgl_sampler(g3, 5, F, GPU_SAMPLER_FILTERING);
+    var d = gpu_pipeline_desc_new(m, "vs_main");
+    gpu_pipeline_desc_fragment(d, m, "fs_main");
+    gpu_pipeline_desc_vertex_preset(d, GPU_VERTEX_LAYOUT_3D);
+    gpu_pipeline_desc_primitive(d, GPU_TOPOLOGY_TRIANGLE_LIST, GPU_CULL_BACK, GPU_FRONT_CCW);
+    gpu_pipeline_desc_target(d, MABDA_TEXFMT_BGRA8_SRGB, GPU_BLEND_ALPHA, GPU_WRITE_ALL);
+    gpu_pipeline_desc_depth(d, MABDA_TEXFMT_DEPTH32F, 1, GPU_COMPARE_LESS);
+    gpu_pipeline_desc_bind_group_layout(d, 0, bgl_mesh_uniforms(ctx));
+    gpu_pipeline_desc_bind_group_layout(d, 1, bgl_tex_sampler(ctx));
+    gpu_pipeline_desc_bind_group_layout(d, 2, bgl_shadow_map(ctx));
+    gpu_pipeline_desc_bind_group_layout(d, 3, bgl_create(ctx, g3));
+    finish(ctx, d, "pbr     [Vertex3D 48 B; 4 groups incl. depth+comparison and 2 cubes; Less; cull back]");
+    return 0;
+}
+
+fn pipe_pbr_skinned(ctx): i64 {
+    var m = module(ctx, "pbr_skinned");
+    if (m == 0) { _failed = _failed + 1; return 0; }
+    var g1 = gpu_bind_group_layout_new();
+    gpu_bgl_texture(g1, 0, F, GPU_SAMPLE_FLOAT, GPU_VIEW_2D, 0);
+    gpu_bgl_sampler(g1, 1, F, GPU_SAMPLER_FILTERING);
+    gpu_bgl_texture(g1, 2, F, GPU_SAMPLE_FLOAT, GPU_VIEW_2D, 0);
+    gpu_bgl_sampler(g1, 3, F, GPU_SAMPLER_FILTERING);
+    var g3 = gpu_bind_group_layout_new();
+    gpu_bgl_storage(g3, 0, V, 1, 0, 0);
+    var d = gpu_pipeline_desc_new(m, "vs_main");
+    gpu_pipeline_desc_fragment(d, m, "fs_main");
+    gpu_pipeline_desc_vertex_preset(d, GPU_VERTEX_LAYOUT_SKINNED_3D);
+    gpu_pipeline_desc_primitive(d, GPU_TOPOLOGY_TRIANGLE_LIST, GPU_CULL_BACK, GPU_FRONT_CCW);
+    gpu_pipeline_desc_target(d, MABDA_TEXFMT_BGRA8_SRGB, GPU_BLEND_ALPHA, GPU_WRITE_ALL);
+    gpu_pipeline_desc_depth(d, MABDA_TEXFMT_DEPTH32F, 1, GPU_COMPARE_LESS);
+    gpu_pipeline_desc_bind_group_layout(d, 0, bgl_mesh_uniforms(ctx));
+    gpu_pipeline_desc_bind_group_layout(d, 1, bgl_create(ctx, g1));
+    gpu_pipeline_desc_bind_group_layout(d, 2, bgl_shadow_map(ctx));
+    gpu_pipeline_desc_bind_group_layout(d, 3, bgl_create(ctx, g3));
+    finish(ctx, d, "pbr_skinned [SkinnedVertex3D 96 B, joints Uint32x4; g3 read-only storage(V)]");
+    return 0;
+}
+
+fn pipe_shadow(ctx): i64 {
+    var m = module(ctx, "shadow");
+    if (m == 0) { _failed = _failed + 1; return 0; }
+    var d = gpu_pipeline_desc_new(m, "vs_main");     # no fragment stage
+    gpu_pipeline_desc_vertex_preset(d, GPU_VERTEX_LAYOUT_3D);
+    gpu_pipeline_desc_primitive(d, GPU_TOPOLOGY_TRIANGLE_LIST, GPU_CULL_BACK, GPU_FRONT_CCW);
+    gpu_pipeline_desc_depth(d, MABDA_TEXFMT_DEPTH32F, 1, GPU_COMPARE_LESS_EQUAL);
+    gpu_pipeline_desc_depth_bias(d, 2, f64_from(2), F64_0);
+    gpu_pipeline_desc_bind_group_layout(d, 0, bgl_uniform(ctx, V));
+    finish(ctx, d, "shadow  [depth-only, no fragment stage; LessEqual; bias 2 / slope 2.0; cull back]");
+    return 0;
+}
+
+fn pipe_ssao(ctx): i64 {
+    var m = module(ctx, "ssao");
+    if (m == 0) { _failed = _failed + 1; return 0; }
+    var l = gpu_bind_group_layout_new();
+    gpu_bgl_texture(l, 0, F, GPU_SAMPLE_DEPTH, GPU_VIEW_2D, 0);
+    gpu_bgl_sampler(l, 1, F, GPU_SAMPLER_FILTERING);
+    gpu_bgl_texture(l, 2, F, GPU_SAMPLE_FLOAT, GPU_VIEW_2D, 0);
+    gpu_bgl_sampler(l, 3, F, GPU_SAMPLER_FILTERING);
+    gpu_bgl_uniform(l, 4, F, 0, 0);
+    var d = gpu_pipeline_desc_new(m, "vs_main");
+    gpu_pipeline_desc_fragment(d, m, "fs_main");
+    gpu_pipeline_desc_target(d, MABDA_TEXFMT_RGBA8, GPU_BLEND_NONE, GPU_WRITE_ALL);
+    gpu_pipeline_desc_bind_group_layout(d, 0, bgl_create(ctx, l));
+    finish(ctx, d, "ssao    [full-screen; g0 depth + sampler, tex + sampler, uniform]");
+    return 0;
+}
+
+fn pipe_bloom(ctx): i64 {
+    var m = module(ctx, "bloom");
+    if (m == 0) { _failed = _failed + 3; return 0; }
+    var g0 = bgl_tex_sampler_uniform(ctx);
+    var entries[24];
+    store64(&entries, "fs_threshold");
+    store64(&entries + 8, "fs_blur_h");
+    store64(&entries + 16, "fs_blur_v");
+    for (var i = 0; i < 3; i = i + 1) {
+        var d = gpu_pipeline_desc_new(m, "vs_main");
+        gpu_pipeline_desc_fragment(d, m, load64(&entries + i * 8));
+        gpu_pipeline_desc_target(d, MABDA_TEXFMT_RGBA16F, GPU_BLEND_NONE, GPU_WRITE_ALL);
+        gpu_pipeline_desc_bind_group_layout(d, 0, g0);
+        var label[64];
+        memset(&label, 0, 64);
+        var pre = "bloom   [";
+        memcpy(&label, pre, strlen(pre));
+        var e = load64(&entries + i * 8);
+        memcpy(&label + strlen(pre), e, strlen(e));
+        memcpy(&label + strlen(pre) + strlen(e), "; RGBA16F]", 10);
+        finish(ctx, d, &label);
+    }
+    return 0;
+}
+
+fn pipe_postprocess(ctx): i64 {
+    var m = module(ctx, "postprocess");
+    if (m == 0) { _failed = _failed + 2; return 0; }
+    var g0 = bgl_tex_sampler_uniform(ctx);
+    var d = gpu_pipeline_desc_new(m, "vs_main");
+    gpu_pipeline_desc_fragment(d, m, "fs_main");
+    gpu_pipeline_desc_target(d, MABDA_TEXFMT_BGRA8_SRGB, GPU_BLEND_NONE, GPU_WRITE_ALL);
+    gpu_pipeline_desc_bind_group_layout(d, 0, g0);
+    gpu_pipeline_desc_bind_group_layout(d, 1, bgl_tex_sampler(ctx));
+    finish(ctx, d, "postprocess [fs_main; g0 tex+sampler+uniform; g1 bloom tex+sampler]");
+    var n = gpu_pipeline_desc_new(m, "vs_main");
+    gpu_pipeline_desc_fragment(n, m, "fs_no_bloom");
+    gpu_pipeline_desc_target(n, MABDA_TEXFMT_BGRA8_SRGB, GPU_BLEND_NONE, GPU_WRITE_ALL);
+    gpu_pipeline_desc_bind_group_layout(n, 0, g0);
+    finish(ctx, n, "postprocess [fs_no_bloom; g0 tex+sampler+uniform]");
+    return 0;
+}
+
+fn pipe_named(ctx, name): i64 {
+    if (eq(name, "sprite") == 1) { return pipe_sprite(ctx); }
+    if (eq(name, "line") == 1) { return pipe_line(ctx); }
+    if (eq(name, "pbr") == 1) { return pipe_pbr(ctx); }
+    if (eq(name, "pbr_skinned") == 1) { return pipe_pbr_skinned(ctx); }
+    if (eq(name, "shadow") == 1) { return pipe_shadow(ctx); }
+    if (eq(name, "ssao") == 1) { return pipe_ssao(ctx); }
+    if (eq(name, "bloom") == 1) { return pipe_bloom(ctx); }
+    if (eq(name, "postprocess") == 1) { return pipe_postprocess(ctx); }
+    out("unknown shader");
+    nl();
+    return 1;
+}
+
+fn summary(): i64 {
+    out("pipelines built: ");
+    outn(_ok);
+    out(", failed: ");
+    outn(_failed);
+    nl();
+    if (_failed != 0) { return 1; }
+    return 0;
+}
+
+fn case_pipes(ctx): i64 {
+    pipe_sprite(ctx);
+    pipe_line(ctx);
+    pipe_pbr(ctx);
+    pipe_pbr_skinned(ctx);
+    pipe_shadow(ctx);
+    pipe_ssao(ctx);
+    pipe_bloom(ctx);
+    pipe_postprocess(ctx);
+    return summary();
+}
+
+# Every one of these aborted the process under mabda 4.2.0.
+fn case_err(ctx): i64 {
+    var bad = "@vertex fn vs_main() -> @builtin(position) vec4<f32> { return 1u; }";
+    gpu_error_clear();
+    out("  invalid WGSL ... module=");
+    outhex(gpu_shader_module_create(ctx, bad, strlen(bad)));
+    out(" last_shader_error=");
+    outn(gpu_last_shader_error());
+    out(" (");
+    out(gpu_shader_error_name(gpu_last_shader_error()));
+    out(")");
+    nl();
+    out("    ");
+    out(gpu_last_error_message());
+    nl();
+    var m = module(ctx, "bloom");
+    var d = gpu_pipeline_desc_new(m, "vs_main");
+    gpu_pipeline_desc_fragment(d, m, "fs_main");    # bloom has no fs_main
+    gpu_pipeline_desc_target(d, MABDA_TEXFMT_RGBA16F, GPU_BLEND_NONE, GPU_WRITE_ALL);
+    gpu_pipeline_desc_bind_group_layout(d, 0, bgl_tex_sampler_uniform(ctx));
+    finish(ctx, d, "bloom with fs_main (no such entry point)");
+    var s = module(ctx, "sprite");
+    var w = gpu_pipeline_desc_new(s, "vs_main");
+    gpu_pipeline_desc_fragment(w, s, "fs_main");
+    gpu_pipeline_desc_target(w, MABDA_TEXFMT_RGBA8, GPU_BLEND_NONE, GPU_WRITE_ALL);
+    finish(ctx, w, "sprite without its vertex buffer (Location[0] not provided)");
+    var x = gpu_pipeline_desc_new(s, "vs_main");
+    gpu_pipeline_desc_fragment(x, s, "fs_main");
+    gpu_pipeline_desc_vertex_preset(x, GPU_VERTEX_LAYOUT_2D);
+    gpu_pipeline_desc_target(x, MABDA_TEXFMT_RGBA8, GPU_BLEND_NONE, GPU_WRITE_ALL);
+    gpu_pipeline_desc_bind_group_layout(x, 0, bgl_tex_sampler(ctx));    # group 0 is a uniform in sprite.wgsl
+    gpu_pipeline_desc_bind_group_layout(x, 1, bgl_tex_sampler(ctx));
+    finish(ctx, x, "sprite with a mismatched group-0 layout");
+    var expected_failures = _failed;
+    _failed = 0;
+    _ok = 0;
+    pipe_sprite(ctx);
+    out("process alive after ");
+    outn(expected_failures);
+    out(" rejected pipelines; a valid pipeline afterwards: ");
+    if (_ok == 1) { out("OK"); } else { out("FAILED"); }
+    nl();
+    if (expected_failures != 3) { return 1; }
+    if (_ok != 1) { return 1; }
+    return 0;
+}
+
+# draw: soorat's sprite.wgsl, with its real pipeline layout, draws one quad over
+# the left half of a 64x64 RGBA8 target: identity projection (group 0 uniform), a
+# 2x2 magenta texture with a linear clamp sampler (group 1), Vertex2D vertices
+# coloured yellow, u16 indices. fs = texture * vertex colour = (1,0,1,1)*(1,1,0,1)
+# = red; the right half stays the black clear. Read back with gpu_render_target_read
+# (mabda 4.3.1, MB3).
+fn f32v(p, v): i64 { store32(p, f64_to_f32(f64_from(v))); return 0; }
+
+fn sprite_vertex(vb, i, x, y, u, v): i64 {
+    var p = vb + i * 32;
+    f32v(p, x);
+    f32v(p + 4, y);
+    f32v(p + 8, u);
+    f32v(p + 12, v);
+    f32v(p + 16, 1);    # yellow: r
+    f32v(p + 20, 1);    #         g
+    f32v(p + 24, 0);    #         b
+    f32v(p + 28, 1);    #         a
+    return 0;
+}
+
+fn case_draw_sprite(ctx): i64 {
+    var m = module(ctx, "sprite");
+    if (m == 0) { return 1; }
+    var g0l = gpu_bind_group_layout_new();
+    gpu_bgl_uniform(g0l, 0, V, 0, 0);
+    var g0 = bgl_create(ctx, g0l);
+    var g1 = bgl_tex_sampler(ctx);
+    var d = gpu_pipeline_desc_new(m, "vs_main");
+    gpu_pipeline_desc_fragment(d, m, "fs_main");
+    gpu_pipeline_desc_vertex_preset(d, GPU_VERTEX_LAYOUT_2D);
+    gpu_pipeline_desc_target(d, MABDA_TEXFMT_RGBA8, GPU_BLEND_ALPHA, GPU_WRITE_ALL);
+    gpu_pipeline_desc_bind_group_layout(d, 0, g0);
+    gpu_pipeline_desc_bind_group_layout(d, 1, g1);
+    var pipe = finish(ctx, d, "sprite  [RGBA8 target for readback]");
+    if (pipe == 0) { return 1; }
+    # group 0: identity projection (64 B)
+    var mat = alloc(64);
+    memset(mat, 0, 64);
+    for (var i = 0; i < 4; i = i + 1) { f32v(mat + i * 20, 1); }
+    var ubuf = gpu_buffer_create(ctx, 64, GPU_BUFFER_USAGE_UNIFORM | GPU_BUFFER_USAGE_COPY_DST);
+    gpu_buffer_write(ctx, ubuf, 0, mat, 64);
+    var bg0d = gpu_bind_group_new(g0);
+    gpu_bg_buffer(bg0d, 0, ubuf, 0, 0);
+    var bg0 = gpu_bind_group_create(ctx, bg0d);
+    # group 1: a 2x2 magenta texture + a linear clamp sampler
+    var tex = gpu_texture_create_2d_rgba8(ctx, 2, 2);
+    var px[16];
+    for (var t = 0; t < 4; t = t + 1) { store32(&px + t * 4, 0xFFFF00FF); }   # bytes FF 00 FF FF
+    gpu_texture_write(ctx, tex, &px, 16);
+    var samp = gpu_sampler_object_create(ctx, GPU_FILTER_LINEAR, GPU_ADDRESS_CLAMP, GPU_COMPARE_NONE);
+    var bg1d = gpu_bind_group_new(g1);
+    gpu_bg_texture(bg1d, 0, tex);
+    gpu_bg_sampler(bg1d, 1, samp);
+    var bg1 = gpu_bind_group_create(ctx, bg1d);
+    if (bg0 == 0) { out("  group 0 FAILED: "); out(gpu_last_error_message()); nl(); return 1; }
+    if (bg1 == 0) { out("  group 1 FAILED: "); out(gpu_last_error_message()); nl(); return 1; }
+    # one quad, left half (clip x -1..0)
+    var vb = alloc(128);
+    sprite_vertex(vb, 0, 0 - 1, 0 - 1, 0, 1);
+    sprite_vertex(vb, 1, 0, 0 - 1, 1, 1);
+    sprite_vertex(vb, 2, 0, 1, 1, 0);
+    sprite_vertex(vb, 3, 0 - 1, 1, 0, 0);
+    var vbuf = gpu_buffer_create(ctx, 128, GPU_BUFFER_USAGE_VERTEX | GPU_BUFFER_USAGE_COPY_DST);
+    gpu_buffer_write(ctx, vbuf, 0, vb, 128);
+    var ix[12];
+    store16(&ix, 0);
+    store16(&ix + 2, 1);
+    store16(&ix + 4, 2);
+    store16(&ix + 6, 0);
+    store16(&ix + 8, 2);
+    store16(&ix + 10, 3);
+    var ibuf = gpu_buffer_create(ctx, 12, GPU_BUFFER_USAGE_INDEX | GPU_BUFFER_USAGE_COPY_DST);
+    gpu_buffer_write(ctx, ibuf, 0, &ix, 12);
+    var rt = gpu_render_target_create_2d_rgba8(ctx, 64, 64);
+    var black = color_new(F64_0, F64_0, F64_0, F64_1);
+    var pass = gpu_render_pass_begin(ctx, rt, black);
+    var rc = gpu_render_pass_set_pipeline(ctx, pass, pipe);
+    rc = rc + gpu_render_pass_set_bind_group(ctx, pass, 0, bg0, 0, 0);
+    rc = rc + gpu_render_pass_set_bind_group(ctx, pass, 1, bg1, 0, 0);
+    rc = rc + gpu_render_pass_set_vertex_buffer(ctx, pass, 0, vbuf, 0, 0);
+    rc = rc + gpu_render_pass_set_index_buffer(ctx, pass, ibuf, GPU_INDEX_UINT16, 0, 0);
+    rc = rc + gpu_render_pass_draw_indexed(ctx, pass, 6, 1, 0, 0, 0);
+    var end_rc = gpu_render_pass_end(ctx, pass);
+    out("  draw-time calls rc=");
+    outn(rc);
+    out(" render_pass_end rc=");
+    outn(end_rc);
+    nl();
+    if (end_rc != 0) { out("    "); out(gpu_last_error_message()); nl(); return 1; }
+    gpu_device_wait_idle(ctx);
+    var rb = alloc(16384);
+    # mabda 4.3.1: the public render-target readback (MB3). 4.3.0 had none, and this
+    # probe read the target through a hand-built 32-byte texture struct, which the
+    # 4.3.1 texture record (80 bytes) no longer matches.
+    if (gpu_render_target_read(ctx, rt, rb, 16384) != 0) { out("  FAIL: readback"); nl(); return 1; }
+    var l = load32(rb + 32 * 256 + 16 * 4);
+    var r = load32(rb + 32 * 256 + 48 * 4);
+    out("  pixel(16,32) bytes=");
+    outhex(l);
+    out("  pixel(48,32) bytes=");
+    outhex(r);
+    nl();
+    # little-endian load32 of bytes R G B A: red opaque = 0xFF0000FF, black opaque = 0xFF000000
+    if (l != 0xFF0000FF) { out("  FAIL: the sprite half is not red"); nl(); return 1; }
+    if (r != 0xFF000000) { out("  FAIL: the other half is not the black clear"); nl(); return 1; }
+    out("sprite drawn through MB1: left half = texture (magenta) x vertex colour (yellow) = red; right half clear");
+    nl();
+    return 0;
+}
+
+fn ctx_up(preinit_ptr): i64 {
+    var res_tag, res = gpu_context_from_preinit(preinit_ptr);
+    if (is_err_result(res_tag) == 1) {
+        out("SKIP: gpu_context_from_preinit failed, err=");
+        outn(res);
+        nl();
+        return 0;
+    }
+    out("context OK backend_kind=");
+    outn(backend_kind(gpu_ctx_backend(res)));
+    out(" launcher_slots=");
+    outn(wgpu_launcher_slot_count());
+    nl();
+    print_adapter(res);
+    return res;
+}
+
+fn mabda_main(fn_table_ptr, preinit_ptr): i64 {
+    wgpu_ffi_init_table(fn_table_ptr);
+    var mode = arg(1);
+    if (mode == 0) { mode = "pipes"; }
+    out("P6/MB1 case: ");
+    out(mode);
+    var a2 = arg(2);
+    if (a2 != 0) { out(" "); out(a2); }
+    nl();
+    var ctx = ctx_up(preinit_ptr);
+    if (ctx == 0) { return 0; }
+    if (eq(mode, "pipes") == 1) { return case_pipes(ctx); }
+    if (eq(mode, "pipe") == 1)  { pipe_named(ctx, a2); return summary(); }
+    if (eq(mode, "err") == 1)   { return case_err(ctx); }
+    if (eq(mode, "draw") == 1)  { return case_draw_sprite(ctx); }
+    out("unknown case");
+    nl();
+    return 2;
+}
