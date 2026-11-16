@@ -866,6 +866,204 @@ def check_sprite():
     return bad, cr
 
 
+# ── text: glyph rectangles and the sprites text and UI batches hold ──────────────────
+
+def glyph_uv(fnt, ch):
+    _tex, gw, gh, cols, aw, ah, first, count = fnt
+    if aw == 0 or ah == 0 or cols == 0:
+        return [0.0, 0.0, 1.0, 1.0]
+    index = ch - first if ch >= first and ch - first < count else 0
+    x = min(index % cols * gw, 0xFFFFFFFF)
+    y = min(index // cols * gh, 0xFFFFFFFF)
+    return [r32(x / aw), r32(y / ah), r32((x + gw) / aw), r32((y + gh) / ah)]
+
+
+def sprite_tokens(x, y, w, h, color, uv, tex, z):
+    return [x, y, w, h, 0.0] + color + uv, [tex, z]
+
+
+def check_text():
+    path = os.path.join(GOLDEN, "text.tsv")
+    if not os.path.exists(path):
+        return 0
+    _, body = rows(path)
+    bad = 0
+    for fn, _cls, ins, outs, note in body:
+        toks = ins.split(" ")
+        if fn == "BitmapFont::glyph_uv":
+            ints = i_values(ins)
+            ok = same(glyph_uv(ints[0:8], ints[8]), g_values(outs))
+        elif fn == "TextBatch::draw_text_z":
+            fnt = [int(t[2:]) for t in toks[1:9]]
+            text = re.sub(r"%([0-9A-F]{2})", lambda m: chr(int(m.group(1), 16)), toks[9][2:]).encode("latin-1").decode("utf-8")
+            x, y, scale = (from_bits(int(t[2:], 16)) for t in toks[10:13])
+            color = [from_bits(int(t[2:], 16)) for t in toks[14:18]]
+            z = int(toks[18][2:])
+            cw, chh = r32(r32(float(fnt[1])) * scale), r32(r32(float(fnt[2])) * scale)
+            fs, ints = [], []
+            for i, ch in enumerate(text):
+                if ch == " ":
+                    continue
+                f, k = sprite_tokens(r32(x + r32(r32(float(i)) * cw)), y, cw, chh, color, glyph_uv(fnt, ord(ch)), fnt[0], z)
+                fs += f
+                ints += k
+            ok = same(fs, g_values(outs)) and i_values(outs) == [len(ints) // 2] + ints
+        elif fn == "UiBatch::add_panel":
+            v = g_values(ins)
+            tex, z = i_values(ins)
+            f, k = sprite_tokens(v[0], v[1], v[2], v[3], v[4:8], [0.0, 0.0, 1.0, 1.0], tex, z)
+            ok = same(f, g_values(outs)) and i_values(outs) == [1] + k
+        else:
+            ok = False
+            print(f"text: {fn}: no re-derivation in validate.py")
+        if not ok:
+            bad += 1
+            print(f"text: {fn} {note}: re-derived outputs differ from the corpus")
+    return bad
+
+
+# ── debug: LineBatch geometry (f32 sin/cos correctly rounded, ADR 0002 #16) ───────────
+
+TAU32 = from_bits(0x40C90FDB)
+
+
+def cpr(c, r, k):
+    return r32(c + r32(r * k))
+
+
+def seg_lines(line_list, color):
+    out = []
+    for a, b in line_list:
+        out += list(a) + color + list(b) + color
+    return out
+
+
+def box_lines(lo, hi):
+    x0, y0, z0 = lo
+    x1, y1, z1 = hi
+    pts = [((x0, y0, z0), (x1, y0, z0)), ((x1, y0, z0), (x1, y0, z1)), ((x1, y0, z1), (x0, y0, z1)),
+           ((x0, y0, z1), (x0, y0, z0)), ((x0, y1, z0), (x1, y1, z0)), ((x1, y1, z0), (x1, y1, z1)),
+           ((x1, y1, z1), (x0, y1, z1)), ((x0, y1, z1), (x0, y1, z0)), ((x0, y0, z0), (x0, y1, z0)),
+           ((x1, y0, z0), (x1, y1, z0)), ((x1, y0, z1), (x1, y1, z1)), ((x0, y0, z1), (x0, y1, z1))]
+    return pts
+
+
+def circle_step(c, r, prev, nxt, sphere):
+    (ps, pc), (ns, nc) = prev, nxt
+    lines = [((cpr(c[0], r, pc), c[1], cpr(c[2], r, ps)), (cpr(c[0], r, nc), c[1], cpr(c[2], r, ns)))]
+    if sphere:
+        lines.append(((cpr(c[0], r, pc), cpr(c[1], r, ps), c[2]), (cpr(c[0], r, nc), cpr(c[1], r, ns), c[2])))
+        lines.append(((c[0], cpr(c[1], r, pc), cpr(c[2], r, ps)), (c[0], cpr(c[1], r, nc), cpr(c[2], r, ns))))
+    return lines
+
+
+def explain_circle(c, r, n, color, sphere, rust):
+    """(the correctly rounded vertices, whether Rust's are those with each angle's sin/cos at most 1 ulp off)."""
+    if n == 0:
+        return [], rust == []
+    step = r32(TAU32 / int_to_f32(n))
+    cr = [(0.0, 1.0)] + [(trig_cr(math.sin, a), trig_cr(math.cos, a))
+                         for a in (r32(step * int_to_f32(i)) for i in range(1, n + 1))]
+    per = 14 * (3 if sphere else 1)
+    correct = []
+    for i in range(1, n + 1):
+        correct += seg_lines(circle_step(c, r, cr[i - 1], cr[i], sphere), color)
+    if len(rust) != len(correct):
+        return correct, False
+    trig = [(0.0, 1.0)]
+    for i in range(1, n + 1):
+        want = rust[per * (i - 1):per * i]
+        found = None
+        for ds in (0, -1, 1):
+            for dc in (0, -1, 1):
+                cand = (ulp_step(cr[i][0], ds), ulp_step(cr[i][1], dc))
+                if same(seg_lines(circle_step(c, r, trig[i - 1], cand, sphere), color), want):
+                    found = cand
+                    break
+            if found:
+                break
+        if found is None:
+            return correct, False
+        trig.append(found)
+    return correct, True
+
+
+def capsule(c, hh, r, n, color, rust):
+    top = (c[0], r32(c[1] + hh), c[2])
+    bot = (c[0], r32(c[1] - hh), c[2])
+    k = 14 * n if n else 0
+    t, et = explain_circle(top, r, n, color, False, rust[0:k])
+    b, eb = explain_circle(bot, r, n, color, False, rust[k:2 * k])
+    lines = [((cpr(top[0], r, dx), top[1], cpr(top[2], r, dz)), (cpr(bot[0], r, dx), bot[1], cpr(bot[2], r, dz)))
+             for dx, dz in ((1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0))]
+    tail = seg_lines(lines, color)
+    return t + b + tail, et and eb and same(tail, rust[2 * k:])
+
+
+def grid_vertices(h, sp, color):
+    if sp <= 0.0 or h <= 0.0:
+        return []
+    q = r32(h / sp)
+    count = 0 if math.isnan(q) else max(-2 ** 31, min(2 ** 31 - 1, math.ceil(q)))
+    lines = []
+    for i in range(-count, count + 1):
+        pos = r32(int_to_f32(i) * sp)
+        lines.append(((pos, 0.0, -h), (pos, 0.0, h)))
+        lines.append(((-h, 0.0, pos), (h, 0.0, pos)))
+    return seg_lines(lines, color)
+
+
+def check_debug(name):
+    """Re-derives every row of `name` (debug or debug_collider); returns (rows that differ, its .cr.tsv rows)."""
+    path = os.path.join(GOLDEN, name + ".tsv")
+    if not os.path.exists(path):
+        return 0, []
+    _, body = rows(path)
+    bad, cr = 0, []
+    for fn, _cls, ins, outs, note in body:
+        x = g_values(ins)
+        rust = g_values(outs)
+        explained = True
+        if fn == "LineBatch::line":
+            mine = seg_lines([(x[0:3], x[3:6])], x[6:10])
+        elif fn == "LineBatch::wire_box":
+            mine = seg_lines(box_lines(x[0:3], x[3:6]), x[6:10])
+        elif fn == "LineBatch::grid":
+            mine = grid_vertices(x[0], x[1], x[2:6])
+        elif fn in ("LineBatch::wire_circle", "LineBatch::wire_sphere"):
+            n = i_values(ins)[0]
+            mine, explained = explain_circle(x[0:3], x[3], n, x[4:8], fn.endswith("sphere"), rust)
+        elif fn == "LineBatch::wire_capsule":
+            n = i_values(ins)[0]
+            mine, explained = capsule(x[0:3], x[3], x[4], n, x[5:9], rust)
+        elif fn == "LineBatch::collider":
+            kind = i_values(ins)[0]
+            dims = f64_tok_values(ins)
+            pos, color = x[0:3], x[3:7]
+            if kind == 0:
+                he = [r32(v) for v in dims]
+                mine = seg_lines(box_lines([r32(p - h) for p, h in zip(pos, he)], [r32(p + h) for p, h in zip(pos, he)]), color)
+            elif kind == 1:
+                mine, explained = explain_circle(pos, r32(dims[0]), 16, color, True, rust)
+            elif kind == 2:
+                mine, explained = capsule(pos, r32(dims[0]), r32(dims[1]), 16, color, rust)
+            elif kind == 6:
+                a = [r32(r32(v) + p) for v, p in zip(dims[0:3], pos)]
+                b = [r32(r32(v) + p) for v, p in zip(dims[3:6], pos)]
+                mine = seg_lines([(a, b)], color)
+            else:
+                mine = []
+        else:
+            mine, explained = None, False
+            print(f"{name}: {fn}: no re-derivation in validate.py")
+        if mine is None or (not same(mine, rust) and not explained):
+            bad += 1
+            print(f"{name}: {fn} {note}: re-derived outputs differ from the corpus")
+        elif not same(mine, rust):
+            cr.append(f"{fn}\t{ins}\t{g_tokens(outs, mine)}\t{note}: glibc's sinf/cosf misround")
+    return bad, cr
+
+
 def main():
     failures = 0
     head, body = rows(os.path.join(GOLDEN, "math.tsv"))
@@ -892,10 +1090,13 @@ def main():
     failures += check_lod()
     failures += check_color_optics()
     failures += check_json()
+    failures += check_text()
     lbad, lcr = check_lights(plat)
     tbad, tcr = check_tables(plat)
     sbad, scr = check_sprite()
-    failures += lbad + tbad + sbad
+    dbad, dcr = check_debug("debug")
+    cbad, ccr = check_debug("debug_collider")
+    failures += lbad + tbad + sbad + dbad + cbad
     sides = [
         ("lights.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's outputs with each f32 cos correctly "
          "rounded (glibc's f64 cos, rounded once), where glibc's cosf differs", lcr),
@@ -903,6 +1104,10 @@ def main():
          "correctly rounded (glibc's f64 pow, rounded once), where glibc's powf differs by 1 ulp", tcr),
         ("sprite.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's sprite quads with each rotation's sinf "
          "and cosf correctly rounded (glibc's f64 sin/cos, rounded once), where glibc's differ by 1 ulp", scr),
+        ("debug.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's debug circles with each angle's sinf and "
+         "cosf correctly rounded (glibc's f64 sin/cos, rounded once), where glibc's differ by 1 ulp", dcr),
+        ("debug_collider.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's collider outlines with each "
+         "angle's sinf and cosf correctly rounded, where glibc's differ by 1 ulp", ccr),
     ]
     for name, what, side_rows in sides:
         side_path = os.path.join(GOLDEN, name)

@@ -3,7 +3,7 @@
 //! Every output is class **A**. `from_prakash` clamps each channel in f64 and narrows once (`as f32`); `to_prakash`
 //! widens exactly; `from_temperature` and `from_wavelength` are prakash's f64 formulas (glibc `powf`/`ln` inside the
 //! temperature fit) followed by `from_prakash`. The Cyrius side calls Cyrius prakash 2.15.2, so these rows also pin
-//! that the two prakash builds agree once narrowed to f32. Replayed by tests/parity_optics.tcyr, which needs the
+//! that the two prakash builds agree once narrowed to f32. Replayed by tests/parity_features.tcyr, which needs the
 //! `optics` feature (prakash).
 
 use crate::{Module, Rng, Toks};

@@ -1,0 +1,80 @@
+# debug_geom.bcyr — twins of Rust 1.2.0's `debug_draw/*` benches (M2 part b): one reused LineBatch, cleared each
+# iteration, as Rust's is.
+
+include "tests/lib.cyr"
+
+var _sink = 0;
+
+# The f32 bits of the integer k.
+fn f(k): i64 { return f32_from(f64_from(k)); }
+
+# Runs the debug-geometry benches.
+fn main(): i64 {
+    alloc_init();
+    var lo = alloc(12);
+    var hi = alloc(12);
+    var c = alloc(12);
+    var b = SrLineBatch_new();
+    var i = 0;
+    var k = 0;
+    var M = 2000;
+
+    var bb = bench_new("debug_draw/wire_box_100");
+    bench_batch_start(bb);
+    i = 0;
+    while (i < M) {
+        SrLineBatch_clear(b);
+        k = 0;
+        while (k < 100) {
+            var p = f(k);
+            store32(lo, p);
+            store32(lo + 4, 0);
+            store32(lo + 8, 0);
+            store32(hi, _sr_f32_add(p, 0x3F800000));
+            store32(hi + 4, 0x3F800000);
+            store32(hi + 8, 0x3F800000);
+            SrLineBatch_wire_box(b, lo, hi, SR_COLOR_GREEN);
+            k = k + 1;
+        }
+        _sink = SrLineBatch_line_count(b);
+        i = i + 1;
+    }
+    bench_batch_stop(bb, M);
+    bench_report(bb);
+
+    var bs = bench_new("debug_draw/wire_sphere_100");
+    bench_batch_start(bs);
+    i = 0;
+    while (i < 200) {
+        SrLineBatch_clear(b);
+        k = 0;
+        while (k < 100) {
+            store32(c, f(k));
+            store32(c + 4, 0);
+            store32(c + 8, 0);
+            SrLineBatch_wire_sphere(b, c, 0x3F800000, 16, SR_COLOR_BLUE);
+            k = k + 1;
+        }
+        _sink = SrLineBatch_line_count(b);
+        i = i + 1;
+    }
+    bench_batch_stop(bs, 200);
+    bench_report(bs);
+
+    var bg = bench_new("debug_draw/grid_10x10");
+    bench_batch_start(bg);
+    i = 0;
+    while (i < 100000) {
+        SrLineBatch_clear(b);
+        SrLineBatch_grid(b, f(10), f(1), SR_COLOR_WHITE);
+        _sink = SrLineBatch_line_count(b);
+        i = i + 1;
+    }
+    bench_batch_stop(bg, 100000);
+    bench_report(bg);
+    SrLineBatch_drop(b);
+    return 0;
+}
+
+var r = main();
+sys_exit_group(r);

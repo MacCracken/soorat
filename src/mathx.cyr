@@ -160,3 +160,44 @@ fn _sr_sift_i64(a, root, n) {
     }
     return 0;
 }
+
+# The code point of the UTF-8 sequence at p[at] (n bytes in all), stored at out; returns the bytes it took (1–4). A
+# byte that doesn't begin a well-formed sequence (an overlong form, a surrogate, past U+10FFFF, or truncated) takes
+# 1 byte and reads as U+FFFD. Rust's `&str::chars()` never meets one: a Rust string is valid UTF-8.
+fn _sr_utf8_next(p, n, at, out): i64 {
+    var b0 = load8(p + at) & 0xFF;
+    store64(out, 0xFFFD);
+    if (b0 < 0x80) {
+        store64(out, b0);
+        return 1;
+    }
+    var need = 0;
+    var cp = 0;
+    var lo = 0;
+    if (b0 >= 0xC2 && b0 <= 0xDF) {
+        need = 1;
+        cp = b0 & 0x1F;
+        lo = 0x80;
+    } elif (b0 >= 0xE0 && b0 <= 0xEF) {
+        need = 2;
+        cp = b0 & 0x0F;
+        lo = 0x800;
+    } elif (b0 >= 0xF0 && b0 <= 0xF4) {
+        need = 3;
+        cp = b0 & 0x07;
+        lo = 0x10000;
+    } else {
+        return 1;
+    }
+    if (at + need >= n) { return 1; }
+    var k = 1;
+    while (k <= need) {
+        var c = load8(p + at + k) & 0xFF;
+        if ((c & 0xC0) != 0x80) { return 1; }
+        cp = (cp << 6) | (c & 0x3F);
+        k = k + 1;
+    }
+    if (cp < lo || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) { return 1; }
+    store64(out, cp);
+    return need + 1;
+}

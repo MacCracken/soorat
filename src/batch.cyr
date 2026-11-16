@@ -38,25 +38,29 @@ fn _sr_corner(v, kx: f32, ky: f32, c: f32, s: f32, cx: f32, cy: f32) {
     return v;
 }
 
-# p + q·h and q·h in native f32: the centre coordinate and the half extent, into the two words at out.
-fn _sr_center_half(out, p: f32, q: f32, h: f32) {
-    var hq: f32 = q * h;
-    var c: f32 = p + hq;
-    store64(out, c);
-    store64(out + 8, hq);
+# The centre and half extents of (x, y, w, h) in native f32, into the 4 words at out: cx = x + w·0.5,
+# cy = y + h·0.5, hw = w·0.5, hh = h·0.5.
+fn _sr_center_half2(out, x: f32, y: f32, w: f32, h: f32, half: f32) {
+    var hw: f32 = w * half;
+    var hh: f32 = h * half;
+    var cx: f32 = x + hw;
+    var cy: f32 = y + hh;
+    store64(out, cx);
+    store64(out + 8, cy);
+    store64(out + 16, hw);
+    store64(out + 24, hh);
     return out;
 }
 
 # Writes the sprite at s as 4 SrVertex2D at v (128 bytes): Rust's `sprite_quad` and `emit_quad`'s vertices.
 fn _sr_emit_quad(s, v) {
-    var cw[16];
-    var ch[16];
-    _sr_center_half(&cw, load32(s + _SR_SP_X), load32(s + _SR_SP_W), _SR_SHALF);
-    _sr_center_half(&ch, load32(s + _SR_SP_Y), load32(s + _SR_SP_H), _SR_SHALF);
-    var cx = load64(&cw) & 0xFFFFFFFF;
-    var hw = load64(&cw + 8) & 0xFFFFFFFF;
-    var cy = load64(&ch) & 0xFFFFFFFF;
-    var hh = load64(&ch + 8) & 0xFFFFFFFF;
+    var ch[32];
+    _sr_center_half2(&ch, load32(s + _SR_SP_X), load32(s + _SR_SP_Y), load32(s + _SR_SP_W), load32(s + _SR_SP_H),
+      _SR_SHALF);
+    var cx = load64(&ch) & 0xFFFFFFFF;
+    var cy = load64(&ch + 8) & 0xFFFFFFFF;
+    var hw = load64(&ch + 16) & 0xFFFFFFFF;
+    var hh = load64(&ch + 24) & 0xFFFFFFFF;
     var nhw = hw ^ 0x80000000;
     var nhh = hh ^ 0x80000000;
     var rot = load32(s + _SR_SP_ROT);

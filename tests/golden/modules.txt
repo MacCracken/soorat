@@ -8,4 +8,7 @@ lights
 lod
 tables
 sprite
+text
+debug
+debug_collider
 json

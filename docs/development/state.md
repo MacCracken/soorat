@@ -27,7 +27,7 @@ Decisions: [ADR 0001](../adr/0001-cyrius-port-with-rust-oracle.md),
 | M1 part d: f16 and sRGB (`tables`) | ✅ 2026-11-15 (below) |
 | M1 part b2: colour `optics` + serde (prakash, bayan) | ✅ 2026-11-15: **M1 complete** |
 | M2 part a: sprite, batch | ✅ 2026-11-15 (below) |
-| M2 part b: text, ui, debug geometry | ☐ |
+| M2 part b: text, ui, debug geometry | ✅ 2026-11-15: **M2 complete** |
 | M3–M10 | ☐ |
 
 **M1.** 13,793 golden rows over nine modules pass:
@@ -44,11 +44,16 @@ Pending: 9 constants, until their modules arrive; 3 `json` rows bayan's tree can
 with 1 accepted correctly rounded batch row and 1 bayan row pending. 38 more Rust tests are ported. 9 bench twins:
 the batch loops are 4–9× Rust. Measurements: `port-parity.md` §3.
 
+**M2 part b.** `src/text.cyr`, `src/ui.cyr`, `src/debug_geom.cyr` and the `physics-debug` profile's
+`src/debug_collider.cyr` (ADR 0002 #21, #22): 479 `text`, 151 `debug` and 60 `debug_collider` rows pass, 1 through a
+correctly rounded row. All 113 M2 items, 69 tests and 16 benches are done.
+
 **Optional features.**
-- `optics` (prakash, `[features]`) and `serde` (JSON on bayan) are opt-in profiles: `dist/soorat-optics.cyr` and
-  `dist/soorat-serde.cyr`. The core bundle is `dist/soorat.cyr`.
+- `optics` (prakash), `physics-debug` (impetus) and `serde` (JSON on bayan) are opt-in profiles:
+  `dist/soorat-optics.cyr`, `dist/soorat-physics-debug.cyr` and `dist/soorat-serde.cyr`. The core bundle is
+  `dist/soorat.cyr`.
 - serde is opt-in because including bayan costs a binary ~372 KB.
-- The repository's tests use both, so resolve with `cyrius deps --locked --features optics`.
+- The repository's tests use them all, so resolve with `cyrius deps --locked --features optics,physics-debug`.
 
 **Step 2's repairs.** `cyrius port` overwrote CLAUDE.md, the roadmap and both workflows, pinned
 `version = "0.1.0"`, left `bench` out of `[test] stdlib`, and wrote undocumented stubs, all as cyrius issue
@@ -69,8 +74,8 @@ the batch loops are 4–9× Rust. Measurements: `port-parity.md` §3.
 
 - **Rust reference:** `rust-old/`. 7,649 code lines in 44 modules, plus 9 WGSL shaders, 15,767 lines in all.
 - **Cyrius:** the library is `[lib]` in `cyrius.cyml`, bundled as `dist/soorat.cyr` (`cyrius distlib --all`):
-  `src/{error,log,mathx,tables_data,tables,math,layout,color,lights,lod,sprite,batch}.cyr`, plus `src/color_optics.cyr`
-  (`[lib.optics]`) and `src/json.cyr` (`[lib.serde]`). `src/layout.cyr` and
+  `src/{error,log,mathx,tables_data,tables,math,layout,color,lights,lod,sprite,batch,text,ui,debug_geom}.cyr`, plus `src/color_optics.cyr`
+  (`[lib.optics]`), `src/debug_collider.cyr` (`[lib.physics-debug]`) and `src/json.cyr` (`[lib.serde]`). `src/layout.cyr` and
   `src/tables_data.cyr` are generated (`scripts/oracle/gen_layout.py`, `gen_tables.py`). `src/main.cyr` is still the
   scaffold's smoke program.
 - **Port machinery (M0):**
@@ -119,8 +124,8 @@ kiran (rendering), salai (editor viewport), joshua (visualization): all still Ru
 
 ## Next
 
-**M2 part b**: text (bitmap-font layout; kashi optional for font import), ui (quads) and debug_draw's geometry
-half (wire shapes, impetus collider shapes). Its Rust twins are the three `debug_draw/*` benches.
+**M3 (geometry and animation)**: primitives, terrain, viz, animation (CUBICSPLINE per ADR 0002 #13) and the GLB
+loader (bayan, chitra; D6). Its Rust twins are the `terrain/*`, `animation/*` and `primitives/*` benches.
 
 **Performance items carried forward:** `mul_mat4` at about 120 ns (M4's shadow matrices call it); the correctly
 rounded sRGB `pow` at 200–285 ns a call (M4's face encoding calls it three times a texel). port-parity §2.2 has the

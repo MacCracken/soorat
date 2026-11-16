@@ -1,0 +1,54 @@
+# debug_collider.cyr — `LineBatch::collider`, Rust 1.2.0's `physics-debug` half of src/debug_draw.rs (M2 part b).
+#
+# **OPTIONAL** (ADR 0002 #9, #22). Rust gates it behind the `physics-debug` Cargo feature (impetus). Here the file is
+# outside `[lib]`, bundled by the `[lib.physics-debug]` profile as dist/soorat-physics-debug.cyr, and includes
+# impetus 2.0.0's 3D bundle itself. A consumer that wants it takes that bundle, declares impetus and enables
+# `physics-debug`.
+#
+# Rust's `ColliderShape` is impetus's `ImColliderShape` here (its `kind` and fields). Each shape is drawn as Rust draws
+# it, its f64 dimensions narrowed once to f32 (`as f32`):
+# - a box is a wire box from position − half_extents to position + half_extents;
+# - a ball is a wire sphere, and a capsule a wire capsule, each of 16 segments;
+# - a segment is a line from a + position to b + position;
+# - a convex hull, a triangle mesh or a height field draws nothing, as in Rust.
+
+include "lib/impetus-3d.cyr"
+
+# Appends the debug outline of the impetus shape at shape, placed at position (3 f32), in color: 1, or 0 when an
+# allocation fails. Mirrors `LineBatch::collider`.
+fn SrLineBatch_collider(b, shape: *ImColliderShape, position, color): i64 {
+    var k = shape.kind;
+    var px = load32(position);
+    var py = load32(position + 4);
+    var pz = load32(position + 8);
+    if (k == IM_SHAPE_BOX) {
+        var hx = f32_from(shape.half_extents.x);
+        var hy = f32_from(shape.half_extents.y);
+        var hz = f32_from(shape.half_extents.z);
+        var lo[12];
+        var hi[12];
+        store32(&lo, _sr_f32_sub(px, hx));
+        store32(&lo + 4, _sr_f32_sub(py, hy));
+        store32(&lo + 8, _sr_f32_sub(pz, hz));
+        store32(&hi, _sr_f32_add(px, hx));
+        store32(&hi + 4, _sr_f32_add(py, hy));
+        store32(&hi + 8, _sr_f32_add(pz, hz));
+        return SrLineBatch_wire_box(b, &lo, &hi, color);
+    }
+    if (k == IM_SHAPE_BALL) {
+        return SrLineBatch_wire_sphere(b, position, f32_from(shape.radius), 16, color);
+    }
+    if (k == IM_SHAPE_CAPSULE) {
+        return SrLineBatch_wire_capsule(b, position, f32_from(shape.half_height), f32_from(shape.radius), 16, color);
+    }
+    if (k == IM_SHAPE_SEGMENT) {
+        var ax = _sr_f32_add(f32_from(shape.a.x), px);
+        var ay = _sr_f32_add(f32_from(shape.a.y), py);
+        var az = _sr_f32_add(f32_from(shape.a.z), pz);
+        var bx = _sr_f32_add(f32_from(shape.b.x), px);
+        var by = _sr_f32_add(f32_from(shape.b.y), py);
+        var bz = _sr_f32_add(f32_from(shape.b.z), pz);
+        return _sr_line6(b, ax, ay, az, bx, by, bz, color);
+    }
+    return 1;
+}

@@ -734,6 +734,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "impetus"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8b9480f7aad2a7ddb35f4d731b7b70a700edfb3b2c8034b59167bac192d23cd"
+dependencies = [
+ "hisab",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1840,6 +1851,7 @@ dependencies = [
  "bytemuck",
  "gltf",
  "image",
+ "impetus",
  "mabda",
  "pollster 1.0.1",
  "prakash",
@@ -1855,6 +1867,7 @@ name = "soorat-oracle"
 version = "0.0.0"
 dependencies = [
  "bytemuck",
+ "impetus",
  "prakash",
  "serde_json",
  "soorat",

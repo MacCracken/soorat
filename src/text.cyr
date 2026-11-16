@@ -1,0 +1,138 @@
+# text.cyr — Rust 1.2.0's src/text.rs (M2 part b): a fixed-width bitmap font atlas and text laid out as sprites.
+#
+# `SrBitmapFont` is eight words (texture_id; glyph_width, glyph_height, columns, atlas_width, atlas_height,
+# glyph_count as u32; first_char as u8), filled by the caller as Rust's struct literal is. `SrTextBatch` wraps an
+# `SrSpriteBatch` (its `batch`), freed by SrTextBatch_drop.
+#
+# **Text.** Rust takes a `&str` and walks its chars; here the text is a pointer and a byte length, decoded as UTF-8
+# (src/mathx.cyr): a byte that begins no well-formed sequence counts as one character, U+FFFD, which a Rust string
+# can't contain (ADR 0002 #21). Each character, at index i, is a sprite at x + i·char_w; a space is skipped but still
+# advances i.
+#
+# **Precision (D4 rule a).** char_w = glyph_width as f32 · scale and each position are Rust's f32 sequence; the UVs
+# come from SrUvRect_from_pixel_rect: class A rows (tests/golden/text.tsv).
+
+struct SrBitmapFont { texture_id; glyph_width; glyph_height; columns; atlas_width; atlas_height; first_char;
+    glyph_count; }
+struct SrTextBatch { batch; }
+
+# a · b as u32, saturating at u32::MAX (a, b < 2³²).
+#must_use
+fn _sr_u32_sat_mul(a, b): i64 {
+    if (b != 0 && a > 0xFFFFFFFF / b) { return 0xFFFFFFFF; }
+    return a * b;
+}
+
+# The UV rectangle of code point ch's glyph, into out: glyph (ch − first_char) when that is below glyph_count, else
+# glyph 0; its cell (index % columns, index / columns) in glyph-sized pixels (saturating). The full texture when the
+# atlas or its column count is 0. Mirrors `BitmapFont::glyph_uv`.
+fn SrBitmapFont_glyph_uv(font, ch, out) {
+    var cols = load64(font + 24) & 0xFFFFFFFF;
+    var aw = load64(font + 32) & 0xFFFFFFFF;
+    var ah = load64(font + 40) & 0xFFFFFFFF;
+    if (aw == 0 || ah == 0 || cols == 0) { return SrUvRect_default(out); }
+    var first = load64(font + 48) & 0xFF;
+    var index = 0;
+    if (ch >= first && ch - first < (load64(font + 56) & 0xFFFFFFFF)) { index = ch - first; }
+    var gw = load64(font + 8) & 0xFFFFFFFF;
+    var gh = load64(font + 16) & 0xFFFFFFFF;
+    var x = _sr_u32_sat_mul(index % cols, gw);
+    var y = _sr_u32_sat_mul(index / cols, gh);
+    return SrUvRect_from_pixel_rect(x, y, gw, gh, aw, ah, out);
+}
+
+# An empty text batch with room for chars sprites: an SrTextBatch to free with SrTextBatch_drop, or 0. Mirrors
+# `TextBatch::with_capacity`.
+#must_use
+fn SrTextBatch_with_capacity(chars): i64 {
+    var tb = fl_alloc(sizeof(SrTextBatch));
+    if (tb == 0) { return 0; }
+    var b = SrSpriteBatch_with_capacity(chars);
+    if (b == 0) {
+        fl_free(tb);
+        return 0;
+    }
+    store64(tb, b);
+    return tb;
+}
+
+# An empty text batch, or 0. Mirrors `TextBatch::new`.
+#must_use
+fn SrTextBatch_new(): i64 {
+    return SrTextBatch_with_capacity(0);
+}
+
+# An empty text batch, or 0. Mirrors `impl Default for TextBatch`.
+#must_use
+fn SrTextBatch_default(): i64 {
+    return SrTextBatch_new();
+}
+
+# Frees tb and its sprites (0 is ignored).
+fn SrTextBatch_drop(tb) {
+    if (tb == 0) { return 0; }
+    SrSpriteBatch_drop(load64(tb));
+    fl_free(tb);
+    return 0;
+}
+
+# (p + i·w) in native f32.
+#must_use
+fn _sr_f32_madd(p: f32, i: f32, w: f32): i64 {
+    var r: f32 = p + (i * w);
+    return r;
+}
+
+# Lays out the len bytes of UTF-8 text at (x, y), each glyph scale × its atlas size, tinted color, with z-order z: one
+# sprite per character but spaces. 1, or 0 when an allocation fails (the sprites before it stay).
+fn _sr_text_draw(tb, font, text, len, x, y, scale, color, z): i64 {
+    var cw = _sr_f32_mul(_sr_i64_to_f32(load64(font + 8) & 0xFFFFFFFF), scale);
+    var chh = _sr_f32_mul(_sr_i64_to_f32(load64(font + 16) & 0xFFFFFFFF), scale);
+    var tex = load64(font);
+    var s[_SR_SPRITE_SIZE];
+    var uv[16];
+    var cp[8];
+    var at = 0;
+    var i = 0;
+    while (at < len) {
+        at = at + _sr_utf8_next(text, len, at, &cp);
+        var ch = load64(&cp);
+        if (ch != 32) {
+            SrBitmapFont_glyph_uv(font, ch, &uv);
+            SrSprite_new(_sr_f32_madd(x, _sr_i64_to_f32(i), cw), y, cw, chh, &s);
+            SrSprite_with_z_order(SrSprite_with_uv(SrSprite_with_texture(SrSprite_with_color(&s, color), tex), &uv), z);
+            if (SrSpriteBatch_push(load64(tb), &s) == 0) { return 0; }
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
+# Adds the len bytes of UTF-8 text at (x, y) (f32 bits), scaled by scale and tinted color (an SrColor), z-order 0:
+# 1, or 0 when an allocation fails. Mirrors `TextBatch::draw_text`.
+fn SrTextBatch_draw_text(tb, font, text, len, x, y, scale, color): i64 {
+    return _sr_text_draw(tb, font, text, len, x, y, scale, color, 0);
+}
+
+# As SrTextBatch_draw_text, at z-order z (an i32). Mirrors `TextBatch::draw_text_z`.
+fn SrTextBatch_draw_text_z(tb, font, text, len, x, y, scale, color, z): i64 {
+    return _sr_text_draw(tb, font, text, len, x, y, scale, color, z);
+}
+
+# Empties tb, keeping its capacity. Mirrors `TextBatch::clear`.
+fn SrTextBatch_clear(tb) {
+    SrSpriteBatch_clear(load64(tb));
+    return tb;
+}
+
+# 1 when tb holds no glyph. Mirrors `TextBatch::is_empty`.
+#must_use
+fn SrTextBatch_is_empty(tb): i64 {
+    return SrSpriteBatch_is_empty(load64(tb));
+}
+
+# The number of glyph sprites. Mirrors `TextBatch::len`.
+#must_use
+fn SrTextBatch_len(tb): i64 {
+    return SrSpriteBatch_len(load64(tb));
+}

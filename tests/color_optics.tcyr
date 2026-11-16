@@ -1,6 +1,6 @@
 # color_optics.tcyr — the ported `optics` tests of Rust 1.2.0's src/color.rs (M1 part b2), all 4. Needs the
 # `optics` feature's prakash (`cyrius deps --features optics`). The golden rows (tests/golden/color_optics.tsv,
-# 1,704) are replayed by tests/parity_optics.tcyr.
+# 1,704) are replayed by tests/parity_features.tcyr.
 
 include "tests/lib.cyr"
 include "src/color_optics.cyr"

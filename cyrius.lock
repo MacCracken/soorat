@@ -1,3 +1,4 @@
+commit	4b72df7bbbc076646b6bdc0d336d796e854ca1da	impetus	https://github.com/MacCracken/impetus.git	2.0.0
 commit	75ba6aa3cae6012c06c1dd5125e67a1bd01a1123	prakash	https://github.com/MacCracken/prakash.git	2.15.2
 346716377b00f36e58eb16cf7fe1dd62dd8fe577930d0d0429f822795b35817c  lib/alloc.cyr
 5afd5bb7cba4e49fee331f6a2838f4e01d9781defaf531403f6616f42ac7151b  lib/alloc_agnos.cyr
@@ -20,6 +21,7 @@ b99081e633d572569ee63c6a915fe4aa39b3ac4ff5665c08cc4c9416ed2f6928  lib/boxed.cyr
 2c710d223d059d02cf202c211948c14b3fe1f2481258c6bdac3609a12e8f8aee  lib/freelist.cyr
 17a38735e096108e6fca99c0d32ea5501ee4c46593dee4f0f8bb28b4537eae35  lib/ganita.cyr
 7ed650c49b548d1a1895a2c4a3f08bbe0378248131464b1952e8744821a10ecd  lib/hashseed.cyr
+02860e21f99681317b27a70a86df9ec35ea2810edd7666792cf9a5ffc43d2b01  lib/impetus-3d.cyr
 e532c082ce75b0f18dc8e3c07462300b428e432aa19e6a5fcc2b0b6b174be45d  lib/io.cyr
 3a85748ee6bf83fe72bb310f21341c97232649def8c6064213da5502d86888f4  lib/math.cyr
 6390e2b0611636af94078acc9a6122eaaeab59b31c5cffe95bbcbc77d89748e5  lib/mmap.cyr

@@ -541,7 +541,7 @@ Same dev box and toolchain as §1. Re-run: `cyrius test --bounds tests/parity.tc
 | `color` | 3,397 | A, B | all identical to Rust, including every −0 output. Re-run with class B held to exact bits: still all identical |
 | `lights` | 1,066 | A; C (`GpuLight::spot`, bound 0) | 1,038 identical; the **28 spot rows where glibc's `cosf` misrounds** (28 of 2,016 cosines, 1.4 %) give the correctly rounded value, never glibc's |
 | `lod` | 770 | A | all identical, thresholds ± 1 ulp and NaN included |
-| `color_optics` | 1,704 | A | all identical, replayed by tests/parity_optics.tcyr (the `optics` feature). Rust calls prakash 1.2.0 (glibc `powf`, `ln`); the port calls prakash 2.15.2: after narrowing to f32 the two agree on all 511 temperatures and 948 wavelengths |
+| `color_optics` | 1,704 | A | all identical, replayed by tests/parity_features.tcyr (the `optics` feature). Rust calls prakash 1.2.0 (glibc `powf`, `ln`); the port calls prakash 2.15.2: after narrowing to f32 the two agree on all 511 temperatures and 948 wavelengths |
 | `json` | 177 (+ 3 pending) | A | every serde_json document of a colour grid, and 25 hand-written ones (field order, array form, extra, missing and duplicated fields, null, strings, signed zeros, exponents, f32 and f64 overflow, trailing text), decode to Rust's bits or are refused as serde_json refuses them. Three are rows of their own, pending: the integer `-0`, an integer above `i64::MAX`, a duplicated unknown field (bayan's open issues; ADR 0002 #19) |
 | `tables` | 5,215 | A (f16, the decode table); C (sRGB, bound 0) | f16 ⇄ f32 identical on every subnormal half, every exponent's mantissa edges and every rounding midpoint ± 1 ulp. sRGB: 5,105 identical; the **3 rows where glibc's `powf` misrounds** (0.06 %, each by 1 ulp, as P3 found) give the correctly rounded value. The generated 256-entry decode table equals Rust's, and `validate.py` gets the same 256 with `pow` correctly rounded |
 | `layout` | 19 | A | all identical, measured on the compiled structs (`tests/layout_probe.cyr`) |
@@ -639,13 +639,16 @@ These run at setup, not per frame. The first full run of the three read slow aga
 - **`fn f(): Option` returns `Some(v)` or `None()`**; the caller binds both halves (`var t, v = f(…)`), as for a
   Result.
 
-## 3. M2: 2D (part a, 2026-11-15)
+## 3. M2: 2D (parts a and b, 2026-11-15; M2 complete)
 
 ### 3.1 Parity
 
 | Module | Rows | Classes | Result |
 |---|---|---|---|
 | `sprite` | 638 | A, B, C | all identical but one row: the rotated batch where glibc's `sinf`/`cosf` misround gives the correctly rounded corners (`sprite.cr.tsv`). `center`/`bounds` are identical even with class B held to exact bits. Batches of 16,382, 16,383, 16,384 and 16,483 sprites (u16) and 16,384 and 70,000 (u32) match as FNV-1a digests of the vertex and index bytes, so the truncation at 16,383 is Rust's |
+| `text` | 479 | A | glyph rectangles for every code point 0–300 and unusual fonts (zero atlas, zero columns, saturating cells), and the sprites of 48 text batches (ASCII, spaces, empty, multi-byte UTF-8, control characters; scales including NaN) and 30 UI panels: all identical |
+| `debug` | 151 | A, C | lines, boxes, grids (NaN and −0 edges), circles, spheres and capsules from 0 to 100 segments: all identical but one circle, where glibc's `sinf`/`cosf` misround and the port gives the correctly rounded vertices (`debug.cr.tsv`; `validate.py` explains every difference as glibc 1 ulp off on that angle) |
+| `debug_collider` | 60 | C | each impetus shape kind, with f64 dimensions that don't fit f32: all identical (Rust impetus 1.4.0 against Cyrius impetus 2.0.0), replayed by `tests/parity_features.tcyr` |
 | `json` | + 117 | A | `UvRect` and `Sprite`: serde_json's documents, and hand-written ones for serde's u64 / i32 rules (negative, float and out-of-range integers), the array forms and nested arrays; one bayan row pending (a `texture_id` above i64::MAX) |
 
 ### 3.2 Speed (`taskset -c 2 cyrius bench`; two runs agreed)
@@ -666,11 +669,30 @@ These run at setup, not per frame. The first full run of the three read slow aga
   hoisted the work out; the Cyrius figure is two calls of real work.
 - Both sort benches re-sort a sorted batch after their first iteration, and Rust's sort is adaptive. The port's
   sorted-input check gives the same behaviour: one pass, no scratch.
-- The real expansion, `sr_batch_to_vertices_into` (extras), is 8.8 µs for 100 unrotated sprites and 15.5 µs rotated
-  (sin and cos per sprite).
+- **Part b's twins**, after the work below:
+
+  | Bench | Rust | Cyrius | Ratio | Plan §11 |
+  |---|---|---|---|---|
+  | `pipeline/batch_to_vertices_100` | 1.19 µs | 9.40 µs | 7.91× | 4–10× |
+  | `pipeline/batch_to_vertices_1000` | 11.9 µs | 93.1 µs | 7.82× | 4–10× |
+  | `pipeline/batch_to_vertices_rotated_100` | 1.75 µs | 17.9 µs | 10.2× | 4–10× |
+  | `pipeline/batch_to_vertices_into_1000` | 12.0 µs | 92.6 µs | 7.73× | 4–10× |
+  | `debug_draw/wire_box_100` | 3.01 µs | 23.8 µs | 7.92× | 4–10× |
+  | `debug_draw/wire_sphere_100` | 24.2 µs | 153 µs | 6.35× | 4–10× |
+  | `debug_draw/grid_10x10` | 83.2 ns | 933 ns | 11.2× | 4–10× |
+
+- **Debug geometry, first cut against final.** Writing a line's two vertices inline (one call per line, not four):
+  `wire_box_100` 52.5 → 23.6 µs, `grid_10x10` 2.13 → 0.93 µs. Caching a circle's `sin`/`cos` table for its segment
+  count (the values it would compute; module state, as the JSON arena), plus one typed call for a segment's 8 points:
+  `wire_sphere_100` 566 → 153 µs. Every row stays identical.
+- A rotated sprite costs about 83 ns more than an unrotated one: correctly rounded `sin` and `cos`, about 40 ns each.
 
 ### 3.3 What part a taught
 
 - **A pointer stored past a header must be freed at the header.** The sort's keys array is `block + 8` (the first
   word records its capacity), and `SrSpriteBatch_drop` first freed the inner pointer. The unit tests passed (nothing
   allocated after the bad free); the golden replay, which builds and drops hundreds of batches, crashed.
+- **A test's byte length is the test's to get right.** `"é A€"` is 7 bytes; given 6, the decoder correctly read the
+  truncated `€` as U+FFFD, a fourth glyph.
+- **A cache can be a parity-neutral speed-up** when it returns exactly the values it replaces: the circle's trig
+  table changed no golden row.

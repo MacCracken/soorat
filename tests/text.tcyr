@@ -1,0 +1,111 @@
+# text.tcyr — the ported tests of Rust 1.2.0's src/text.rs (M2 part b), all 10, plus Cyrius-only checks of the UTF-8
+# decoding and the font's offsets. The golden rows (tests/golden/text.tsv) are replayed by tests/parity.tcyr.
+
+include "tests/lib.cyr"
+include "tests/support.cyr"
+
+var FONT = 0;
+
+# The f32 bits of the integer k.
+fn f(k): i64 { return f32_from(f64_from(k)); }
+
+# The tests' font: 8 × 16 glyphs, 16 columns, a 128 × 128 atlas, from ' ' (32), 96 glyphs, texture 1.
+fn test_font(): i64 {
+    var p = alloc(sizeof(SrBitmapFont));
+    store64(p, 1);
+    store64(p + 8, 8);
+    store64(p + 16, 16);
+    store64(p + 24, 16);
+    store64(p + 32, 128);
+    store64(p + 40, 128);
+    store64(p + 48, 32);
+    store64(p + 56, 96);
+    return p;
+}
+
+# The x (k = 0) or y (k = 1) of glyph sprite i of tb.
+fn gx(tb, i, k): i64 { return load32(SrSpriteBatch_get(load64(tb), i) + _SR_SP_X + k * 4); }
+
+# Runs the ported text tests.
+fn main() {
+    alloc_init();
+    FONT = test_font();
+    var uv = alloc(16);
+    var zero: f64 = 0.0;
+    var tol: f64 = 0.001;
+
+    test_group("glyph_uv_space");
+    SrBitmapFont_glyph_uv(FONT, 32, uv);
+    assert(t_eq_at(uv, 0, zero) == 1 && t_eq_at(uv, 1, zero) == 1, "index 0 at (0, 0)");
+
+    test_group("glyph_uv_a");
+    SrBitmapFont_glyph_uv(FONT, 65, uv);
+    var eu: f64 = 8.0 / 128.0;
+    var ev: f64 = 32.0 / 128.0;
+    assert(t_near(t_f(uv, 0), eu, tol) == 1 && t_near(t_f(uv, 1), ev, tol) == 1, "'A': column 1, row 2");
+
+    test_group("glyph_uv_out_of_range_falls_back");
+    SrBitmapFont_glyph_uv(FONT, 0x200, uv);
+    assert(t_eq_at(uv, 0, zero) == 1 && t_eq_at(uv, 1, zero) == 1, "the first glyph");
+
+    test_group("text_batch_draw");
+    var tb = SrTextBatch_new();
+    SrTextBatch_draw_text(tb, FONT, "Hello", 5, f(10), f(20), f(1), SR_COLOR_WHITE);
+    assert_eq(SrTextBatch_len(tb), 5, "5 glyphs");
+
+    test_group("text_batch_skips_spaces");
+    SrTextBatch_clear(tb);
+    SrTextBatch_draw_text(tb, FONT, "A B", 3, 0, 0, f(1), SR_COLOR_WHITE);
+    assert_eq(SrTextBatch_len(tb), 2, "'A' and 'B'");
+
+    test_group("text_batch_empty");
+    var e = SrTextBatch_new();
+    assert(SrTextBatch_is_empty(e) == 1 && SrTextBatch_len(e) == 0, "empty");
+    SrTextBatch_drop(e);
+
+    test_group("text_batch_clear");
+    SrTextBatch_draw_text(tb, FONT, "test", 4, 0, 0, f(1), SR_COLOR_WHITE);
+    SrTextBatch_clear(tb);
+    assert(SrTextBatch_is_empty(tb) == 1, "cleared");
+
+    test_group("text_batch_scale");
+    SrTextBatch_draw_text(tb, FONT, "X", 1, 0, 0, f(2), SR_COLOR_WHITE);
+    var sp = SrSpriteBatch_get(load64(tb), 0);
+    assert(load32(sp + _SR_SP_W) == f(16) && load32(sp + _SR_SP_H) == f(32), "16 × 32");
+
+    test_group("text_batch_positioning");
+    SrTextBatch_clear(tb);
+    SrTextBatch_draw_text(tb, FONT, "AB", 2, f(100), f(50), f(1), SR_COLOR_WHITE);
+    assert(gx(tb, 0, 0) == f(100) && gx(tb, 1, 0) == f(108) && gx(tb, 0, 1) == f(50), "x 100, 108; y 50");
+
+    test_group("glyph_uv_zero_atlas");
+    var z = test_font();
+    store64(z + 32, 0);
+    store64(z + 40, 0);
+    SrBitmapFont_glyph_uv(z, 65, uv);
+    assert(t_arr_eq(uv, SR_UV_RECT_FULL, 4) == 1, "the default rectangle");
+
+    # Cyrius-only: UTF-8 decoding (a multi-byte character is one glyph and one advance; an ill-formed byte is one
+    # character), and the struct's offsets.
+    test_group("cyrius: UTF-8 text and the font's layout");
+    SrTextBatch_clear(tb);
+    SrTextBatch_draw_text(tb, FONT, "é A€", 7, 0, 0, f(1), SR_COLOR_WHITE);
+    assert_eq(SrTextBatch_len(tb), 3, "é, A, € (the space skipped)");
+    assert_eq(gx(tb, 2, 0), f(24), "€ is the 4th character: x = 3 × 8");
+    var cp = alloc(8);
+    assert(_sr_utf8_next("\xF0\x9F\x98\x80", 4, 0, cp) == 4 && load64(cp) == 0x1F600, "U+1F600");
+    assert(_sr_utf8_next("\xC0\xAF", 2, 0, cp) == 1 && load64(cp) == 0xFFFD, "an overlong form is U+FFFD");
+    assert(_sr_utf8_next("\xED\xA0\x80", 3, 0, cp) == 1 && load64(cp) == 0xFFFD, "a surrogate is U+FFFD");
+    assert(_sr_utf8_next("\xE2\x82", 2, 0, cp) == 1 && load64(cp) == 0xFFFD, "a truncated sequence is U+FFFD");
+    var t: SrBitmapFont;
+    t.glyph_count = 7;
+    t.first_char = 9;
+    assert(load64(&t + 56) == 7 && load64(&t + 48) == 9 && sizeof(SrBitmapFont) == 64, "offsets");
+    SrTextBatch_drop(tb);
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

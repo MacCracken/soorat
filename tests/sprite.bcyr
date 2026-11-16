@@ -1,5 +1,5 @@
-# sprite.bcyr — twins of Rust 1.2.0's `sprite/*` and `vertex/quad_generation_100` benches (M2 part a), and the
-# `batch/*` extras.
+# sprite.bcyr — twins of Rust 1.2.0's `sprite/*`, `vertex/quad_generation_100` and `pipeline/batch_to_vertices_*`
+# benches (M2).
 #
 # Each twin does what rust-old/benches/benchmarks.rs's body does. The builders write into one reused sprite (Rust's
 # return a value on the stack). The batch benches reuse one batch, cleared each iteration, as Rust's do.
@@ -179,32 +179,73 @@ fn main(): i64 {
     bench_batch_stop(bq, M);
     bench_report(bq);
 
-    # Extras: the real expansion, sr_batch_to_vertices_into, unrotated and rotated.
-    var ib = alloc(100 * 12);
-    var bt = bench_new("batch/to_vertices_100");
+    # The pipeline/* twins: the real expansion. The allocating form takes a frame arena, reset each iteration (Rust
+    # allocates two Vecs per call); `_into` writes into buffers allocated once, as Rust's reuses its Vecs.
+    var arena = arena_allocator_growable(1 << 20);
+    var q = alloc(sizeof(SrQuadData));
+    var b100 = SrSpriteBatch_with_capacity(100);
+    var b1000 = SrSpriteBatch_with_capacity(1000);
+    var brot = SrSpriteBatch_with_capacity(100);
+    k = 0;
+    while (k < 1000) {
+        SrSprite_with_z_order(SrSprite_with_color(SrSprite_new(f(k * 10), 0, 0x42000000, 0x42000000, s),
+            SR_COLOR_WHITE), 1000 - k);
+        SrSpriteBatch_push(b1000, s);
+        if (k < 100) {
+            SrSpriteBatch_push(b100, SrSprite_with_z_order(s, 100 - k));
+            SrSprite_with_z_order(s, 0);
+            SrSprite_with_rotation(s, _sr_f32_mul(f(k), 0x3DCCCCCD));
+            SrSpriteBatch_push(brot, s);
+        }
+        k = k + 1;
+    }
+    SrSpriteBatch_sort_by_z(b100);
+    SrSpriteBatch_sort_by_z(b1000);
+
+    var bt = bench_new("pipeline/batch_to_vertices_100");
     bench_batch_start(bt);
     i = 0;
     while (i < M) {
-        _sink = sr_batch_to_vertices_into(b, verts, ib);
+        reset_via(arena);
+        _sink = sr_batch_to_vertices(b100, arena, q);
         i = i + 1;
     }
     bench_batch_stop(bt, M);
     bench_report(bt);
 
-    k = 0;
-    while (k < 100) {
-        SrSprite_with_rotation(SrSpriteBatch_get(b, k), f32_from(f64_div(f64_from(k + 1), 64.0)));
-        k = k + 1;
+    var bt1 = bench_new("pipeline/batch_to_vertices_1000");
+    bench_batch_start(bt1);
+    i = 0;
+    while (i < M2) {
+        reset_via(arena);
+        _sink = sr_batch_to_vertices(b1000, arena, q);
+        i = i + 1;
     }
-    var br = bench_new("batch/to_vertices_100_rotated");
+    bench_batch_stop(bt1, M2);
+    bench_report(bt1);
+
+    var br = bench_new("pipeline/batch_to_vertices_rotated_100");
     bench_batch_start(br);
     i = 0;
     while (i < M) {
-        _sink = sr_batch_to_vertices_into(b, verts, ib);
+        reset_via(arena);
+        _sink = sr_batch_to_vertices(brot, arena, q);
         i = i + 1;
     }
     bench_batch_stop(br, M);
     bench_report(br);
+
+    var vb = alloc(1000 * 128);
+    var ib = alloc(1000 * 12);
+    var bi = bench_new("pipeline/batch_to_vertices_into_1000");
+    bench_batch_start(bi);
+    i = 0;
+    while (i < M2) {
+        _sink = sr_batch_to_vertices_into(b1000, vb, ib);
+        i = i + 1;
+    }
+    bench_batch_stop(bi, M2);
+    bench_report(bi);
     return 0;
 }
 

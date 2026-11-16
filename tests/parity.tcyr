@@ -24,9 +24,11 @@
 # - M1 part d: `tables` (f16 class A; the sRGB transfer functions class C at 0 ulp against tables.cr.tsv).
 # - M1 part b2: `json` (`Color::from_json`). Its three `Color::from_json_bayan_*` rows, documents serde_json reads and
 #   bayan's tree can't, stay pending until bayan changes (ADR 0002 #19). `color_optics` needs the `optics` feature's
-#   prakash and is replayed by tests/parity_optics.tcyr.
+#   prakash and is replayed by tests/parity_features.tcyr.
 # - M2 part a: `sprite` (UvRect, Sprite, sort_by_z, batch_to_vertices; the quads class C at 0 ulp against
 #   sprite.cr.tsv; the limit batches as FNV-1a digests).
+# - M2 part b: `text` (glyph rectangles, text and UI batches) and `debug` (the line batch; circles class C at 0 ulp
+#   against debug.cr.tsv). `debug_collider` is tests/parity_features.tcyr's.
 
 # The library first: a file that declares an `enum` (src/error.cyr) must be included before any top-level statement.
 include "tests/lib.cyr"
@@ -405,6 +407,105 @@ fn _par_sprite(fp, fl): i64 {
     return 0;
 }
 
+# ── text (src/text.cyr, src/ui.cyr) ──────────────────────────────────────────────────
+
+var _par_font = alloc(64);
+var _par_panel = alloc(48);
+
+# Appends a sprite batch's sprites: their count, then each as v:13 f32 and its texture id and z-order.
+fn _par_got_sprites(b) {
+    var n = SrSpriteBatch_len(b);
+    _par_got_i(n);
+    var i = 0;
+    while (i < n) {
+        var sp = SrSpriteBatch_get(b, i);
+        _par_got_seq(13);
+        var k = 0;
+        while (k < 13) {
+            _par_got_g(load32(sp + _SR_SP_X + k * 4));
+            k = k + 1;
+        }
+        _par_got_i(load64(sp + _SR_SP_TEX));
+        _par_got_i(load64(sp + _SR_SP_Z));
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn _par_text(fp, fl): i64 {
+    var k = 0;
+    while (k < 8) {
+        store64(_par_font + k * 8, _par_in(1 + k));
+        k = k + 1;
+    }
+    if (_par_eq(fp, fl, "BitmapFont::glyph_uv") == 1) {
+        _par_got_g32s(SrBitmapFont_glyph_uv(_par_font, _par_in(9), _par_gr), 4);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "TextBatch::draw_text_z") == 1) {
+        var text = _par_in_cstr(9);
+        if (text == 0) { return 0 - 1; }
+        _par_in_g32s(13, _par_ga);
+        var tb = SrTextBatch_new();
+        if (tb == 0) { return 0 - 1; }
+        SrTextBatch_draw_text_z(tb, _par_font, text, strlen(text), _par_in(10), _par_in(11), _par_in(12), _par_ga,
+          _par_in(18));
+        _par_got_sprites(load64(tb));
+        SrTextBatch_drop(tb);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "UiBatch::add_panel") == 1) {
+        _par_in_g32s(0, _par_ga);
+        _par_in_g32s(5, _par_gb);
+        SrUiPanel_new(load32(_par_ga), load32(_par_ga + 4), load32(_par_ga + 8), load32(_par_ga + 12), _par_panel);
+        SrUiPanel_with_z_order(SrUiPanel_with_texture(SrUiPanel_with_color(_par_panel, _par_gb), _par_in(10)),
+          _par_in(11));
+        var u = SrUiBatch_new();
+        if (u == 0) { return 0 - 1; }
+        SrUiBatch_add_panel(u, _par_panel);
+        _par_got_sprites(load64(u));
+        SrUiBatch_drop(u);
+        return 1;
+    }
+    return 0;
+}
+
+# ── debug (src/debug_geom.cyr) ───────────────────────────────────────────────────────
+
+fn _par_debug(fp, fl): i64 {
+    var b = SrLineBatch_new();
+    if (b == 0) { return 0 - 1; }
+    var done = 1;
+    if (_par_eq(fp, fl, "LineBatch::line") == 1 || _par_eq(fp, fl, "LineBatch::wire_box") == 1) {
+        _par_in_g32s(_par_in_g32s(_par_in_g32s(0, _par_ga), _par_gb), _par_gc);
+        if (_par_eq(fp, fl, "LineBatch::line") == 1) {
+            SrLineBatch_line(b, _par_ga, _par_gb, _par_gc);
+        } else {
+            SrLineBatch_wire_box(b, _par_ga, _par_gb, _par_gc);
+        }
+    } elif (_par_eq(fp, fl, "LineBatch::wire_circle") == 1 || _par_eq(fp, fl, "LineBatch::wire_sphere") == 1) {
+        var kc = _par_in_g32s(0, _par_ga);
+        _par_in_g32s(kc + 2, _par_gc);
+        if (_par_eq(fp, fl, "LineBatch::wire_circle") == 1) {
+            SrLineBatch_wire_circle(b, _par_ga, _par_in(kc), _par_in(kc + 1), _par_gc);
+        } else {
+            SrLineBatch_wire_sphere(b, _par_ga, _par_in(kc), _par_in(kc + 1), _par_gc);
+        }
+    } elif (_par_eq(fp, fl, "LineBatch::wire_capsule") == 1) {
+        var kp = _par_in_g32s(0, _par_ga);
+        _par_in_g32s(kp + 3, _par_gc);
+        SrLineBatch_wire_capsule(b, _par_ga, _par_in(kp), _par_in(kp + 1), _par_in(kp + 2), _par_gc);
+    } elif (_par_eq(fp, fl, "LineBatch::grid") == 1) {
+        _par_in_g32s(2, _par_gc);
+        SrLineBatch_grid(b, _par_in(0), _par_in(1), _par_gc);
+    } else {
+        done = 0;
+    }
+    if (done == 1) { _par_got_g32s(load64(b), SrLineBatch_vertex_count(b) * 7); }
+    SrLineBatch_drop(b);
+    return done;
+}
+
 # ── json (src/json.cyr) ──────────────────────────────────────────────────────────────
 
 fn _par_json(fp, fl): i64 {
@@ -575,6 +676,8 @@ fn _par_dispatch(mp, ml, fp, fl): i64 {
     if (_par_eq(mp, ml, "tables") == 1) { return _par_tables(fp, fl); }
     if (_par_eq(mp, ml, "json") == 1) { return _par_json(fp, fl); }
     if (_par_eq(mp, ml, "sprite") == 1) { return _par_sprite(fp, fl); }
+    if (_par_eq(mp, ml, "text") == 1) { return _par_text(fp, fl); }
+    if (_par_eq(mp, ml, "debug") == 1) { return _par_debug(fp, fl); }
     return 0;
 }
 
@@ -586,6 +689,8 @@ fn _par_c_bound(fp, fl): i64 {
     if (_par_eq(fp, fl, "GpuLight::spot") == 1) { return 0; }
     if (_par_eq(fp, fl, "srgb_to_linear") == 1 || _par_eq(fp, fl, "linear_to_srgb") == 1) { return 0; }
     if (_par_eq(fp, fl, "batch_to_vertices") == 1 || _par_eq(fp, fl, "batch_to_vertices_u32") == 1) { return 0; }
+    if (_par_eq(fp, fl, "LineBatch::wire_circle") == 1 || _par_eq(fp, fl, "LineBatch::wire_sphere") == 1) { return 0; }
+    if (_par_eq(fp, fl, "LineBatch::wire_capsule") == 1) { return 0; }
     return 0 - 1;
 }
 
@@ -610,11 +715,11 @@ fn _par_module_done(mp, ml) {
     return 0;
 }
 
-# Every module is replayed here except `color_optics`, which needs the `optics` feature's prakash:
-# tests/parity_optics.tcyr replays it.
+# Every module is replayed here except the optional features' (`color_optics`: prakash; `debug_collider`: impetus),
+# which tests/parity_features.tcyr replays.
 #must_use
 fn _par_skip(mp, ml): i64 {
-    if (_par_eq(mp, ml, "color_optics") == 1) { return 1; }
+    if (_par_eq(mp, ml, "color_optics") == 1 || _par_eq(mp, ml, "debug_collider") == 1) { return 1; }
     return 0;
 }
 

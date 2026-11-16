@@ -32,6 +32,7 @@ stdlib = ["string", "fmt", "alloc", "vec", "str", "syscalls", "io", "args", "mat
 [features]
 default = []
 optics = ["prakash"]
+physics-debug = ["impetus"]
 
 # prakash 2.15.2 (`optics`): Color's spectral conversions (src/color_optics.cyr). Its bundle is 1.19 MB, which is
 # why it is optional.
@@ -39,6 +40,14 @@ optics = ["prakash"]
 git = "https://github.com/MacCracken/prakash.git"
 tag = "2.15.2"
 modules = ["dist/prakash.cyr"]
+optional = true
+
+# impetus 2.0.0 (`physics-debug`): LineBatch::collider draws its collider shapes (src/debug_collider.cyr). The 3D
+# bundle, as soorat's colliders are 3D; 647 KB, which is why it is optional.
+[deps.impetus]
+git = "https://github.com/MacCracken/impetus.git"
+tag = "2.0.0"
+modules = ["dist/impetus-3d.cyr"]
 optional = true
 
 [test]
@@ -67,6 +76,9 @@ modules = [
     "src/lod.cyr",
     "src/sprite.cyr",
     "src/batch.cyr",
+    "src/text.cyr",
+    "src/ui.cyr",
+    "src/debug_geom.cyr",
 ]
 
 # The `optics` feature's bundle, dist/soorat-optics.cyr: the library plus Color's prakash conversions.
@@ -84,6 +96,9 @@ modules = [
     "src/lod.cyr",
     "src/sprite.cyr",
     "src/batch.cyr",
+    "src/text.cyr",
+    "src/ui.cyr",
+    "src/debug_geom.cyr",
     "src/color_optics.cyr",
 ]
 
@@ -104,5 +119,29 @@ modules = [
     "src/lod.cyr",
     "src/sprite.cyr",
     "src/batch.cyr",
+    "src/text.cyr",
+    "src/ui.cyr",
+    "src/debug_geom.cyr",
     "src/json.cyr",
+]
+
+# The `physics-debug` feature's bundle, dist/soorat-physics-debug.cyr: the library plus LineBatch::collider (impetus).
+[lib.physics-debug]
+modules = [
+    "src/error.cyr",
+    "src/log.cyr",
+    "src/mathx.cyr",
+    "src/tables_data.cyr",
+    "src/tables.cyr",
+    "src/math.cyr",
+    "src/layout.cyr",
+    "src/color.cyr",
+    "src/lights.cyr",
+    "src/lod.cyr",
+    "src/sprite.cyr",
+    "src/batch.cyr",
+    "src/text.cyr",
+    "src/ui.cyr",
+    "src/debug_geom.cyr",
+    "src/debug_collider.cyr",
 ]

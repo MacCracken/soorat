@@ -22,6 +22,7 @@ use std::path::PathBuf;
 mod m_color;
 mod m_color_optics;
 mod m_constants;
+mod m_debug;
 mod m_json;
 mod m_layout;
 mod m_lights;
@@ -29,6 +30,7 @@ mod m_lod;
 mod m_math;
 mod m_sprite;
 mod m_tables;
+mod m_text;
 
 /// One module's rows, written as `tests/golden/<name>.tsv`.
 pub struct Module {
@@ -213,6 +215,9 @@ fn main() {
         m_lod::module(),
         m_tables::module(),
         m_sprite::module(),
+        m_text::module(),
+        m_debug::module(),
+        m_debug::collider_module(),
         m_json::module(),
     ];
 

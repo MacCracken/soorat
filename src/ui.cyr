@@ -1,0 +1,139 @@
+# ui.cyr — Rust 1.2.0's src/ui.rs (M2 part b): screen-space panels and labels, batched as sprites.
+#
+# `SrUiPanel` (48 bytes: texture_id, z_order, then x, y, width, height as f32 at 16–28, color at 32) and `SrUiLabel`
+# (52 bytes: text, text_len, z_order, then x, y, scale at 24–32, color at 36) are values the caller owns; builders set
+# a field and return the value. A label **borrows** its text: Rust's `UiLabel` owns a `String`, here the label holds the
+# caller's pointer and byte length, which must stay valid while the label is used (ADR 0002 #21). `SrUiBatch` holds a
+# sprite batch of panels and a text batch, freed by SrUiBatch_drop.
+
+struct SrUiPanel { texture_id; z_order; x: f32; y: f32; width: f32; height: f32; color: SrColor; }
+struct SrUiLabel { text; text_len; z_order; x: f32; y: f32; scale: f32; color: SrColor; }
+struct SrUiBatch { panels; text; }
+
+# ── UiPanel ──────────────────────────────────────────────────────────────────────────
+
+# A white, untextured panel at (x, y), width × height (f32 bits), z-order 0, into out. Mirrors `UiPanel::new`.
+fn SrUiPanel_new(x, y, width, height, out) {
+    store64(out, 0);
+    store64(out + 8, 0);
+    store32(out + 16, x);
+    store32(out + 20, y);
+    store32(out + 24, width);
+    store32(out + 28, height);
+    _sr_copy16(out + 32, SR_COLOR_WHITE);
+    return out;
+}
+
+# Sets p's colour; returns p. Mirrors `UiPanel::with_color`.
+fn SrUiPanel_with_color(p, color) {
+    _sr_copy16(p + 32, color);
+    return p;
+}
+
+# Sets p's texture id; returns p. Mirrors `UiPanel::with_texture`.
+fn SrUiPanel_with_texture(p, id) {
+    store64(p, id);
+    return p;
+}
+
+# Sets p's z-order (an i32); returns p. Mirrors `UiPanel::with_z_order`.
+fn SrUiPanel_with_z_order(p, z) {
+    store64(p + 8, ((z & 0xFFFFFFFF) ^ 0x80000000) - 0x80000000);
+    return p;
+}
+
+# ── UiLabel ──────────────────────────────────────────────────────────────────────────
+
+# A label of the len bytes of UTF-8 text (borrowed) at (x, y), scale 1, white, z-order 0, into out. Mirrors
+# `UiLabel::new`.
+fn SrUiLabel_new(text, len, x, y, out) {
+    store64(out, text);
+    store64(out + 8, len);
+    store64(out + 16, 0);
+    store32(out + 24, x);
+    store32(out + 28, y);
+    store32(out + 32, 0x3F800000);
+    _sr_copy16(out + 36, SR_COLOR_WHITE);
+    return out;
+}
+
+# Sets l's scale (f32 bits); returns l. Mirrors `UiLabel::with_scale`.
+fn SrUiLabel_with_scale(l, scale) {
+    store32(l + 32, scale);
+    return l;
+}
+
+# Sets l's colour; returns l. Mirrors `UiLabel::with_color`.
+fn SrUiLabel_with_color(l, color) {
+    _sr_copy16(l + 36, color);
+    return l;
+}
+
+# Sets l's z-order (an i32); returns l. Mirrors `UiLabel::with_z_order`.
+fn SrUiLabel_with_z_order(l, z) {
+    store64(l + 16, ((z & 0xFFFFFFFF) ^ 0x80000000) - 0x80000000);
+    return l;
+}
+
+# ── UiBatch ──────────────────────────────────────────────────────────────────────────
+
+# An empty UI batch: an SrUiBatch to free with SrUiBatch_drop, or 0. Mirrors `UiBatch::new`.
+#must_use
+fn SrUiBatch_new(): i64 {
+    var u = fl_alloc(sizeof(SrUiBatch));
+    if (u == 0) { return 0; }
+    var p = SrSpriteBatch_new();
+    var t = SrTextBatch_new();
+    if (p == 0 || t == 0) {
+        SrSpriteBatch_drop(p);
+        SrTextBatch_drop(t);
+        fl_free(u);
+        return 0;
+    }
+    store64(u, p);
+    store64(u + 8, t);
+    return u;
+}
+
+# An empty UI batch, or 0. Mirrors `impl Default for UiBatch`.
+#must_use
+fn SrUiBatch_default(): i64 {
+    return SrUiBatch_new();
+}
+
+# Frees u and its batches (0 is ignored).
+fn SrUiBatch_drop(u) {
+    if (u == 0) { return 0; }
+    SrSpriteBatch_drop(load64(u));
+    SrTextBatch_drop(load64(u + 8));
+    fl_free(u);
+    return 0;
+}
+
+# Adds the panel at p as a sprite: 1, or 0 when an allocation fails. Mirrors `UiBatch::add_panel`.
+fn SrUiBatch_add_panel(u, p): i64 {
+    var s[_SR_SPRITE_SIZE];
+    SrSprite_new(load32(p + 16), load32(p + 20), load32(p + 24), load32(p + 28), &s);
+    SrSprite_with_z_order(SrSprite_with_texture(SrSprite_with_color(&s, p + 32), load64(p)), load64(p + 8));
+    return SrSpriteBatch_push(load64(u), &s);
+}
+
+# Adds the label at l in font's glyphs: 1, or 0 when an allocation fails. Mirrors `UiBatch::add_label`.
+fn SrUiBatch_add_label(u, font, l): i64 {
+    return SrTextBatch_draw_text_z(load64(u + 8), font, load64(l), load64(l + 8), load32(l + 24), load32(l + 28),
+      load32(l + 32), l + 36, load64(l + 16));
+}
+
+# Empties both batches. Mirrors `UiBatch::clear`.
+fn SrUiBatch_clear(u) {
+    SrSpriteBatch_clear(load64(u));
+    SrTextBatch_clear(load64(u + 8));
+    return u;
+}
+
+# 1 when u holds no panel and no glyph. Mirrors `UiBatch::is_empty`.
+#must_use
+fn SrUiBatch_is_empty(u): i64 {
+    if (SrSpriteBatch_is_empty(load64(u)) == 1 && SrTextBatch_is_empty(load64(u + 8)) == 1) { return 1; }
+    return 0;
+}

@@ -1,0 +1,73 @@
+# ui.tcyr — the ported tests of Rust 1.2.0's src/ui.rs (M2 part b), all 6, plus a Cyrius-only check that a label's
+# glyphs and a panel's sprite carry its fields. The golden rows (tests/golden/text.tsv's UiBatch rows) are replayed by
+# tests/parity.tcyr.
+
+include "tests/lib.cyr"
+include "tests/support.cyr"
+
+# The f32 bits of the integer k.
+fn f(k): i64 { return f32_from(f64_from(k)); }
+
+# Runs the ported ui tests.
+fn main() {
+    alloc_init();
+    var p = alloc(sizeof(SrUiPanel));
+    var l = alloc(sizeof(SrUiLabel));
+
+    test_group("ui_panel_builder");
+    SrUiPanel_with_z_order(SrUiPanel_with_color(SrUiPanel_new(f(10), f(20), f(200), f(50), p), SR_COLOR_BLACK), 100);
+    assert_eq(load32(p + 16), f(10), "x 10");
+    assert(t_arr_eq(p + 32, SR_COLOR_BLACK, 4) == 1, "black");
+    assert_eq(load64(p + 8), 100, "z 100");
+
+    test_group("ui_label_builder");
+    var text = "Score: 42";
+    SrUiLabel_with_color(SrUiLabel_with_scale(SrUiLabel_new(text, 9, f(10), f(10), l), f(2)), SR_COLOR_GREEN);
+    assert(load64(l) == text && load64(l + 8) == 9 && memeq(load64(l), "Score: 42", 9) == 1, "text");
+    assert_eq(load32(l + 32), f(2), "scale 2");
+
+    test_group("ui_batch_empty");
+    var u = SrUiBatch_new();
+    assert(SrUiBatch_is_empty(u) == 1, "empty");
+
+    test_group("ui_batch_add_panel");
+    SrUiBatch_add_panel(u, SrUiPanel_new(0, 0, f(100), f(50), p));
+    assert(SrUiBatch_is_empty(u) == 0 && SrSpriteBatch_len(load64(u)) == 1, "one panel");
+
+    test_group("ui_batch_add_label");
+    var font = alloc(sizeof(SrBitmapFont));
+    store64(font, 1);
+    store64(font + 8, 8);
+    store64(font + 16, 16);
+    store64(font + 24, 16);
+    store64(font + 32, 128);
+    store64(font + 40, 128);
+    store64(font + 48, 32);
+    store64(font + 56, 96);
+    var u2 = SrUiBatch_new();
+    SrUiBatch_add_label(u2, font, SrUiLabel_new("Hi", 2, 0, 0, l));
+    assert_eq(SrTextBatch_len(load64(u2 + 8)), 2, "two glyphs");
+
+    test_group("ui_batch_clear");
+    SrUiBatch_clear(u);
+    assert(SrUiBatch_is_empty(u) == 1, "cleared");
+
+    test_group("cyrius: panels and labels carry their fields");
+    SrUiPanel_with_texture(SrUiPanel_with_z_order(SrUiPanel_new(f(1), f(2), f(3), f(4), p), 0 - 5), 77);
+    SrUiBatch_add_panel(u, p);
+    var sp = SrSpriteBatch_get(load64(u), 0);
+    assert(load64(sp + _SR_SP_TEX) == 77 && load64(sp + _SR_SP_Z) == 0 - 5 && load32(sp + _SR_SP_H) == f(4), "panel");
+    SrUiLabel_with_z_order(SrUiLabel_new("Q", 1, f(5), f(6), l), 9);
+    SrUiBatch_add_label(u, font, l);
+    var g = SrSpriteBatch_get(load64(load64(u + 8)), 0);
+    assert(load64(g + _SR_SP_Z) == 9 && load32(g + _SR_SP_X) == f(5) && load64(g + _SR_SP_TEX) == 1, "label glyph");
+    assert(sizeof(SrUiPanel) == 48 && sizeof(SrUiLabel) == 52, "48 and 52 bytes");
+    SrUiBatch_drop(u);
+    SrUiBatch_drop(u2);
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

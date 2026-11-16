@@ -59,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`optics`** (`src/color_optics.cyr`) — `SrColor_from_prakash`, `to_prakash`, `from_temperature` and
     `from_wavelength` over an optional prakash 2.15.2 (`[features] optics`), bundled by the new `[lib.optics]`
     profile as `dist/soorat-optics.cyr` (ADR 0002 #18). All 1,704 golden rows match Rust's, replayed by their own
-    harness (`tests/parity_optics.tcyr`) so the core replay compiles without prakash. `to_prakash` writes into the
+    harness (`tests/parity_features.tcyr`) so the core replay compiles without prakash. `to_prakash` writes into the
     caller's `Rgb` and allocates nothing; `from_temperature` and `from_wavelength` leave prakash's 24-byte `Rgb` on
     the bump heap per call (filed at prakash, ledger L21).
   - **serde** (`src/json.cyr`) — `SrColor_to_json` and `SrColor_from_json` on bayan, bundled by the new
@@ -76,7 +76,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     where glibc's `sinf`/`cosf` misround, the port gives the correctly rounded corners.
   - `UvRect` and `Sprite` JSON in the serde profile: 117 more `json` rows pass.
   - 38 Rust tests ported (all of `sprite.rs`, `pipeline.rs`'s 16 batch tests, 7 integration tests).
-  - 9 bench twins and 2 `batch/*` extras.
+  - 13 bench twins (`sprite/*`, `pipeline/batch_to_vertices_*`, `vertex/quad_generation_100`).
+- **M2 part b: text, UI and debug geometry.** M2 is complete.
+  - `src/text.cyr` (`BitmapFont`, `TextBatch`, UTF-8 text: ADR 0002 #21), `src/ui.cyr` (`UiPanel`, `UiLabel`
+    borrowing its text, `UiBatch`) and `src/debug_geom.cyr` (`LineBatch` and its wire shapes).
+  - **`physics-debug`** (`src/debug_collider.cyr`): `LineBatch::collider` over an optional impetus 2.0.0, bundled by
+    the new `[lib.physics-debug]` profile (ADR 0002 #22). `tests/parity_optics.tcyr` became
+    `tests/parity_features.tcyr`, replaying every optional feature's rows.
+  - 690 golden rows pass (`text` 479, `debug` 151, `debug_collider` 60), one through its correctly rounded row.
+  - 31 Rust tests ported; `debug_draw/*` twins.
+
+### Performance (M2)
+- debug geometry: each line's two vertices written inline, and a circle's `sin`/`cos` table cached for its segment
+  count (the same values). `debug_draw/wire_box_100` 52.5 → 23.6 µs (−55 %), `wire_sphere_100` 566 → 153 µs (−73 %),
+  `grid_10x10` 2.13 → 0.93 µs (−56 %). Every golden row is unchanged.
+- sprite quads: the centre and half extents in one call. `pipeline/batch_to_vertices_1000` 94 → 88 µs (−7 %).
 
 ### Performance
 - color: one typed f32 helper per formula instead of a ganita call per operation. `color/lerp` 75 → 37 ns (−51 %),

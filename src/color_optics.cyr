@@ -19,7 +19,7 @@
 #   `Color::from_temperature` and `Color::from_wavelength` rows of tests/golden/color_optics.tsv (class A).
 #
 # **Precision.** Each channel is clamped to [0, 1] in f64 (Rust's `f64::clamp`: −0 and NaN kept) and narrowed once to
-# f32, as Rust's `as f32` does: class A against the oracle (tests/parity_optics.tcyr).
+# f32, as Rust's `as f32` does: class A against the oracle (tests/parity_features.tcyr).
 
 include "lib/prakash.cyr"
 

@@ -1,0 +1,144 @@
+# parity_features.tcyr — replays the optional features' golden modules: `color_optics` (src/color_optics.cyr, the
+# `optics` feature, prakash; M1 part b2) and `debug_collider` (src/debug_collider.cyr, `physics-debug`, impetus;
+# M2 part b).
+#
+# Their code includes optional dependencies (cyrius.cyml `[features]`), so they have this harness of their own:
+# tests/parity.tcyr replays every other module without them in the compile, as a consumer without the features
+# builds. CI resolves `cyrius deps --features optics,physics-debug` so both compile. Format and rules:
+# scripts/oracle/README.md; the machinery: tests/parity_core.cyr.
+
+include "tests/lib.cyr"
+include "src/color_optics.cyr"
+include "src/debug_collider.cyr"
+include "tests/ulp.cyr"
+
+alloc_init();
+
+include "tests/parity_core.cyr"
+
+# A prakash Rgb (24 bytes) and an impetus collider shape for one row's input.
+var _par_rgb = alloc(24);
+var _par_shape = alloc(sizeof(ImColliderShape));
+
+# ── hooks ────────────────────────────────────────────────────────────────────────────
+
+# The Rust variant name of an `SR_ERR_*` code.
+#must_use
+fn _par_error_name(code): i64 {
+    return sr_error_name(code);
+}
+
+# p as a typed collider-shape pointer (pravash's cast idiom).
+#must_use
+fn _par_as_shape(p): *ImColliderShape {
+    return p;
+}
+
+# Fills the got list for one `debug_collider` row.
+fn _par_collider(fp, fl): i64 {
+    if (_par_eq(fp, fl, "LineBatch::collider") != 1) { return 0; }
+    var kind = _par_in(0);
+    var nd = 0;
+    if (kind == IM_SHAPE_BOX) { nd = 3; }
+    if (kind == IM_SHAPE_BALL) { nd = 1; }
+    if (kind == IM_SHAPE_CAPSULE) { nd = 2; }
+    if (kind == IM_SHAPE_SEGMENT) { nd = 6; }
+    memset(_par_shape, 0, sizeof(ImColliderShape));
+    var sh: *ImColliderShape = _par_as_shape(_par_shape);
+    sh.kind = kind;
+    if (kind == IM_SHAPE_BOX) {
+        sh.half_extents.x = _par_in(1);
+        sh.half_extents.y = _par_in(2);
+        sh.half_extents.z = _par_in(3);
+    }
+    if (kind == IM_SHAPE_BALL) { sh.radius = _par_in(1); }
+    if (kind == IM_SHAPE_CAPSULE) {
+        sh.half_height = _par_in(1);
+        sh.radius = _par_in(2);
+    }
+    if (kind == IM_SHAPE_SEGMENT) {
+        sh.a.x = _par_in(1);
+        sh.a.y = _par_in(2);
+        sh.a.z = _par_in(3);
+        sh.b.x = _par_in(4);
+        sh.b.y = _par_in(5);
+        sh.b.z = _par_in(6);
+    }
+    _par_in_g32s(_par_in_g32s(1 + nd, _par_ga), _par_gb);
+    var b = SrLineBatch_new();
+    if (b == 0) { return 0 - 1; }
+    SrLineBatch_collider(b, _par_shape, _par_ga, _par_gb);
+    _par_got_g32s(load64(b), SrLineBatch_vertex_count(b) * 7);
+    SrLineBatch_drop(b);
+    return 1;
+}
+
+# Fills the got list for one row: 1 handled, 0 pending.
+fn _par_dispatch(mp, ml, fp, fl): i64 {
+    _par_got_n = 0;
+    if (_par_eq(mp, ml, "debug_collider") == 1) { return _par_collider(fp, fl); }
+    if (_par_eq(fp, fl, "Color::from_prakash") == 1) {
+        Rgb_set_r(_par_rgb, _par_in(0));
+        Rgb_set_g(_par_rgb, _par_in(1));
+        Rgb_set_b(_par_rgb, _par_in(2));
+        _par_got_g32s(SrColor_from_prakash(_par_rgb, _par_in(3), _par_gr), 4);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "Color::to_prakash") == 1) {
+        _par_in_g32s(0, _par_ga);
+        SrColor_to_prakash(_par_ga, _par_rgb);
+        _par_got_f(Rgb_r(_par_rgb));
+        _par_got_f(Rgb_g(_par_rgb));
+        _par_got_f(Rgb_b(_par_rgb));
+        return 1;
+    }
+    if (_par_eq(fp, fl, "Color::from_temperature") == 1) {
+        _par_got_g32s(SrColor_from_temperature(_par_in(0), _par_gr), 4);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "Color::from_wavelength") == 1) {
+        var t, v = SrColor_from_wavelength(_par_in(0), _par_gr);
+        if (is_some(t) == 1) {
+            _par_got_g32s(v, 4);
+        } else {
+            _par_got_none();
+        }
+        return 1;
+    }
+    return 0;
+}
+
+# The collider outlines' circles are correctly rounded (ADR 0002 #16): 0 ulp against debug_collider.cr.tsv.
+#must_use
+fn _par_c_bound(fp, fl): i64 {
+    if (_par_eq(fp, fl, "LineBatch::collider") == 1) { return 0; }
+    return 0 - 1;
+}
+
+#must_use
+fn _par_accepted(fp, fl, ip, il): i64 {
+    return 0;
+}
+
+#must_use
+fn _par_accepted_quiet(adr): i64 {
+    return 0;
+}
+
+fn _par_shadows(mp, ml, fp, fl, cls) {
+    return 0;
+}
+
+fn _par_module_done(mp, ml) {
+    return 0;
+}
+
+# Only the optional features' modules: tests/parity.tcyr replays the rest.
+#must_use
+fn _par_skip(mp, ml): i64 {
+    if (_par_eq(mp, ml, "color_optics") == 1 || _par_eq(mp, ml, "debug_collider") == 1) { return 0; }
+    return 1;
+}
+
+var exit_code = _par_main();
+sys_exit_group(exit_code);

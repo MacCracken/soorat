@@ -38,9 +38,9 @@ jobs:
           echo "$HOME/.cyrius/bin" >> "$GITHUB_PATH"
 
       - name: Resolve dependencies (every feature: the repository tests them all)
-        # The `optics` tests (tests/color_optics.tcyr, tests/parity_optics.tcyr) include prakash, an optional
-        # dependency, so the default resolve would leave them uncompilable (ranga's CI does the same).
-        run: cyrius deps --locked --features optics
+        # The optional features' tests (tests/color_optics.tcyr, tests/parity_features.tcyr) include prakash and
+        # impetus, optional dependencies, so the default resolve would leave them uncompilable (ranga's CI does the same).
+        run: cyrius deps --locked --features optics,physics-debug
 
       - name: Build
         run: cyrius build
@@ -52,7 +52,7 @@ jobs:
       - name: Test (bounds-checked)
         run: cyrius test --bounds
 
-      - name: Bundles current (dist/soorat.cyr from [lib], dist/soorat-optics.cyr from [lib.optics])
+      - name: Bundles current (dist/soorat.cyr from [lib], and each [lib.<feature>] profile's)
         run: cyrius distlib --check
 
       - name: Golden corpus re-derivation (no Rust needed)

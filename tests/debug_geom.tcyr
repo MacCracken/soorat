@@ -1,0 +1,113 @@
+# debug_geom.tcyr — the ported tests of Rust 1.2.0's src/debug_draw.rs geometry half (M2 part b): 15 of its 16;
+# `line_vertex_layout` (the wgpu vertex-buffer descriptor) is M6's. The golden rows (tests/golden/debug.tsv) are
+# replayed by tests/parity.tcyr.
+
+include "tests/lib.cyr"
+include "tests/support.cyr"
+
+var P0 = 0;
+var P1 = 0;
+
+# The f32 bits of the integer k.
+fn f(k): i64 { return f32_from(f64_from(k)); }
+
+# Runs the ported debug-geometry tests.
+fn main() {
+    alloc_init();
+    P0 = t_set3(alloc(12), 0, 0, 0);
+    P1 = t_set3(alloc(12), f(1), 0, 0);
+    var half = 0x3F000000;
+
+    test_group("line_vertex_size");
+    assert_eq(sizeof(SrLineVertex), 28, "3 + 4 floats = 28 bytes");
+
+    test_group("line_batch_empty");
+    var b = SrLineBatch_new();
+    assert(SrLineBatch_is_empty(b) == 1 && SrLineBatch_line_count(b) == 0, "empty");
+
+    test_group("line_batch_single_line");
+    SrLineBatch_line(b, P0, P1, SR_COLOR_RED);
+    assert(SrLineBatch_line_count(b) == 1 && SrLineBatch_vertex_count(b) == 2, "1 line, 2 vertices");
+    var v = load64(b);
+    assert(load32(v) == 0 && load32(v + 4) == 0 && load32(v + 8) == 0, "(0, 0, 0)");
+    assert(load32(v + 28) == f(1) && load32(v + 32) == 0 && load32(v + 36) == 0, "(1, 0, 0)");
+
+    test_group("wire_box_generates_12_edges");
+    SrLineBatch_clear(b);
+    SrLineBatch_wire_box(b, P0, t_set3(alloc(12), f(1), f(1), f(1)), SR_COLOR_GREEN);
+    assert(SrLineBatch_line_count(b) == 12 && SrLineBatch_vertex_count(b) == 24, "12 edges, 24 vertices");
+
+    test_group("wire_circle_generates_correct_segments");
+    SrLineBatch_clear(b);
+    SrLineBatch_wire_circle(b, P0, f(1), 16, SR_COLOR_BLUE);
+    assert_eq(SrLineBatch_line_count(b), 16, "16 segments");
+
+    test_group("wire_sphere_generates_3_circles");
+    SrLineBatch_clear(b);
+    SrLineBatch_wire_sphere(b, P0, f(1), 16, SR_COLOR_WHITE);
+    assert_eq(SrLineBatch_line_count(b), 48, "3 × 16");
+
+    test_group("grid_generates_lines");
+    SrLineBatch_clear(b);
+    SrLineBatch_grid(b, f(5), f(1), SR_COLOR_WHITE);
+    assert_eq(SrLineBatch_line_count(b), 22, "11 per axis");
+
+    test_group("line_batch_clear");
+    SrLineBatch_line(b, P0, P1, SR_COLOR_RED);
+    SrLineBatch_clear(b);
+    assert(SrLineBatch_is_empty(b) == 1, "cleared");
+
+    test_group("line_batch_with_capacity");
+    var c = SrLineBatch_with_capacity(100);
+    assert(SrLineBatch_is_empty(c) == 1 && load64(c + 16) >= 200, "room for 200 vertices");
+    SrLineBatch_drop(c);
+
+    test_group("wire_circle_zero_segments");
+    SrLineBatch_wire_circle(b, P0, f(1), 0, SR_COLOR_RED);
+    assert(SrLineBatch_is_empty(b) == 1, "nothing");
+
+    test_group("wire_sphere_zero_segments");
+    SrLineBatch_wire_sphere(b, P0, f(1), 0, SR_COLOR_RED);
+    assert(SrLineBatch_is_empty(b) == 1, "nothing");
+
+    test_group("grid_zero_spacing");
+    SrLineBatch_grid(b, f(5), 0, SR_COLOR_WHITE);
+    assert(SrLineBatch_is_empty(b) == 1, "nothing");
+
+    test_group("grid_negative_spacing");
+    SrLineBatch_grid(b, f(5), f(0 - 1), SR_COLOR_WHITE);
+    assert(SrLineBatch_is_empty(b) == 1, "nothing");
+
+    test_group("wire_capsule_generates_lines");
+    SrLineBatch_wire_capsule(b, P0, f(1), half, 16, SR_COLOR_WHITE);
+    assert_eq(SrLineBatch_line_count(b), 36, "2 × 16 + 4");
+
+    # `bytemuck::bytes_of`: a line vertex is its 28 bytes, position then colour.
+    test_group("line_vertex_bytemuck");
+    var lv: SrLineVertex;
+    _sr_line_vertex(&lv, f(1), f(2), f(3), SR_COLOR_RED);
+    assert(sizeof(SrLineVertex) == 28 && load32(&lv + 8) == f(3) && load32(&lv + 12) == f(1), "28 bytes, in order");
+
+    # Cyrius-only: a reused batch stops allocating; −0 and NaN at grid's edges behave as Rust's.
+    test_group("cyrius: reuse, and the grid's edge cases");
+    SrLineBatch_clear(b);
+    SrLineBatch_grid(b, f(10), f(1), SR_COLOR_WHITE);
+    var cap = load64(b + 16);
+    var p = load64(b);
+    SrLineBatch_clear(b);
+    SrLineBatch_grid(b, f(10), f(1), SR_COLOR_WHITE);
+    assert(load64(b) == p && load64(b + 16) == cap, "the same storage the second time");
+    SrLineBatch_clear(b);
+    SrLineBatch_grid(b, 0x7FC00000, f(1), SR_COLOR_WHITE);
+    assert_eq(SrLineBatch_line_count(b), 2, "NaN half-extent: count 0, one line per axis (as Rust)");
+    SrLineBatch_clear(b);
+    SrLineBatch_grid(b, 0x80000000, f(1), SR_COLOR_WHITE);
+    assert(SrLineBatch_is_empty(b) == 1, "-0 half-extent: nothing");
+    SrLineBatch_drop(b);
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);
