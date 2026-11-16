@@ -1039,7 +1039,7 @@ production stdlib leaves. So the PE binaries were built from a wrapper that incl
 `lib/overflow.cyr` and `lib/bayan.cyr` before the test file. `cyrius vet` is clean (8 dependencies, none untrusted or
 missing).
 
-## 6. M5: science visualization (part a, 2026-11-15)
+## 6. M5: science visualization (parts a and b, 2026-11-15)
 
 ### 6.1 Part a: the acoustic types and line renderers, the `acoustics` profile
 
@@ -1062,8 +1062,9 @@ missing).
   once, and the lerp is Rust's f32 sequence. A ray segment's energy is the band average from −0 (Rust's `Sum` starts
   at −0), clamped, or 0 when not finite.
 - **Correctly rounded exp and log10.** The decay curve's class-E rows need them, and ganita's f64 tier isn't correctly
-  rounded (L1). `scripts/vendor_crmath.py` now writes a second file, `src/crmath_exp.cyr`: kimiya 2.0.1's `exp` and
-  `log10` with the 17 functions, 27 tables and 1 constant they reach that `src/crmath.cyr` doesn't hold. Its two
+  rounded (L1). `scripts/vendor_crmath.py` now writes a second file, `src/crmath_ext.cyr`: kimiya 2.0.1's `exp` and
+  `log10` (and, from part b, `cos`) with the 18 functions, 27 tables and 1 constant they reach that `src/crmath.cyr`
+  doesn't hold. Its two
   2,048-entry tables cost a binary 33 KB (127,792 → 161,120 bytes for a minimal core consumer), so only the
   `acoustics` profile includes it, and `src/crmath.cyr` is unchanged. The script also follows `const`s now
   (`_KM_INF`).
@@ -1073,7 +1074,7 @@ missing).
   clashes with soorat, prakash, impetus or bayan.
 - **Static data.** A test compile's static data counts against the compiler's 128 KiB advisory, a warning that fails
   the gate. Measured with a known 128 KiB pad: `cyrius test`'s own leaves 18.7 KB, `src/crmath.cyr` 20.2 KB, goonj
-  and hisab 13.5 KB, `src/crmath_exp.cyr` 33.3 KB. And `src/debug_geom.cyr` 32.9 KB, for a 4,112-byte table: a
+  and hisab 13.5 KB, `src/crmath_ext.cyr` 33.3 KB. And `src/debug_geom.cyr` 32.9 KB, for a 4,112-byte table: a
   top-level bare `var g[N]` is N i64 slots (the Cyrius guide), and seven of soorat's byte buffers were declared that
   way (colour constants, the identity matrix, the full UV rect, the sRGB decode table, the cube faces, the XZ quad,
   the trig table), reserving 8 × their size. As `u8[N]` they save 38,472 bytes of static data in every binary. The
@@ -1088,4 +1089,36 @@ missing).
 | `acoustic/ray_paths_64x8` | 80.5 µs | 512 lines, about 157 ns each: 8 vec reads, an f64 band average, two narrowings, the lerp and the append |
 | `acoustic/portal` | 320 ns | 7 lines from an f64 basis |
 | `acoustic/coupled_decay_100` | 31.3 µs | 100 steps, about 313 ns each: two correctly rounded exps and a log10 |
+
+### 6.3 Part b: the acoustic meshes
+
+| Function | Rows | f64-once differs from Rust's f32 |
+|---|---|---|
+| `pressure_map_slice` | 76 | 40 (52.6 %): positions from viz's f64 builder and the slice height `origin.y + y · spacing`; the colours (f64 normalization) are Rust's |
+| `mode_pattern_to_mesh` | 69 | 65 (94.2 %): positions and normals; heights and colours are the same either way |
+| `directivity_balloon_to_mesh` | 51 | 49 (96.1 %): positions and normals with sin and cos correctly rounded in f64 |
+
+All 196 new rows pass, 154 through `acoustic_render.e.tsv`, so `acoustic_render` is 752 rows (188 identical, 564
+accepted E). The cases: empty, unbacked and out-of-range grids, one cell, non-finite values in every colour mode, a
+flat slice, a slice height that rounds, a single-column room mode, the balloon's segment minimums, missing tables
+(gain 1), missing and NaN gains, zero and NaN front axes, and random grids and balloons. The 1,024 segment clamp is
+a ported test (vertex count), not a row: its row alone would have been 665 KB.
+
+- **The balloon's lookup is f32.** The first f64 balloon failed Rust's own `balloon_faces_outward_and_clamps_segments`:
+  two bottom-pole triangles wound inward. With f32 π (3.1415927, above π), sin θ at the bottom pole is −8.7e-8, so
+  the lookup angle acos(dir · front) there is π/2 ± a few 1e-8 depending on longitude. The test's azimuth table
+  {0, π} ties at π/2, so neighbouring pole vertices took gains 1.0 and 0.8, radii 1.1 and 1.08: a jagged pole. In f32
+  the noise rounds away and every pole vertex ties alike. The lookup is an index, so it now follows Rust's f32
+  sequence (D4 rule a), sin, cos and acos correctly rounded to f32; the vertices stay f64 (rule b). The nearest-index
+  compare is an unsigned compare of the f32 distance's bits, which is `total_cmp` for non-negative values.
+- **goonj's ModeVisualization** has a physics constructor (`soorat_mode_visualization_for_shoebox`) but none for a
+  given pattern, so the harness builds one by goonj's `SMV_*` layout.
+
+### 6.4 Part b speed (`taskset -c 10 cyrius bench`; two runs agreed)
+
+| Bench (extra: no Rust twin) | Cyrius | Notes |
+|---|---|---|
+| `acoustic/pressure_slice_32x32` | 182 µs | 1,024 cells, about 178 ns each: two vec reads, the normalization, the heat map, 4 vertices |
+| `acoustic/mode_pattern_32x32` | 159 µs | 1,024 samples through viz's height field (M3's 32² terrain: 98 µs), plus the vec reads and callbacks |
+| `acoustic/balloon_32x64` | 1.76 ms | 2,145 vertices, about 820 ns each: an f32 acos and a 37-azimuth nearest scan per vertex |
 

@@ -35,7 +35,8 @@ Decisions: [ADR 0001](../adr/0001-cyrius-port-with-rust-oracle.md),
 | M4 part b: environment CPU, PBR material and LUT | ✅ 2026-11-15 (below) |
 | M4 part c: the render graph (profiler and capabilities moved to M6) | ✅ 2026-11-15: **M4 complete** |
 | M5 part a: acoustic types and line renderers (`acoustics`, goonj) | ✅ 2026-11-15 (below) |
-| M5 part b–; M6–M10 | ☐ |
+| M5 part b: acoustic meshes (`acoustic_render` complete) | ✅ 2026-11-15 (below) |
+| M5 part c–; M6–M10 | ☐ |
 
 **M1.** 13,793 golden rows over nine modules pass:
 - 1,149 class-E rows are bit-identical to Rust's formula in f64 rounded once;
@@ -104,9 +105,16 @@ filed as L24.
 **M5 part a.** `src/acoustic.cyr` (in `[lib]`) and the new `acoustics` profile's `src/acoustic_render.cyr` on goonj
 2.3.2 (ADR 0002 #29): the acoustic types, heat map, ray paths, portals and coupled decay curves. 637 golden rows pass;
 the 556 renderer rows are class E, 410 of them accepted, all bit-identical to the f64 reference. The decay's exp and
-log10 are correctly rounded, from kimiya through `src/crmath_exp.cyr` (33 KB, the profile only). Seven byte buffers
+log10 are correctly rounded, from kimiya through `src/crmath_ext.cyr` (33 KB, the profile only). Seven byte buffers
 reserved 8 × their size (a bare top-level `var g[N]` is N slots); as `u8[N]` they save 38 KB of static data per
 binary. 20 of 35 `acoustic_render.rs` tests are ported. Measurements: `port-parity.md` §6.
+
+**M5 part b.** The acoustic meshes: pressure slices, room modes and directivity balloons, through viz's builders.
+`acoustic_render` is 752 golden rows, 564 accepted E, all bit-identical. The balloon's gain lookup (an index) follows
+Rust's f32 sequence: in f64, f32 π's nonzero sine at the bottom pole made neighbouring pole vertices break an azimuth
+tie differently, and the pole failed Rust's own winding test. `src/crmath_ext.cyr` (renamed from part a's
+`crmath_exp`) adds kimiya's correctly rounded `cos`. All 35 `acoustic_render.rs` tests are ported. Measurements:
+`port-parity.md` §6.3–6.4.
 
 **Optional features.**
 - `optics` (prakash), `physics-debug` (impetus), `serde` (JSON on bayan) and `gltf` (the glTF loader, on bayan) are
@@ -136,14 +144,14 @@ binary. 20 of 35 `acoustic_render.rs` tests are ported. Measurements: `port-pari
 - **Cyrius:** the library is `[lib]` in `cyrius.cyml`, bundled as `dist/soorat.cyr` (`cyrius distlib --all`):
   `src/{error,log,mathx,crmath,tables_data,tables,math,layout,color,lights,lod,sprite,batch,text,ui,debug_geom}.cyr`
   and `src/{viz,primitives,terrain,animation,shadow_math,env_cpu,pbr_material,render_graph,acoustic}.cyr`. The
-  profiles add `src/color_optics.cyr` and `src/pbr_optics.cyr` (`[lib.optics]`), `src/crmath_exp.cyr` and
+  profiles add `src/color_optics.cyr` and `src/pbr_optics.cyr` (`[lib.optics]`), `src/crmath_ext.cyr` and
   `src/acoustic_render.cyr` (`[lib.acoustics]`), `src/debug_collider.cyr` (`[lib.physics-debug]`), `src/json.cyr`
   (`[lib.serde]`), and `src/json.cyr` with `src/gltf.cyr` (`[lib.gltf]`). `src/layout.cyr` and
   `src/tables_data.cyr` are generated (`scripts/oracle/gen_layout.py`, `gen_tables.py`), and `src/crmath.cyr` and
-  `src/crmath_exp.cyr` are vendored (`scripts/vendor_crmath.py`). `src/main.cyr` is still the scaffold's smoke program.
+  `src/crmath_ext.cyr` are vendored (`scripts/vendor_crmath.py`). `src/main.cyr` is still the scaffold's smoke program.
 - **Port machinery (M0):**
   - `scripts/oracle/`: the golden generator, `validate.py`, `gen_layout.py` and `gen_tables.py`. `tests/golden/` holds
-    25 modules, 26,380 rows, and 3,737 side-table rows: 3,654 class E (`*.e.tsv`), 34 correctly rounded (`*.cr.tsv`)
+    25 modules, 26,576 rows, and 3,891 side-table rows: 3,808 class E (`*.e.tsv`), 34 correctly rounded (`*.cr.tsv`)
     and 49 adopted (`pbr_optics.r.tsv`), with the glTF fixtures in `tests/golden/gltf/`;
   - `tests/parity.tcyr` with `parity_core.cyr`, `ulp.cyr` and the generated `layout_probe.cyr`: the replay;
   - `scripts/render_ref/`: the class-G corpus (`tests/golden/render/`, 12 scenes, adapter-pinned);
@@ -155,16 +163,16 @@ binary. 20 of 35 `acoustic_render.rs` tests are ported. Measurements: `port-pari
   2 shader-validation). CI runs them under `rust-old/`.
 - **Cyrius:**
   - `cyrius test` and `cyrius test --bounds` pass with zero warnings: 28 test files, among them 24 of ported tests
-    (262 Rust tests), the smoke test, and the three parity replays (core, features, acoustics). Of the 26,380 rows,
-    26,373 pass (3,762 of them accepted: E 3,654, cr 34, R 49, ADR #14 25); 7 are pending (3 constants of later
+    (277 Rust tests), the smoke test, and the three parity replays (core, features, acoustics). Of the 26,576 rows,
+    26,569 pass (3,916 of them accepted: E 3,808, cr 34, R 49, ADR #14 25); 7 are pending (3 constants of later
     milestones, 4 bayan rows);
   - `cyrius audit` exits 0; `cyrius distlib --check` is current; `cyrius vet` is clean;
   - at M4's close, both parity harnesses gave the same outcome for every row on x86_64 ELF, aarch64 (qemu) and x86_64
     PE (wine) (port-parity §5.7).
 - **Ledgers:**
-  - surface: 912 public items, 454 ported, every M1–M4 item (`scripts/surface_parity.py`);
-  - Rust tests: 502, 262 ported, every M1–M4 test (`docs/development/rust-test-ledger.md`);
-  - benches: 34 of 35 Rust benches twinned, plus 26 extras (`docs/benchmarks-rust-v-cyrius.md`).
+  - surface: 912 public items, 457 ported, every M1–M4 item and all of `acoustic_render` (`scripts/surface_parity.py`);
+  - Rust tests: 502, 277 ported, every M1–M4 test and all 35 of `acoustic_render` (`docs/development/rust-test-ledger.md`);
+  - benches: 34 of 35 Rust benches twinned, plus 29 extras (`docs/benchmarks-rust-v-cyrius.md`).
 
 ## Dependencies
 
@@ -193,8 +201,8 @@ kiran (rendering), salai (editor viewport), joshua (visualization): all still Ru
 
 ## Next
 
-**M5 part b**: the acoustic meshes (pressure slices, room modes, directivity balloons), then thermo (ushma) and fluid
-(pravash); em per D7. The `ranga` feature cannot be combined with `acoustics` or `thermo` until L18 lands.
+**M5 part c**: the thermal renderers on ushma 2.0.0 (`thermo_render`), then fluid (pravash); em per D7. The `ranga`
+feature cannot be combined with `acoustics` or `thermo` until L18 lands.
 
 **Performance items carried forward:** `mul_mat4` at about 120 ns (M4's shadow matrices call it). The correctly
 rounded sRGB `pow` (200–285 ns a call) no longer runs per texel: M4 part b encodes faces by threshold search.

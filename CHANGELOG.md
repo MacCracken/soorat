@@ -179,12 +179,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     in `[lib]`, as Rust compiles them without the feature.
   - `sr_ray_paths_to_lines`, `sr_portal_to_lines` and `sr_coupled_decay_to_lines` on goonj's Cyrius types (f64), drawn
     into an `SrLineBatch`. Positions are computed in f64 and rounded once; the decay's exp and log10 are correctly
-    rounded, from `src/crmath_exp.cyr` (kimiya 2.0.1's, ~33 KB of tables, so in the profile only).
+    rounded, from `src/crmath_ext.cyr` (kimiya 2.0.1's, ~33 KB of tables, so in the profile only).
   - 637 golden rows: `acoustic` 81 (A) and `acoustic_render` 556 (E, 410 accepted through `acoustic_render.e.tsv`), all
     passing; `validate.py` re-derives each. The acoustic rows have their own replay, `tests/parity_acoustics.tcyr`.
   - 20 of `acoustic_render.rs`'s 35 tests ported (`tests/acoustic_render.tcyr`), with Cyrius-only layout, NaN-band and
     curve-range tests. Extras `acoustic/ray_paths_64x8`, `acoustic/portal` and `acoustic/coupled_decay_100`.
   - goonj and hisab cost a binary ~329 KB; CI resolves `--features optics,physics-debug,acoustics`.
+
+- **M5 part b: the acoustic meshes**, completing `acoustic_render` (ADR 0002 #29).
+  - `sr_pressure_map_slice`, `sr_mode_pattern_to_mesh` and `sr_directivity_balloon_to_mesh`, into an `SrMeshData` from
+    the caller's allocator through viz's builders; vertices in f64, rounded once.
+  - The balloon's gain lookup (which azimuth and elevation) follows Rust's f32 sequence, its sin, cos and acos
+    correctly rounded to f32. In f64, f32 π's sine at the bottom pole (−8.7e-8) made neighbouring pole vertices break
+    an azimuth tie differently, a jagged pole that failed Rust's own outward-winding test.
+  - `src/crmath_exp.cyr` became `src/crmath_ext.cyr` and gained kimiya's correctly rounded `cos`.
+  - 196 golden rows (154 accepted E); `acoustic_render` is 752, all passing. The remaining 15 `acoustic_render.rs`
+    tests ported (all 35 now). Extras `acoustic/pressure_slice_32x32`, `acoustic/mode_pattern_32x32` and
+    `acoustic/balloon_32x64`.
 
 - **M4 is complete.** The profiler and capabilities moved to M6: Rust soorat re-exports mabda 1.0's types for both, and
   mabda becomes a dependency there. mabda 4.2.0's profiler lacks pass timings and times an unbegun frame from clock

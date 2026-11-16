@@ -137,7 +137,7 @@ modules = [
 
 # The `acoustics` feature's bundle, dist/soorat-acoustics.cyr: the library plus the acoustic renderers on goonj 2.3.2
 # (src/acoustic_render.cyr, which includes hisab and goonj), and the correctly rounded exp and log10 they need
-# (src/crmath_exp.cyr, ~33 KB of tables, which is why it is here and not in `[lib]`). goonj and hisab cost a binary
+# (src/crmath_ext.cyr, ~33 KB of tables, which is why it is here and not in `[lib]`). goonj and hisab cost a binary
 # ~329 KB. A consumer takes this bundle and declares goonj.
 [lib.acoustics]
 modules = [
@@ -166,7 +166,7 @@ modules = [
     "src/pbr_material.cyr",
     "src/render_graph.cyr",
     "src/acoustic.cyr",
-    "src/crmath_exp.cyr",
+    "src/crmath_ext.cyr",
     "src/acoustic_render.cyr",
 ]
 

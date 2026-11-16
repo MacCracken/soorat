@@ -1,9 +1,10 @@
-# acoustic.bcyr — the acoustic renderers of M5 part a (the `acoustics` profile, goonj). Rust 1.2.0 has no bench for
-# them, so these are extras: 64 ray paths of 8 bounces each (512 lines), one portal, and the default 100-step decay
-# curve (200 correctly rounded exps and 100 log10s).
+# acoustic.bcyr — the acoustic renderers of M5 parts a and b (the `acoustics` profile, goonj). Rust 1.2.0 has no bench
+# for them, so these are extras: 64 ray paths of 8 bounces each (512 lines), one portal, the default 100-step decay
+# curve (200 correctly rounded exps and 100 log10s), a 32 × 32 pressure slice, a 32 × 32 room mode and a 32 × 64
+# directivity balloon.
 
 include "tests/lib.cyr"
-include "src/crmath_exp.cyr"
+include "src/crmath_ext.cyr"
 include "src/acoustic_render.cyr"
 
 var _sink = 0;
@@ -83,6 +84,87 @@ fn main(): i64 {
     bench_batch_stop(b3, 2000);
     bench_report(b3);
     SrLineBatch_drop(lb);
+
+    var A = arena_allocator_growable(1 << 20);
+    var M = alloc(48);
+    var vp[32];
+    SrAcousticVisParams_default(&vp);
+    var vals = vec_new();
+    var q = 0;
+    while (q < 32 * 4 * 32) {
+        var x: f64 = f64_from((q * 37) % 101);
+        var hundred: f64 = 100.0;
+        vec_push(vals, x / hundred);
+        q = q + 1;
+    }
+    var pm = soorat_pressure_map_new(vals, 32, 4, 32, hv(0, 0, 0), f32_to(0x3E800000), f32_to(0x447A0000));
+    var b4 = bench_new("acoustic/pressure_slice_32x32");
+    bench_batch_start(b4);
+    i = 0;
+    while (i < 500) {
+        reset_via(A);
+        _sink = sr_pressure_map_slice(pm, 2, &vp, A, M);
+        i = i + 1;
+    }
+    bench_batch_stop(b4, 500);
+    bench_report(b4);
+    var len: f64 = 10.0;
+    var wid: f64 = 8.0;
+    var c343: f64 = 343.0;
+    var mv = soorat_mode_visualization_for_shoebox(2, 1, len, wid, c343, 32);
+    var b5 = bench_new("acoustic/mode_pattern_32x32");
+    bench_batch_start(b5);
+    i = 0;
+    while (i < 500) {
+        reset_via(A);
+        _sink = sr_mode_pattern_to_mesh(mv, 0x41200000, 0x41000000, 0x3F800000, &vp, A, M);
+        i = i + 1;
+    }
+    bench_batch_stop(b5, 500);
+    bench_report(b5);
+    var az = vec_new();
+    var el = vec_new();
+    vec_push(el, 0);
+    q = 0;
+    while (q < 37) {
+        var fq: f64 = f64_from(q);
+        var step: f64 = 0.0872664626;
+        vec_push(az, fq * step);
+        q = q + 1;
+    }
+    var gains = alloc(NUM_BANDS * 8);
+    var bnd = 0;
+    while (bnd < NUM_BANDS) {
+        var g = vec_new();
+        q = 0;
+        while (q < 37) {
+            var gq: f64 = f64_from(37 - q);
+            var g37: f64 = 37.0;
+            vec_push(g, gq / g37);
+            q = q + 1;
+        }
+        store64(gains + bnd * 8, g);
+        bnd = bnd + 1;
+    }
+    var bl = directivity_balloon_new(az, el, gains);
+    var ctr[16];
+    var fr[16];
+    store32(&ctr, 0);
+    store32(&ctr + 4, 0);
+    store32(&ctr + 8, 0);
+    store32(&fr, 0);
+    store32(&fr + 4, 0);
+    store32(&fr + 8, 0x3F800000);
+    var b6 = bench_new("acoustic/balloon_32x64");
+    bench_batch_start(b6);
+    i = 0;
+    while (i < 50) {
+        reset_via(A);
+        _sink = sr_directivity_balloon_to_mesh(bl, &ctr, &fr, 0x3F800000, 0x3F000000, 32, 64, A, M);
+        i = i + 1;
+    }
+    bench_batch_stop(b6, 50);
+    bench_report(b6);
     return 0;
 }
 

@@ -38,9 +38,10 @@ SOURCES = (".cyr", ".tcyr", ".bcyr", ".fcyr")
 # Row -> (the milestone that writes its stand-in, the stand-in). Its marker is due once that milestone is done.
 STANDINS = {
     # crmath arrived at M3 part b with slerp's sin and acos (kimiya 2.0.1, scripts/vendor_crmath.py); M5 part a added
-    # exp and log10 for the acoustic decay curve, in src/crmath_exp.cyr (the `acoustics` profile only).
+    # exp and log10 for the acoustic decay curve, and part b cos for the balloon, in src/crmath_ext.cyr (the
+    # `acoustics` profile only).
     "L1": ("M3", "the vendored correctly rounded crmath (kimiya): src/crmath.cyr (slerp's sin and acos, §3.1) and "
-                 "src/crmath_exp.cyr (the decay curve's exp and log10, M5)"),
+                 "src/crmath_ext.cyr (the decay curve's exp and log10, the balloon's cos, M5)"),
     "L22": ("M3", "Rust's f32 `%` for AnimationClip::sample's time wrap: _sr_f32_fmod in src/mathx.cyr"),
     "L8": ("M1", "f32 results returned as i64 bits, `var` constants and local f16 code: src/mathx.cyr (§3.1)"),
     "L9": ("M8", "selah's private PNG/JPEG/BMP encoders, vendored for screenshot (D8)"),

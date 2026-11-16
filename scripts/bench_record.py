@@ -87,6 +87,9 @@ EXTRA = {
     "acoustic/ray_paths_64x8": "M5 (`acoustics`): 64 goonj ray paths of 8 bounces each, drawn as 512 lines; no Rust bench",
     "acoustic/portal": "M5 (`acoustics`): one goonj portal drawn as 7 lines; no Rust bench",
     "acoustic/coupled_decay_100": "M5 (`acoustics`): the default 100-step coupled decay curve (correctly rounded exp and log10); no Rust bench",
+    "acoustic/pressure_slice_32x32": "M5 (`acoustics`): a 32 × 32 slice of a goonj pressure map as a heat-map mesh; no Rust bench",
+    "acoustic/mode_pattern_32x32": "M5 (`acoustics`): a 32 × 32 goonj room-mode pattern as a height-field mesh; no Rust bench",
+    "acoustic/balloon_32x64": "M5 (`acoustics`): a 32 × 64 directivity balloon (2,145 vertices, correctly rounded trig); no Rust bench",
     # The render graph (M4 part c) has no Rust bench; a renderer orders its passes each frame.
     "render_graph/build_forward_with_effects": "M4: `forward_with_effects` built (7 passes, 8 dependencies) and dropped; no Rust bench",
     "render_graph/order_forward_with_effects": "M4: `execution_order` of `forward_with_effects` (7 passes); no Rust bench",

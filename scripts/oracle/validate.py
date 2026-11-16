@@ -19,6 +19,7 @@ Stdlib only.
 """
 import json as _json
 import decimal
+import itertools
 import math
 import os
 import re
@@ -1164,7 +1165,7 @@ def cylinder_mesh(seg, f32, trig=None):
     return vs, idx
 
 
-def xz_mesh(nx, nz, ox, oz, gy, dx, dz, f32):
+def xz_mesh(nx, nz, ox, oz, gy, dx, dz, f32, color=None):
     q = _q(f32)
     if nx == 0 or nz == 0:
         return [], []
@@ -1175,7 +1176,7 @@ def xz_mesh(nx, nz, ox, oz, gy, dx, dz, f32):
         z1 = q(z0 + dz)
         v0, v1 = q(iz * inz), q((iz + 1) * inz)
         for ix in range(nx):
-            col = [r32(ix / 16.0), r32(iz / 16.0), 0.5, 1.0]
+            col = [r32(ix / 16.0), r32(iz / 16.0), 0.5, 1.0] if color is None else color(ix, iz)
             x0 = q(ox + q(ix * dx))
             x1 = q(x0 + dx)
             u0, u1 = q(ix * inx), q((ix + 1) * inx)
@@ -1554,6 +1555,15 @@ def cr_sin(x):
     with decimal.localcontext() as ctx:
         ctx.prec = _DEC_PREC
         return float(_dec_sin_cos(decimal.Decimal(x))[0])
+
+
+def cr_cos(x):
+    """cos x correctly rounded to f64 (exact decimal arithmetic, then Python's correctly rounded conversion)."""
+    if not math.isfinite(x):
+        return math.nan
+    with decimal.localcontext() as ctx:
+        ctx.prec = _DEC_PREC
+        return float(_dec_sin_cos(decimal.Decimal(x))[1])
 
 
 def cr_acos(x):
@@ -2656,6 +2666,152 @@ def decay_rust_ok(dc_in, prm, want):
     return False
 
 
+def pressure_slice_ref(dims, vals, org, sp, y, mode, alpha, f32):
+    """`pressure_map_slice`'s mesh: Rust's f32 slice height (f32 true) or the f64 one rounded once (class E)."""
+    nx, ny, nz = dims
+    n = nx * ny * nz
+    if y >= ny or n == 0 or n > len(vals):
+        return [], []
+    sl = [vals[iz * ny * nx + y * nx + ix] for iz in range(nz) for ix in range(nx)]
+    fin = [v for v in sl if math.isfinite(v)]
+    mn, mx = (0.0, 0.0)
+    if fin:
+        mn, mx = fin[0], fin[0]
+        for v in fin[1:]:
+            mn = v if v <= mn else mn
+            mx = v if v >= mx else mx
+
+    def color(ix, iz):
+        v = sl[iz * nx + ix]
+        if mode == 1:
+            return signed_color(signed_t_ref(v, mn, mx, False))[0:3] + [alpha]
+        return heat_map(unit_t_ref(v, mn, mx))[0:3] + [alpha]
+    gy = r32(org[1] + r32(y * sp)) if f32 else r32(org[1] + y * sp)
+    return xz_mesh(nx, nz, org[0], org[2], gy, sp, sp, f32, color)
+
+
+def mode_pattern_ref(dims, pat, w, d, hs, mode, alpha, f32):
+    """`mode_pattern_to_mesh`'s mesh (heights and colours are the same in f32 and in f64 once)."""
+    cols, rws = dims
+    n = cols * rws
+    if n == 0 or n > len(pat):
+        return [], []
+
+    def sample(ix, iz):
+        v = pat[iz * cols + ix]
+        return v if math.isfinite(v) else 0.0
+
+    def height(ix, iz):
+        return r32(sample(ix, iz) * hs)
+
+    def color(ix, iz, _y):
+        v = sample(ix, iz)
+        if mode == 1:
+            return signed_color(v)[0:3] + [alpha]
+        return heat_map(r32(r32(v * 0.5) + 0.5))[0:3] + [alpha]
+    dx = r32(w / (cols - 1)) if cols > 1 else 0.0
+    dz = r32(d / (rws - 1)) if rws > 1 else 0.0
+    return hf_mesh(cols, rws, r32(-w * 0.5), r32(-d * 0.5), dx, dz, height, color, f32)
+
+
+def nearest_idx(values, target, q):
+    """Rust's nearest_index: the first finite value at the least |v − target| (a NaN distance after every number)."""
+    best, bk = None, None
+    for i, v in enumerate(values):
+        if not math.isfinite(v):
+            continue
+        dd = abs(q(v - target))
+        if best is None or (math.isnan(bk) and not math.isnan(dd)) or (not math.isnan(dd) and dd < bk):
+            best, bk = i, dd
+    return best
+
+
+_CR_ACOS = {}
+
+
+def cr_acos_cached(x):
+    if x not in _CR_ACOS or math.isnan(x):
+        _CR_ACOS[x] = cr_acos(x)
+    return _CR_ACOS[x]
+
+
+def balloon_ref(az, el, gains, center, front, base, scale, lat, lon, f32, trig=None):
+    """`directivity_balloon_to_mesh`'s mesh. The gain lookup (which azimuth and elevation) is Rust's f32 sequence on
+    both paths, its sin, cos and acos correctly rounded to f32 (or, on Rust's path, as `trig(i, j, kind, x)` gives
+    them). The vertices and the band average are Rust's f32 (f32 true) or the f64 formula with sin and cos correctly
+    rounded (class E)."""
+    q = _q(f32)
+    if lat < 2 or lon < 3:
+        return [], []
+    lat, lon = min(lat, 1024), min(lon, 1024)
+    if f32:
+        s32 = lambda i, j, k, x: trig(i, j, k, x) if trig else trig_cr(math.sin, x)
+        c32 = lambda i, j, k, x: trig(i, j, k, x) if trig else trig_cr(math.cos, x)
+        a32 = lambda c: math.nan if math.isnan(c) else r32(math.acos(c))
+    else:
+        s32 = lambda i, j, k, x: r32(cr_sin(x))
+        c32 = lambda i, j, k, x: r32(cr_cos(x))
+        a32 = lambda c: math.nan if math.isnan(c) else r32(cr_acos_cached(c))
+    ss = r32(r32(r32(front[0] * front[0]) + r32(front[1] * front[1])) + r32(front[2] * front[2]))
+    fl = r32(math.sqrt(ss)) if not math.isnan(ss) else math.nan
+    fv = [r32(x / fl) for x in front] if fl > EPS32 else [0.0, 0.0, 1.0]
+    eli = nearest_idx(el, 0.0, r32)
+    vs = []
+    for i in range(lat + 1):
+        th32 = r32(r32(PI32 * i) / lat)
+        st32, ct32 = s32(i, -1, "st", th32), c32(i, -1, "ct", th32)
+        th = q(q(PI32 * i) / lat)
+        st, ct = (st32, ct32) if f32 else (cr_sin(th), cr_cos(th))
+        for j in range(lon + 1):
+            ph32 = r32(r32(TAU32 * j) / lon)
+            sp32, cp32 = s32(i, j, "sp", ph32), c32(i, j, "cp", ph32)
+            d32 = [r32(st32 * cp32), ct32, r32(st32 * sp32)]
+            c = clamp32(r32(r32(r32(d32[0] * fv[0]) + r32(d32[1] * fv[1])) + r32(d32[2] * fv[2])), -1.0, 1.0)
+            azi = nearest_idx(az, a32(c), r32)
+            if azi is None or eli is None:
+                gain = 1.0
+            else:
+                flat_i = eli * len(az) + azi
+                sm = -0.0
+                for g in gains:
+                    v = g[flat_i] if flat_i < len(g) and math.isfinite(g[flat_i]) else 1.0
+                    sm = q(sm + v)
+                gain = q(sm / 8.0)
+            if f32:
+                dv = d32
+            else:
+                ph = (2.0 * PI32 * j) / lon
+                dv = [st * cr_cos(ph), ct, st * cr_sin(ph)]
+            r = q(base + q(gain * scale))
+            pos = [q(center[k] + q(dv[k] * r)) for k in range(3)]
+            vs.append(vtx(pos, dv, (q(j / lon), q(i / lat)), heat_map(r32(gain))))
+    return vs, lattice(lat, lon)
+
+
+def balloon_rust_ok(args, rust_f, rust_i):
+    """Whether Rust's balloon explains the corpus row, glibc's sinf and cosf each correctly rounded or 1 ulp off (per
+    vertex, where a vertex differs)."""
+    vs, idx = balloon_ref(*args, True)
+    if idx != rust_i or len(flat(vs)) != len(rust_f):
+        return False
+    lat, lon = min(args[7], 1024), min(args[8], 1024)
+
+    def alts(k):
+        i, j = divmod(k, lon + 1)
+        out = []
+        for d in itertools.product((0, -1, 1), repeat=4):
+            if d == (0, 0, 0, 0):
+                continue
+            pick = {"st": d[0], "ct": d[1], "sp": d[2], "cp": d[3]}
+
+            def trig(ii, jj, kind, x, pick=pick):
+                f = math.sin if kind in ("st", "sp") else math.cos
+                return ulp_step(trig_cr(f, x), pick[kind] if ii == i and jj in (j, -1) else 0)
+            out.append(flat(balloon_ref(*args, True, trig=trig)[0])[12 * k:12 * k + 12])
+        return out
+    return explain_vertices(rust_f, flat(vs), alts)
+
+
 def check_acoustic():
     """Re-derives every `acoustic` and `acoustic_render` row; returns (rows that differ, the acoustic_render.e.tsv
     rows, {fn: (rows, differing)})."""
@@ -2701,6 +2857,24 @@ def check_acoustic():
             ok = decay_rust_ok(dc_in, prm, want)
             once = decay_vertices(decay_steps(dc_in, prm, ident, lambda i, k, x: cr_exp(x), lambda i, x: cr_log10(x),
                                               CR_LN10))
+        elif fn == "pressure_map_slice":
+            dims = [rd.i(), rd.i(), rd.i()]
+            vals, org, sp, y, mode, alpha = rd.gs(), rd.gs(), rd.g(), rd.i(), rd.i(), rd.g()
+            vs, idx = pressure_slice_ref(dims, vals, org, sp, y, mode, alpha, True)
+            ok = same(flat(vs), want) and idx == i_values(outs)
+            once = flat(pressure_slice_ref(dims, vals, org, sp, y, mode, alpha, False)[0])
+        elif fn == "mode_pattern_to_mesh":
+            dims = [rd.i(), rd.i()]
+            pat, w, d, hs, mode, alpha = rd.gs(), rd.g(), rd.g(), rd.g(), rd.i(), rd.g()
+            vs, idx = mode_pattern_ref(dims, pat, w, d, hs, mode, alpha, True)
+            ok = same(flat(vs), want) and idx == i_values(outs)
+            once = flat(mode_pattern_ref(dims, pat, w, d, hs, mode, alpha, False)[0])
+        elif fn == "directivity_balloon_to_mesh":
+            az, el = rd.gs(), rd.gs()
+            bands = [rd.gs() for _ in range(8)]
+            args = (az, el, bands, rd.gs(), rd.gs(), rd.g(), rd.g(), rd.i(), rd.i())
+            ok = balloon_rust_ok(args, want, i_values(outs))
+            once = flat(balloon_ref(*args, False)[0])
         else:
             ok, once = False, None
             print(f"acoustic_render: {fn}: no re-derivation in validate.py")

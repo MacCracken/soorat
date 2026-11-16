@@ -1,7 +1,7 @@
 # parity_acoustics.tcyr — replays the `acoustics` feature's golden module, `acoustic_render` (src/acoustic_render.cyr,
 # goonj 2.3.2; M5 part a).
 #
-# It compiles what a consumer of dist/soorat-acoustics.cyr compiles: the library, src/crmath_exp.cyr and the renderers
+# It compiles what a consumer of dist/soorat-acoustics.cyr compiles: the library, src/crmath_ext.cyr and the renderers
 # on goonj and hisab. It is not part of tests/parity_features.tcyr because a test compile with prakash, impetus and
 # goonj together holds 136,208 bytes of static data (with `cyrius test`'s own leaves and the harness), over the
 # compiler's 128 KiB advisory, which is a warning and fails the gate (port-parity §6.1). CI resolves
@@ -11,7 +11,7 @@
 # A row's inputs are f32 (`g:`); goonj's types hold f64, so each value is widened exactly (plan §2.5, ADR 0002 #29).
 
 include "tests/lib.cyr"
-include "src/crmath_exp.cyr"
+include "src/crmath_ext.cyr"
 include "src/acoustic_render.cyr"
 include "tests/ulp.cyr"
 
@@ -77,8 +77,94 @@ fn _par_rays(k, outw): i64 {
     return k;
 }
 
+var _par_ac_arena = 0;
+var _par_ac_mesh = alloc(48);
+
+# A goonj vec of the f32 sequence at input token k (widened), and the next token's index in *kw.
+fn _par_vec_in(k, kw): i64 {
+    var n = _par_in(k) & 0xFFFFFFFF;
+    var v = vec_new();
+    var i = 0;
+    while (i < n) {
+        vec_push(v, _par_w(_par_in(k + 1 + i)));
+        i = i + 1;
+    }
+    store64(kw, k + 1 + n);
+    return v;
+}
+
+# Appends a mesh (an SrMeshData): its vertices as v:12n f32, then its indices as v:m u32.
+fn _par_got_mesh(m) {
+    _par_got_g32s(load64(m), load64(m + 8) * 12);
+    var n = load64(m + 24);
+    _par_got_seq(n);
+    var i = 0;
+    while (i < n) {
+        _par_got_i(load32(load64(m + 16) + i * 4) & 0xFFFFFFFF);
+        i = i + 1;
+    }
+    return 0;
+}
+
+# Fills the got list for one mesh row of `acoustic_render` (part b); 0 for another fn.
+fn _par_acoustic_mesh(fp, fl): i64 {
+    if (_par_ac_arena == 0) { _par_ac_arena = arena_allocator_growable(1 << 20); }
+    reset_via(_par_ac_arena);
+    var a = _par_ac_arena;
+    var kw[8];
+    var prm[32];
+    if (_par_eq(fp, fl, "pressure_map_slice") == 1) {
+        var vals = _par_vec_in(3, &kw);
+        var k = _par_in_g32s(load64(&kw), _par_ga);
+        var pm = soorat_pressure_map_new(vals, _par_in(0), _par_in(1), _par_in(2), _par_hv(_par_ga),
+          _par_w(_par_in(k)), 0);
+        store64(&prm, _par_in(k + 2));
+        store32(&prm + 24, _par_in(k + 3));
+        if (sr_pressure_map_slice(pm, _par_in(k + 1), &prm, a, _par_ac_mesh) == 0) { return 0 - 1; }
+        _par_got_mesh(_par_ac_mesh);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "mode_pattern_to_mesh") == 1) {
+        var pat = _par_vec_in(2, &kw);
+        var km = load64(&kw);
+        var mv = alloc(SMV_SIZE);
+        memset(mv, 0, SMV_SIZE);
+        store64(mv + SMV_PATTERN, pat);
+        store64(mv + SMV_PDIM, _par_in(0));
+        store64(mv + SMV_PDIM + 8, _par_in(1));
+        store64(&prm, _par_in(km + 3));
+        store32(&prm + 24, _par_in(km + 4));
+        if (sr_mode_pattern_to_mesh(mv, _par_in(km), _par_in(km + 1), _par_in(km + 2), &prm, a, _par_ac_mesh) == 0) {
+            return 0 - 1;
+        }
+        _par_got_mesh(_par_ac_mesh);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "directivity_balloon_to_mesh") == 1) {
+        var az = _par_vec_in(0, &kw);
+        var el = _par_vec_in(load64(&kw), &kw);
+        var gains = alloc(NUM_BANDS * 8);
+        var b = 0;
+        while (b < NUM_BANDS) {
+            store64(gains + b * 8, _par_vec_in(load64(&kw), &kw));
+            b = b + 1;
+        }
+        var bl = directivity_balloon_new(az, el, gains);
+        var kb = _par_in_g32s(_par_in_g32s(load64(&kw), _par_ga), _par_gb);
+        if (sr_directivity_balloon_to_mesh(bl, _par_ga, _par_gb, _par_in(kb), _par_in(kb + 1), _par_in(kb + 2),
+            _par_in(kb + 3), a, _par_ac_mesh) == 0) {
+            return 0 - 1;
+        }
+        _par_got_mesh(_par_ac_mesh);
+        return 1;
+    }
+    return 0;
+}
+
 # Fills the got list for one `acoustic_render` row.
 fn _par_acoustic(fp, fl): i64 {
+    var mr = _par_acoustic_mesh(fp, fl);
+    if (mr != 0) { return mr; }
     var lb = SrLineBatch_new();
     if (lb == 0) { return 0 - 1; }
     var done = 1;

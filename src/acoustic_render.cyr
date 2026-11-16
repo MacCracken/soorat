@@ -1,20 +1,25 @@
-# acoustic_render.cyr — the goonj half of Rust 1.2.0's src/acoustic_render.rs (M5 part a): ray paths, portals and
-# coupled decay curves drawn as lines. Part b adds the pressure slices, room modes and directivity balloons as meshes.
+# acoustic_render.cyr — the goonj half of Rust 1.2.0's src/acoustic_render.rs (M5 parts a and b): ray paths, portals
+# and coupled decay curves drawn as lines (part a); pressure-map slices, room-mode patterns and directivity balloons as
+# meshes (part b).
 #
-# **OPTIONAL**, as Rust gates it behind `acoustics`: bundled by the `[lib.acoustics]` profile after src/crmath_exp.cyr.
+# **OPTIONAL**, as Rust gates it behind `acoustics`: bundled by the `[lib.acoustics]` profile after src/crmath_ext.cyr.
 # It includes goonj 2.3.2 itself, and hisab 3.5.0 before it (goonj's HVec3).
 #
 # **Inputs are goonj's Cyrius types** (plan §2.5, ADR 0002 #29): f64 where Rust goonj 1.4's were f32. A
 # RayVisualization (`soorat_ray_visualization_*`) holds a vec of RayPath, each a vec of RayBounce with 8 band energies
-# (`ray_bounce_energy_after`); a Portal and a CoupledDecay are goonj structs read through their accessors; an HVec3 is
-# three f64 (x, y, z).
+# (`ray_bounce_energy_after`); a PressureMap and a ModeVisualization hold their values in a vec of f64
+# (`soorat_pressure_map_*`, `soorat_mode_visualization_*`); a DirectivityBalloon holds its azimuths, elevations and 8
+# band gain tables as vecs (`directivity_balloon_*`); a Portal and a CoupledDecay are goonj structs read through their
+# accessors; an HVec3 is three f64 (x, y, z). A mesh is an SrMeshData from the caller's allocator (src/viz.cyr).
 #
 # **Precision (D4 rule b, class E).** Rust computed in f32 from inputs goonj had already rounded to f32. Here every
 # position is computed in f64 from goonj's f64 values and rounded once to f32. The value Rust hands its colour lerp
 # (a ray segment's band-averaged energy, the decay's early fraction) is likewise computed in f64 and rounded once, and
-# the colour from it is Rust's f32 sequence (`1 − x`, then `Color::lerp`), as viz's heat maps are (M3). The decay's exp
-# and log10 are correctly rounded (src/crmath_exp.cyr), and its f32 constants (1e-10, 0.2, f32::EPSILON) are widened
-# exactly.
+# the colour from it is Rust's f32 sequence (`1 − x`, then `Color::lerp`), as viz's heat maps are (M3). The meshes
+# follow viz: a heat-map value is normalized in f64 and narrowed once, and a mesh's vertices come from viz's f64
+# builders (a pressure slice's height and a room mode's heights in f64, rounded once). The transcendentals are
+# correctly rounded: the decay's exp and log10 and the balloon's cos (src/crmath_ext.cyr), the balloon's sin and acos
+# (src/crmath.cyr). Rust's f32 constants (1e-10, 0.2, f32::EPSILON, π) are widened exactly.
 
 include "lib/hisab.cyr"
 include "lib/goonj.cyr"
@@ -166,7 +171,7 @@ fn sr_portal_to_lines(portal, color, arrow_length, batch): i64 {
 # an allocation fails. Mirrors `coupled_decay_to_lines`.
 #
 # UPSTREAM(L1): ganita:docs/development/issues/2026-11-09-correctly-rounded-exp-sin-cos-hypot.md
-#   call ganita's f64 exp and log10 once they are correctly rounded, and drop src/crmath_exp.cyr;
+#   call ganita's f64 exp and log10 once they are correctly rounded, and drop src/crmath_ext.cyr;
 #   parity: the coupled_decay_to_lines rows of tests/golden/acoustic_render.tsv (class E).
 fn sr_coupled_decay_to_lines(decay, params, batch): i64 {
     var steps = load64(params + 32) & 0xFFFFFFFF;
@@ -227,4 +232,331 @@ fn sr_coupled_decay_to_lines(decay, params, batch): i64 {
         i = i + 1;
     }
     return ok;
+}
+
+# ── meshes (part b) ───────────────────────────────────────────────────────────────────
+
+# A pressure slice's colour for cell (ix, iz) into out: ctx holds the values vec, nx, ny, the layer offset y·nx, the
+# slice's finite min and max (f64), the colour mode and alpha. Pressure and Energy heat-map unit_t; SignedPressure
+# maps signed_t.
+fn _sr_pm_color(ctx, ix, iz, out) {
+    var nx = load64(ctx + 8);
+    var ny = load64(ctx + 16);
+    var v: f64 = vec_get(load64(ctx), iz * ny * nx + load64(ctx + 24) + ix);
+    var mn: f64 = load64(ctx + 32);
+    var mx: f64 = load64(ctx + 40);
+    if (load64(ctx + 48) == SR_ACOUSTIC_COLOR_MODE_SIGNED_PRESSURE) {
+        return sr_signed_rgba(sr_signed_t(v, mn, mx), load64(ctx + 56), out);
+    }
+    return sr_heat_rgba(sr_unit_t(v, mn, mx), load64(ctx + 56), out);
+}
+
+# The mesh of slice y_index of pressure (a goonj PressureMap) into out (an SrMeshData) from the allocator a: a +Y
+# quad per cell of the XZ plane at origin.y + y_index · spacing, coloured by params' mode (an SrAcousticVisParams):
+# Pressure and Energy normalize over the slice's finite min … max, SignedPressure is centred on zero, and a
+# non-finite value takes the zero colour. Empty when the grid is empty, y_index is out of range, or the values don't
+# cover nx · ny · nz (warning). out, or 0 when an allocation fails. Mirrors `pressure_map_slice`.
+fn sr_pressure_map_slice(pressure, y_index, params, a, out) {
+    var dims[24];
+    store64(&dims, soorat_pressure_map_dimension(pressure, 0));
+    store64(&dims + 8, soorat_pressure_map_dimension(pressure, 1));
+    store64(&dims + 16, soorat_pressure_map_dimension(pressure, 2));
+    var nx = load64(&dims);
+    var ny = load64(&dims + 8);
+    var nz = load64(&dims + 16);
+    var vals = soorat_pressure_map_values(pressure);
+    var nv = 0;
+    if (vals != 0) { nv = vec_len(vals); }
+    if (y_index < 0 || y_index >= ny) { return _sr_mesh_empty(out); }
+    if (sr_grid_is_backed(&dims, 3, nv, "pressure_map_slice") == 0) { return _sr_mesh_empty(out); }
+    _sr_debug("soorat::acoustic_render: building pressure map slice");
+    var layer = y_index * nx;
+    var slice = alloc_via(a, nx * nz * 8);
+    if (slice == 0) { return 0; }
+    var k = 0;
+    var iz = 0;
+    while (iz < nz) {
+        var ix = 0;
+        while (ix < nx) {
+            store64(slice + k * 8, vec_get(vals, iz * ny * nx + layer + ix));
+            k = k + 1;
+            ix = ix + 1;
+        }
+        iz = iz + 1;
+    }
+    var ctx[64];
+    store64(&ctx, vals);
+    store64(&ctx + 8, nx);
+    store64(&ctx + 16, ny);
+    store64(&ctx + 24, layer);
+    store64(&ctx + 32, 0);
+    store64(&ctx + 40, 0);
+    var t, mm = sr_finite_min_max(slice, nx * nz, &ctx + 32);
+    store64(&ctx + 48, load64(params));
+    store64(&ctx + 56, load32(params + 24));
+    var org = soorat_pressure_map_origin(pressure);
+    var oy: f64 = load64(org + 8);
+    var sp: f64 = soorat_pressure_map_spacing(pressure);
+    var fy: f64 = f64_from(y_index);
+    var gy: f64 = oy + (fy * sp);
+    var ox: f64 = load64(org);
+    var oz: f64 = load64(org + 16);
+    var grid: SrXzGrid;
+    var gp = &grid;
+    store64(gp, nx);
+    store64(gp + 8, nz);
+    store32(gp + 16, f32_from(ox));
+    store32(gp + 20, f32_from(oz));
+    store32(gp + 24, f32_from(gy));
+    store32(gp + 28, f32_from(sp));
+    store32(gp + 32, f32_from(sp));
+    return sr_xz_heatmap_mesh(gp, &_sr_pm_color, &ctx, a, out);
+}
+
+# The room-mode sample at (ix, iz) of ctx (the pattern vec, then cols): its f64 value, 0 when not finite.
+#must_use
+fn _sr_mode_sample(ctx, ix, iz): f64 {
+    var v: f64 = vec_get(load64(ctx), iz * load64(ctx + 8) + ix);
+    var zero: f64 = 0.0;
+    if (_sr_f64_finite(v) == 0) { return zero; }
+    return v;
+}
+
+# A room-mode height (f32 bits): the sample times the height scale (ctx + 16, f32 bits), in f64, rounded once.
+#must_use
+fn _sr_mode_height(ctx, ix, iz): i64 {
+    var v: f64 = _sr_mode_sample(ctx, ix, iz);
+    var hs: f64 = f32_to(load32(ctx + 16));
+    return f32_from(v * hs);
+}
+
+# A room-mode colour into out: Pressure and Energy heat-map v · 0.5 + 0.5 (in f64, rounded once), SignedPressure maps
+# v; alpha from ctx + 32, the mode from ctx + 24.
+fn _sr_mode_color(ctx, ix, iz, y, out) {
+    var v: f64 = _sr_mode_sample(ctx, ix, iz);
+    if (load64(ctx + 24) == SR_ACOUSTIC_COLOR_MODE_SIGNED_PRESSURE) {
+        return sr_signed_rgba(f32_from(v), load64(ctx + 32), out);
+    }
+    var half: f64 = 0.5;
+    var t: f64 = (v * half) + half;
+    return sr_heat_rgba(f32_from(t), load64(ctx + 32), out);
+}
+
+# The mesh of mode (a goonj ModeVisualization) into out from the allocator a: its cols × rows pattern (values in
+# [−1, 1]) as a height field over a width × depth XZ plane centred at the origin (f32 bits each), y = value ·
+# height_scale, coloured by params' mode. A non-finite sample is 0. Empty when the pattern doesn't cover cols · rows
+# (warning). out, or 0 when an allocation fails. Mirrors `mode_pattern_to_mesh`.
+fn sr_mode_pattern_to_mesh(mode, width, depth, height_scale, params, a, out) {
+    var dims[16];
+    var cols = soorat_mode_visualization_pattern_dimension(mode, 0);
+    var rows = soorat_mode_visualization_pattern_dimension(mode, 1);
+    store64(&dims, cols);
+    store64(&dims + 8, rows);
+    var pat = soorat_mode_visualization_pattern(mode);
+    var np = 0;
+    if (pat != 0) { np = vec_len(pat); }
+    if (sr_grid_is_backed(&dims, 2, np, "mode_pattern_to_mesh") == 0) { return _sr_mesh_empty(out); }
+    _sr_debug("soorat::acoustic_render: building room mode mesh");
+    var w: f64 = f32_to(width);
+    var d: f64 = f32_to(depth);
+    var mhalf: f64 = -0.5;
+    var hf: SrHeightField;
+    var hp = &hf;
+    store64(hp, cols);
+    store64(hp + 8, rows);
+    store32(hp + 16, f32_from(w * mhalf));
+    store32(hp + 20, f32_from(d * mhalf));
+    store32(hp + 24, 0);
+    store32(hp + 28, 0);
+    if (cols > 1) {
+        var fc: f64 = f64_from(cols - 1);
+        store32(hp + 24, f32_from(w / fc));
+    }
+    if (rows > 1) {
+        var fr: f64 = f64_from(rows - 1);
+        store32(hp + 28, f32_from(d / fr));
+    }
+    var ctx[48];
+    store64(&ctx, pat);
+    store64(&ctx + 8, cols);
+    store64(&ctx + 16, height_scale & 0xFFFFFFFF);
+    store64(&ctx + 24, load64(params));
+    store64(&ctx + 32, load32(params + 24));
+    return sr_heightfield_mesh(hp, &_sr_mode_height, &ctx, &_sr_mode_color, &ctx, a, out);
+}
+
+# The correctly rounded f32 sin, cos and acos of the f32 x (bits): the f64 function of its exact widening, rounded
+# once (glibc's sinf, cosf and acosf, which Rust calls, are within 1 ulp of these; ADR 0002 #16).
+#must_use
+fn _sr_ac_sin32(x): i64 {
+    var w: f64 = f32_to(x);
+    var r: f64 = _sr_km_cr_sin(w);
+    return f32_from(r);
+}
+
+#must_use
+fn _sr_ac_cos32(x): i64 {
+    var w: f64 = f32_to(x);
+    var r: f64 = _sr_km_cr_cos(w);
+    return f32_from(r);
+}
+
+#must_use
+fn _sr_ac_acos32(x): i64 {
+    var w: f64 = f32_to(x);
+    var r: f64 = _sr_km_cr_acos(w);
+    return f32_from(r);
+}
+
+# The index of the finite value in the f64 vec values nearest to target (f32 bits), each value narrowed to f32 and
+# its distance |v − target| an f32, as Rust computes it: the first of equal distances, a NaN distance after every
+# number (`min_by` on `total_cmp`: for these non-negative distances, the order of their bits), or -1 when none is
+# finite. Mirrors `nearest_index`.
+#must_use
+fn _sr_nearest_index(values, target): i64 {
+    if (values == 0) { return 0 - 1; }
+    var best = 0 - 1;
+    var bk = 0;
+    var n = vec_len(values);
+    var i = 0;
+    while (i < n) {
+        var w: f64 = vec_get(values, i);
+        var v = f32_from(w);
+        if ((v & 0x7F800000) != 0x7F800000) {
+            var k = _sr_f32_sub(v, target) & 0x7FFFFFFF;
+            if (best < 0 || k < bk) {
+                best = i;
+                bk = k;
+            }
+        }
+        i = i + 1;
+    }
+    return best;
+}
+
+# The broadband gain of balloon for the lookup angle tha (f32 bits) at elevation el (an index, or -1): the mean, in
+# f64 over the 8 bands, of the gain at the azimuth nearest tha, a missing or non-finite one read as the reference 1
+# (as is everything when el or the azimuth is missing). Mirrors `balloon_broadband_gain`.
+#must_use
+fn _sr_balloon_gain(balloon, el, tha): f64 {
+    var one: f64 = 1.0;
+    var azs = directivity_balloon_azimuths(balloon);
+    var az = _sr_nearest_index(azs, tha);
+    if (az < 0 || el < 0) { return one; }
+    var flat = el * vec_len(azs) + az;
+    var nz = 0x8000000000000000;
+    var sum: f64 = nz;
+    var b = 0;
+    while (b < NUM_BANDS) {
+        var g = directivity_balloon_gain_band(balloon, b);
+        var gv: f64 = one;
+        if (g != 0 && flat < vec_len(g)) {
+            var x: f64 = vec_get(g, flat);
+            if (_sr_f64_finite(x) == 1) { gv = x; }
+        }
+        sum = sum + gv;
+        b = b + 1;
+    }
+    var nb: f64 = f64_from(NUM_BANDS);
+    var r: f64 = sum / nb;
+    return r;
+}
+
+# The mesh of balloon (a goonj DirectivityBalloon) into out from the allocator a: a lat × lon sphere about center
+# (3 f32) whose radius in each direction is base_radius + gain · gain_scale (f32 bits), gain the broadband gain off
+# the front axis (3 f32; +Z when shorter than f32::EPSILON) at the elevation nearest 0, coloured by the heat map of
+# the gain. lat_segments and lon_segments are clamped to 1024; fewer than 2 or 3 gives an empty mesh. Triangles face
+# outward. out, or 0 when an allocation fails. Mirrors `directivity_balloon_to_mesh`.
+#
+# The vertices are the f64 formula, rounded once (sin and cos correctly rounded). The gain lookup (which azimuth and
+# elevation, an index) follows Rust's f32 sequence (D4 rule a), its sin, cos and acos correctly rounded: with f32 π
+# just above π, sin θ at the bottom pole is −8.7e-8, so in f64 the pole's lookup angle wanders around π/2, where a
+# table symmetric about it ties, and neighbouring pole vertices take different gains; Rust's f32 rounding makes them
+# tie alike.
+fn sr_directivity_balloon_to_mesh(balloon, center, front, base_radius, gain_scale, lat_segments, lon_segments, a, out) {
+    var lat = lat_segments & 0xFFFFFFFF;
+    var lon = lon_segments & 0xFFFFFFFF;
+    if (lat < 2 || lon < 3) { return _sr_mesh_empty(out); }
+    if (lat > SR_MAX_SEGMENTS) { lat = SR_MAX_SEGMENTS; }
+    if (lon > SR_MAX_SEGMENTS) { lon = SR_MAX_SEGMENTS; }
+    _sr_debug("soorat::acoustic_render: building directivity balloon");
+    var f0 = load32(front);
+    var f1 = load32(front + 4);
+    var f2 = load32(front + 8);
+    var fss = _sr_f32_add(_sr_f32_add(_sr_f32_mul(f0, f0), _sr_f32_mul(f1, f1)), _sr_f32_mul(f2, f2));
+    var fsw: f64 = f32_to(fss);
+    var flen = f32_from(f64_sqrt(fsw));
+    var flw: f64 = f32_to(flen);
+    if (flw > _SR_F32_EPS) {
+        f0 = _sr_f32_div(f0, flen);
+        f1 = _sr_f32_div(f1, flen);
+        f2 = _sr_f32_div(f2, flen);
+    } else {
+        f0 = 0;
+        f1 = 0;
+        f2 = 0x3F800000;
+    }
+    var el = _sr_nearest_index(directivity_balloon_elevations(balloon), 0);
+    if (_sr_mesh_alloc(a, out, (lat + 1) * (lon + 1), lat * lon * 6) == 0) { return 0; }
+    var trig = alloc_via(a, (lon + 1) * 24);
+    if (trig == 0) { return 0; }
+    var pi: f64 = _SR_PI32;
+    var two: f64 = 2.0;
+    var flon: f64 = f64_from(lon);
+    var flat: f64 = f64_from(lat);
+    var pi32 = 0x40490FDB;
+    var tau32 = 0x40C90FDB;
+    var lon32 = f32_from(flon);
+    var lat32 = f32_from(flat);
+    var j = 0;
+    while (j <= lon) {
+        var fj: f64 = f64_from(j);
+        var phi: f64 = ((two * pi) * fj) / flon;
+        store64(trig + j * 24, _sr_km_cr_sin(phi));
+        store64(trig + j * 24 + 8, _sr_km_cr_cos(phi));
+        var ph32 = _sr_f32_div(_sr_f32_mul(tau32, f32_from(fj)), lon32);
+        store32(trig + j * 24 + 16, _sr_ac_sin32(ph32));
+        store32(trig + j * 24 + 20, _sr_ac_cos32(ph32));
+        j = j + 1;
+    }
+    var cx: f64 = f32_to(load32(center));
+    var cy: f64 = f32_to(load32(center + 4));
+    var cz: f64 = f32_to(load32(center + 8));
+    var br: f64 = f32_to(base_radius);
+    var gs: f64 = f32_to(gain_scale);
+    var vb = load64(out);
+    var k = 0;
+    var i = 0;
+    while (i <= lat) {
+        var fi: f64 = f64_from(i);
+        var th: f64 = (pi * fi) / flat;
+        var st: f64 = _sr_km_cr_sin(th);
+        var ct: f64 = _sr_km_cr_cos(th);
+        var th32 = _sr_f32_div(_sr_f32_mul(pi32, f32_from(fi)), lat32);
+        var st32 = _sr_ac_sin32(th32);
+        var ct32 = _sr_ac_cos32(th32);
+        j = 0;
+        while (j <= lon) {
+            var sph: f64 = load64(trig + j * 24);
+            var cph: f64 = load64(trig + j * 24 + 8);
+            var dx32 = _sr_f32_mul(st32, load32(trig + j * 24 + 20));
+            var dz32 = _sr_f32_mul(st32, load32(trig + j * 24 + 16));
+            var c32 = _sr_f32_add(_sr_f32_add(_sr_f32_mul(dx32, f0), _sr_f32_mul(ct32, f1)), _sr_f32_mul(dz32, f2));
+            var gain: f64 = _sr_balloon_gain(balloon, el, _sr_ac_acos32(_sr_clamp32(c32, 0xBF800000, 0x3F800000)));
+            var d0: f64 = st * cph;
+            var d2: f64 = st * sph;
+            var r: f64 = br + (gain * gs);
+            var v = vb + k * 48;
+            _sr_put3(v, cx + (d0 * r), cy + (ct * r), cz + (d2 * r));
+            _sr_put3(v + 12, d0, ct, d2);
+            var fj2: f64 = f64_from(j);
+            _sr_put2(v + 24, fj2 / flon, fi / flat);
+            sr_visualization_heat_map(f32_from(gain), v + 32);
+            k = k + 1;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    _sr_lattice_into(lat, lon, load64(out + 16));
+    return out;
 }
