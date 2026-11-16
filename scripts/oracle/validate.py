@@ -194,6 +194,15 @@ def g_tokens(template, values):
     return " ".join("g:%08x" % bits(next(it)) if t.startswith("g:") else t for t in template.split(" "))
 
 
+def seq_tokens(vals, idx=None):
+    """A fresh `v:n g:…` token list for the f32 values vals, then `v:m i:…` for the indices idx when given: a class-E
+    output whose length can differ from Rust's (an f32 overflow Rust guards on, which f64 doesn't reach)."""
+    out = [f"v:{len(vals)}"] + ["g:%08x" % bits(v) for v in vals]
+    if idx is not None:
+        out += [f"v:{len(idx)}"] + [f"i:{i}" for i in idx]
+    return " ".join(out)
+
+
 def same(a, b):
     return all((math.isnan(x) and math.isnan(y)) or bits(x) == bits(y) for x, y in zip(a, b)) and len(a) == len(b)
 
@@ -1429,6 +1438,15 @@ class Rd:
 
     def gs(self):
         return [self.g() for _ in range(int(self.tok("v")))]
+
+    def f(self):
+        return struct.unpack("<d", struct.pack("<Q", int(self.tok("f"), 16)))[0]
+
+    def fs(self):
+        return [self.f() for _ in range(int(self.tok("v")))]
+
+    def ints(self):
+        return [self.i() for _ in range(int(self.tok("v")))]
 
     def track(self):
         return [(self.g(), self.gs()) for _ in range(self.i())]
@@ -2862,19 +2880,22 @@ def check_acoustic():
             vals, org, sp, y, mode, alpha = rd.gs(), rd.gs(), rd.g(), rd.i(), rd.i(), rd.g()
             vs, idx = pressure_slice_ref(dims, vals, org, sp, y, mode, alpha, True)
             ok = same(flat(vs), want) and idx == i_values(outs)
-            once = flat(pressure_slice_ref(dims, vals, org, sp, y, mode, alpha, False)[0])
+            vs_e, once_idx = pressure_slice_ref(dims, vals, org, sp, y, mode, alpha, False)
+            once = flat(vs_e)
         elif fn == "mode_pattern_to_mesh":
             dims = [rd.i(), rd.i()]
             pat, w, d, hs, mode, alpha = rd.gs(), rd.g(), rd.g(), rd.g(), rd.i(), rd.g()
             vs, idx = mode_pattern_ref(dims, pat, w, d, hs, mode, alpha, True)
             ok = same(flat(vs), want) and idx == i_values(outs)
-            once = flat(mode_pattern_ref(dims, pat, w, d, hs, mode, alpha, False)[0])
+            vs_e, once_idx = mode_pattern_ref(dims, pat, w, d, hs, mode, alpha, False)
+            once = flat(vs_e)
         elif fn == "directivity_balloon_to_mesh":
             az, el = rd.gs(), rd.gs()
             bands = [rd.gs() for _ in range(8)]
             args = (az, el, bands, rd.gs(), rd.gs(), rd.g(), rd.g(), rd.i(), rd.i())
             ok = balloon_rust_ok(args, want, i_values(outs))
-            once = flat(balloon_ref(*args, False)[0])
+            vs_e, once_idx = balloon_ref(*args, False)
+            once = flat(vs_e)
         else:
             ok, once = False, None
             print(f"acoustic_render: {fn}: no re-derivation in validate.py")
@@ -2884,7 +2905,281 @@ def check_acoustic():
             continue
         n, d = gains.get(fn, (0, 0))
         if not same(once, want):
-            erows.append(f"{fn}\t{ins}\t{g_tokens(outs, once)}\t{note}: f64 once vs Rust f32")
+            mesh_fn = fn in ("pressure_map_slice", "mode_pattern_to_mesh", "directivity_balloon_to_mesh")
+            toks = seq_tokens(once, once_idx if mesh_fn else None)
+            erows.append(f"{fn}\t{ins}\t{toks}\t{note}: f64 once vs Rust f32")
+            d += 1
+        gains[fn] = (n + 1, d)
+    return bad, erows, gains
+
+
+# ── thermo (M5 part c): the core rows exact (A); the renderers in f64 once (E) ────────────────────────────────
+
+EPS64 = 2.220446049250313e-16
+F32_0_1 = from_bits(0x3DCCCCCD)   # 0.1f32
+
+
+def thermal_grid_ref(dims, vals, org, sp, lo, hi, y, mode, base, alpha, f32):
+    nx, ny = dims
+    if nx * ny == 0 or nx * ny > len(vals):
+        return [], []
+
+    def color(ix, iy):
+        t = unit_t_ref(vals[iy * nx + ix], lo, hi)
+        if mode == 1:
+            a = r32(t * alpha)
+            return base[0:3] + [clamp32(a, 0.0, 1.0) if math.isfinite(a) else 0.0]
+        return heat_map(t)[0:3] + [alpha]
+    return xz_mesh(nx, ny, r32(org[0]), r32(org[1]), y, r32(sp[0]), r32(sp[1]), f32, color)
+
+
+def profile_lines(temps, dx, org, dirv, lo, hi, f32):
+    if len(temps) < 2:
+        return []
+    rng = fmax(hi - lo, EPS64)
+    out = []
+    for i in range(len(temps) - 1):
+        n0, n1 = r32((temps[i] - lo) / rng), r32((temps[i + 1] - lo) / rng)
+        col = heat_map(r32(r32(n0 + n1) * 0.5))
+        if f32:
+            dq = r32(dx)
+            d0, d1 = r32(i * dq), r32((i + 1) * dq)
+            p0 = [r32(r32(org[k]) + r32(r32(dirv[k]) * d0)) for k in range(3)]
+            p1 = [r32(r32(org[k]) + r32(r32(dirv[k]) * d1)) for k in range(3)]
+        else:
+            d0, d1 = i * dx, (i + 1) * dx
+            p0 = [r32(org[k] + dirv[k] * d0) for k in range(3)]
+            p1 = [r32(org[k] + dirv[k] * d1) for k in range(3)]
+        out += p0 + col + p1 + col
+    return out
+
+
+def finite_bounds(vs):
+    fin = [v for v in vs if math.isfinite(v)]
+    if not fin:
+        return None
+    lo = hi = fin[0]
+    for v in fin[1:]:
+        lo = v if v <= lo else lo
+        hi = v if v >= hi else hi
+    return lo, hi
+
+
+def diagram_lines(pts, ox, oy, oz, xs, ys, color, f32):
+    if len(pts) < 2:
+        return []
+    bx, by = finite_bounds([p[0] for p in pts]), finite_bounds([p[1] for p in pts])
+    if bx is None or by is None:
+        return []
+    rx, ry = fmax(bx[1] - bx[0], EPS64), fmax(by[1] - by[0], EPS64)
+    out = []
+    for p, q2 in zip(pts, pts[1:]):
+        if not all(math.isfinite(c) for c in p + q2):
+            continue
+        ends = []
+        for e in (p, q2):
+            ux, uy = (e[0] - bx[0]) / rx, (e[1] - by[0]) / ry
+            if f32:
+                ends.append([r32(ox + r32(r32(ux) * xs)), r32(oy + r32(r32(uy) * ys)), oz])
+            else:
+                ends.append([r32(ox + ux * xs), r32(oy + uy * ys), oz])
+        out += ends[0] + color + ends[1] + color
+    return out
+
+
+def cycle_lines(ts, pv, origin, xs, ys, tsc, pvc, off, f32):
+    pvx = r32(origin[0] + off) if f32 else origin[0] + off
+    return (diagram_lines(ts, origin[0], origin[1], origin[2], xs, ys, tsc, f32)
+            + diagram_lines(pv, pvx, origin[1], origin[2], xs, ys, pvc, f32))
+
+
+def network_positions(n, center, radius, f32, alt=None):
+    """Each node's (x, z): Rust's f32 (cosf and sinf correctly rounded, or alt[k] = (dc, ds) ulps off) or f64 with cos
+    and sin correctly rounded, unrounded."""
+    out = []
+    for k in range(n):
+        if f32:
+            ang = r32(r32(TAU32 * k) / n)
+            dc, ds = alt[k] if alt else (0, 0)
+            c, sn = ulp_step(trig_cr(math.cos, ang), dc), ulp_step(trig_cr(math.sin, ang), ds)
+            out.append((r32(center[0] + r32(radius * c)), r32(center[2] + r32(radius * sn))))
+        else:
+            ang = (TAU32 * k) / n
+            out.append((center[0] + radius * cr_cos(ang), center[2] + radius * cr_sin(ang)))
+    return out
+
+
+def network_lines(temps, edges, conds, center, radius, ns, f32, pos):
+    n = len(temps)
+    if n == 0:
+        return []
+    mn, mx = 1.7976931348623157e308, -1.7976931348623157e308
+    for t in temps:
+        mn = t if t < mn else mn
+        mx = t if t > mx else mx
+    rng = fmax(mx - mn, EPS64)
+    maxc = 0.0
+    for c in conds:
+        maxc = fmax(maxc, c)
+    maxc = fmax(maxc, EPS64)
+    cy = center[1]
+    raise_y = r32(cy + r32(ns * F32_0_1)) if f32 else r32(cy + ns * F32_0_1)
+    out = []
+    for i, (a, b) in enumerate(edges):
+        if a >= n or b >= n:
+            continue
+        ta, tb = r32((temps[a] - mn) / rng), r32((temps[b] - mn) / rng)
+        col = heat_map(r32(r32(ta + tb) * 0.5))
+        pa, pb = pos[a], pos[b]
+        out += [r32(pa[0]), cy, r32(pa[1])] + col + [r32(pb[0]), cy, r32(pb[1])] + col
+        cond = conds[i] if i < len(conds) else 0.0
+        if cond / maxc > 0.5:
+            out += [r32(pa[0]), raise_y, r32(pa[1])] + col + [r32(pb[0]), raise_y, r32(pb[1])] + col
+    for k in range(n):
+        col = heat_map(r32((temps[k] - mn) / rng))
+        x, z = pos[k]
+        q = r32 if f32 else (lambda v: v)
+        xr, zr = r32(x), r32(z)
+        for a0, a1 in (([r32(q(x) - ns), cy, zr], [r32(q(x) + ns), cy, zr]),
+                       ([xr, r32(cy - ns), zr], [xr, r32(cy + ns), zr]),
+                       ([xr, cy, r32(q(z) - ns)], [xr, cy, r32(q(z) + ns)])):
+            out += a0 + col + a1 + col
+    return out
+
+
+def network_rust_ok(temps, edges, conds, center, radius, ns, want):
+    """Whether Rust's network explains the corpus row, each node's cosf and sinf correctly rounded or 1 ulp off: each
+    node's position is read from its middle cross line, checked, and the rest re-derived."""
+    n = len(temps)
+    base = network_positions(n, center, radius, True)
+    mine = network_lines(temps, edges, conds, center, radius, ns, True, base)
+    if same(mine, want):
+        return True
+    if len(mine) != len(want) or n == 0:
+        return False
+    first = len(mine) // 14 - 3 * n
+    alt = []
+    for k in range(n):
+        v = want[(first + 3 * k + 1) * 14:(first + 3 * k + 1) * 14 + 3]
+        hit = None
+        for d in itertools.product((0, -1, 1), repeat=2):
+            p = network_positions(n, center, radius, True, alt=[d if j == k else (0, 0) for j in range(n)])[k]
+            if same([p[0], p[1]], [v[0], v[2]]):
+                hit = d
+                break
+        if hit is None:
+            return False
+        alt.append(hit)
+    return same(network_lines(temps, edges, conds, center, radius, ns, True,
+                              network_positions(n, center, radius, True, alt=alt)), want)
+
+
+def flux_lines(dims, vecs, sp, mm, y, scale, f32):
+    nx, ny = dims
+    if nx * ny == 0 or nx * ny > len(vecs):
+        return []
+    q = _q(f32)
+    if math.isfinite(mm) and mm > 0.0:
+        mxm = r32(mm) if f32 else mm
+    else:
+        hi = finite_bounds([math.sqrt(v[0] * v[0] + v[1] * v[1]) for v in vecs])
+        mxm = 0.0 if hi is None else (r32(hi[1]) if f32 else hi[1])
+    mxm = fmax(mxm, EPS32)
+    dxq, dyq = (r32(sp[0]), r32(sp[1])) if f32 else sp
+    out = []
+    for iy in range(ny):
+        for ix in range(nx):
+            v = vecs[iy * nx + ix]
+            qx, qy = (r32(v[0]), r32(v[1])) if f32 else v
+            ss = q(q(qx * qx) + q(qy * qy))
+            mag = q(math.sqrt(ss)) if not math.isnan(ss) else math.nan
+            if not math.isfinite(mag) or mag < EPS32:
+                continue
+            dxr, dzr = q(qx / mag), q(qy / mag)
+            t = clamp32(q(mag / mxm), 0.0, 1.0)
+            ln = q(t * scale)
+            bx, bz = q(ix * dxq), q(iy * dyq)
+            tx, tz = q(bx + q(dxr * ln)), q(bz + q(dzr * ln))
+            col = heat_map(r32(t))
+            hs = q(ln * F32_0_2)
+            bkx, bkz = q(tx - q(dxr * hs)), q(tz - q(dzr * hs))
+            tip = [r32(tx), y, r32(tz)]
+            out += [r32(bx), y, r32(bz)] + col + tip + col
+            out += tip + col + [r32(q(bkx + q(-dzr * hs))), y, r32(q(bkz + q(dxr * hs)))] + col
+            out += tip + col + [r32(q(bkx - q(-dzr * hs))), y, r32(q(bkz - q(dxr * hs)))] + col
+    return out
+
+
+def check_thermo():
+    """Re-derives every `thermo` and `thermo_render` row; returns (rows that differ, the thermo_render.e.tsv rows,
+    {fn: (rows, differing)})."""
+    bad, erows, gains = 0, [], {}
+    path = os.path.join(GOLDEN, "thermo.tsv")
+    if os.path.exists(path):
+        _, body = rows(path)
+        for fn, _cls, ins, outs, note in body:
+            want = g_values(outs)
+            if fn == "thermal_heat_map":
+                ok = same(heat_map(g_values(ins)[0]), want)
+            elif fn == "ThermalVisParams::default":
+                ok = outs.startswith("e:ThermalColorMode.Temperature ") and same(want, [1.0, 0.0, 0.0, 1.0, 1.0])
+            elif fn == "CycleDiagramParams::default":
+                ok = same(want, [0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0,
+                                 from_bits(0x3E4CCCCD), 0.5, 1.0, 1.0])
+            else:
+                ok = False
+            if not ok:
+                bad += 1
+                print(f"thermo: {fn} {note}: re-derived outputs differ from the corpus")
+    path = os.path.join(GOLDEN, "thermo_render.tsv")
+    if not os.path.exists(path):
+        return bad, erows, gains
+    _, body = rows(path)
+    for fn, _cls, ins, outs, note in body:
+        rd, want = Rd(ins), g_values(outs)
+        if fn == "thermal_grid_to_mesh":
+            dims = [rd.i(), rd.i()]
+            a = (dims, rd.fs(), [rd.f(), rd.f()], [rd.f(), rd.f()], rd.f(), rd.f(), rd.g(), rd.i(), rd.gs(), rd.g())
+            vs, idx = thermal_grid_ref(*a, True)
+            ok = same(flat(vs), want) and idx == i_values(outs)
+            vs_e, idx_e = thermal_grid_ref(*a, False)
+            once, once_idx = flat(vs_e), idx_e
+        elif fn == "temperature_profile_to_lines":
+            a = (rd.fs(), rd.f(), rd.fs(), rd.fs(), rd.f(), rd.f())
+            ok = same(profile_lines(*a, True), want)
+            once = profile_lines(*a, False)
+        elif fn == "cycle_diagram_to_lines":
+            tsf, pvf = rd.fs(), rd.fs()
+            ts = [tsf[k:k + 2] for k in range(0, len(tsf), 2)]
+            pv = [pvf[k:k + 2] for k in range(0, len(pvf), 2)]
+            a = (ts, pv, rd.gs(), rd.g(), rd.g(), rd.gs(), rd.gs(), rd.g())
+            ok = same(cycle_lines(*a, True), want)
+            once = cycle_lines(*a, False)
+        elif fn == "thermal_network_to_lines":
+            temps, ef, conds = rd.fs(), rd.ints(), rd.fs()
+            edges = [ef[k:k + 2] for k in range(0, len(ef), 2)]
+            center, radius, ns = rd.gs(), rd.g(), rd.g()
+            ok = network_rust_ok(temps, edges, conds, center, radius, ns, want)
+            once = network_lines(temps, edges, conds, center, radius, ns, False,
+                                 network_positions(len(temps), center, radius, False))
+        elif fn == "heat_flux_to_arrows":
+            dims = [rd.i(), rd.i()]
+            vf = rd.fs()
+            vecs = [vf[k:k + 2] for k in range(0, len(vf), 2)]
+            a = (dims, vecs, [rd.f(), rd.f()], rd.f(), rd.g(), rd.g())
+            ok = same(flux_lines(*a, True), want)
+            once = flux_lines(*a, False)
+        else:
+            ok, once = False, None
+            print(f"thermo_render: {fn}: no re-derivation in validate.py")
+        if not ok:
+            bad += 1
+            print(f"thermo_render: {fn} {note}: re-derived f32 outputs differ from the corpus")
+            continue
+        n, d = gains.get(fn, (0, 0))
+        if not same(once, want):
+            toks = seq_tokens(once, once_idx if fn == "thermal_grid_to_mesh" else None)
+            erows.append(f"{fn}\t{ins}\t{toks}\t{note}: f64 once vs Rust f32")
             d += 1
         gains[fn] = (n + 1, d)
     return bad, erows, gains
@@ -3139,6 +3434,11 @@ def main():
     failures += abad
     acbad, acerows, acgain = check_acoustic()
     failures += acbad
+    thbad, therows, thgain = check_thermo()
+    failures += thbad
+    sides_e.append(("thermo_render.e.tsv", "class-E rows (ADR 0002 #4, #30, D4 rule b): Rust's formula in f64 from "
+                    "ushma's f64 inputs (cos and sin correctly rounded), rounded once to f32, where that differs from "
+                    "Rust's f32 outputs", therows))
     sides_e.append(("acoustic_render.e.tsv", "class-E rows (ADR 0002 #4, #29, D4 rule b): Rust's formula in f64 from "
                     "goonj's f64 inputs (exp and log10 correctly rounded), rounded once to f32, where that differs from "
                     "Rust's f32 outputs", acerows))
@@ -3201,6 +3501,8 @@ def main():
     print("gltf: " + ", ".join(f"{v} {k}" for k, v in sorted(gltally.items())) + " (refusals and panics are the oracle's)")
     for fn, (n, d) in sorted(shgain.items()):
         print(f"shadow {fn:<30} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
+    for fn, (n, d) in sorted(thgain.items()):
+        print(f"thermo_render {fn:<29} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
     for fn, (n, d) in sorted(acgain.items()):
         print(f"acoustic_render {fn:<27} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
     for fn, (n, d) in sorted(again.items()):

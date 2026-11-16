@@ -29,7 +29,7 @@ soorat is being ported to Cyrius. Plan of record: `docs/development/soorat-port-
     still green.
 
 **Cyrius cleanliness check** (every work-loop step that says "cleanliness check"):
-- `cyrius deps --locked --features optics,physics-debug,acoustics` (the tests use every feature), `cyrius build`,
+- `cyrius deps --locked --features optics,physics-debug,acoustics,thermo` (the tests use every feature), `cyrius build`,
   `cyrius distlib --check` (the core bundle and the `optics`, `serde` and `physics-debug` profiles);
 - `cyrius test --bounds`, with **zero warnings**: the f32 and f64 type diagnostics appear only there;
 - `cyrius fmt --check`, `cyrius lint`;
@@ -46,14 +46,14 @@ soorat is being ported to Cyrius. Plan of record: `docs/development/soorat-port-
   defines those.
 - **Memory:** per-frame data goes in a frame arena. The global `alloc` never frees.
 - Generate vertices straight into the upload buffer; `memcpy` is a byte loop.
-- **Class-E transcendentals are correctly rounded:** f64 `sin`/`acos` from `src/crmath.cyr`, and `exp`/`log10`/`cos`
+- **Class-E transcendentals are correctly rounded:** f64 `sin`/`cos`/`acos` from `src/crmath.cyr`, and `exp`/`log10`
   from `src/crmath_ext.cyr` in the `acoustics` profile (kimiya's, vendored by `scripts/vendor_crmath.py`; never edit
   them). ganita's are up to 2 ulp off, which shows wherever a formula cancels.
 - **GPU access goes through mabda only.** No wgpu-native FFI in soorat.
 - **Optional dependencies are profiles** (M1): the code is a file outside `[lib]`, bundled by `[lib.<feature>]`
   (`optics`: prakash; `serde` and `gltf`: bayan, whose tables cost every including binary ~372 KB; `physics-debug`:
-  impetus; `acoustics`: goonj and hisab, ~329 KB). Measure a new stdlib leaf's binary cost before making it a production
-  dependency.
+  impetus; `acoustics`: goonj and hisab, ~329 KB; `thermo`: ushma, hisab and the bayan ushma reads JSON with, ~712 KB).
+  Measure a new stdlib leaf's binary cost before making it a production dependency.
 - **A top-level bare `var g[N]` is N i64 slots** (N × 8 bytes); a local one is N bytes. Write `var g: u8[N]` for an
   N-byte static buffer. Static data counts against the compiler's 128 KiB advisory, which is a gate warning.
 

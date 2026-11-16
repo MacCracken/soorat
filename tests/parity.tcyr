@@ -1294,6 +1294,36 @@ fn _par_acoustic(fp, fl): i64 {
     return 0;
 }
 
+# ── thermo (src/thermo.cyr: the core half of thermo_render) ──────────────────────────
+
+# Fills the got list for one `thermo` row: the heat map and the two parameter structs' defaults.
+fn _par_thermo(fp, fl): i64 {
+    if (_par_eq(fp, fl, "thermal_heat_map") == 1) {
+        _par_got_g32s(sr_thermal_heat_map(_par_in(0), _par_gr), 4);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "ThermalVisParams::default") == 1) {
+        var u[32];
+        SrThermalVisParams_default(&u);
+        if (load64(&u) == SR_THERMAL_COLOR_MODE_TEMPERATURE) { _par_got_e("ThermalColorMode.Temperature"); }
+        else { _par_got_e("ThermalColorMode.Other"); }
+        _par_got_g32s(&u + 8, 4);
+        _par_got_g(load32(&u + 24));
+        return 1;
+    }
+    if (_par_eq(fp, fl, "CycleDiagramParams::default") == 1) {
+        var d[56];
+        SrCycleDiagramParams_default(&d);
+        _par_got_g32s(&d, 3);
+        _par_got_g(load32(&d + 12));
+        _par_got_g(load32(&d + 16));
+        _par_got_g32s(&d + 20, 4);
+        _par_got_g32s(&d + 36, 4);
+        return 1;
+    }
+    return 0;
+}
+
 # ── render_graph (src/render_graph.cyr) ──────────────────────────────────────────────
 
 # The golden name of an SR_PASS_TYPE_* code's `PassType` variant.
@@ -1599,6 +1629,7 @@ fn _par_dispatch(mp, ml, fp, fl): i64 {
     if (_par_eq(mp, ml, "pbr_material") == 1) { return _par_pbr(fp, fl); }
     if (_par_eq(mp, ml, "render_graph") == 1) { return _par_rg(fp, fl); }
     if (_par_eq(mp, ml, "acoustic") == 1) { return _par_acoustic(fp, fl); }
+    if (_par_eq(mp, ml, "thermo") == 1) { return _par_thermo(fp, fl); }
     return 0;
 }
 
@@ -1646,6 +1677,7 @@ fn _par_module_done(mp, ml) {
 fn _par_skip(mp, ml): i64 {
     if (_par_eq(mp, ml, "color_optics") == 1 || _par_eq(mp, ml, "debug_collider") == 1) { return 1; }
     if (_par_eq(mp, ml, "pbr_optics") == 1 || _par_eq(mp, ml, "acoustic_render") == 1) { return 1; }
+    if (_par_eq(mp, ml, "thermo_render") == 1) { return 1; }
     return 0;
 }
 

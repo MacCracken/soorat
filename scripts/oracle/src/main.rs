@@ -38,6 +38,7 @@ mod m_shadow;
 mod m_sprite;
 mod m_tables;
 mod m_text;
+mod m_thermo;
 
 /// One module's rows, written as `tests/golden/<name>.tsv`, and any input files its rows name, written as
 /// `tests/golden/<name>/<file>` (the glTF fixtures).
@@ -250,6 +251,8 @@ fn main() {
         m_rg::module(),
         m_acoustic::module(),
         m_acoustic::render_module(),
+        m_thermo::module(),
+        m_thermo::render_module(),
         m_json::module(),
     ];
 

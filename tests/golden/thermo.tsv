@@ -1,0 +1,17 @@
+# soorat golden corpus, format 1: thermo
+# recorded: soorat 1.2.0 (rust-old/, oracle feature); libm: glibc 2.44 x86_64 fma
+# regenerate: cargo run --release --locked --manifest-path scripts/oracle/Cargo.toml (never patch a row)
+# columns: fn<TAB>class<TAB>inputs<TAB>outputs<TAB>note (tokens: scripts/oracle/README.md)
+# rows: 12
+thermal_heat_map	A	g:00000000	v:4 g:00000000 g:00000000 g:3f800000 g:3f800000	t 0
+thermal_heat_map	A	g:3e800000	v:4 g:00000000 g:3f800000 g:3f800000 g:3f800000	t 0.25
+thermal_heat_map	A	g:3f000000	v:4 g:00000000 g:3f800000 g:00000000 g:3f800000	t 0.5
+thermal_heat_map	A	g:3f400000	v:4 g:3f800000 g:3f800000 g:00000000 g:3f800000	t 0.75
+thermal_heat_map	A	g:3f800000	v:4 g:3f800000 g:00000000 g:00000000 g:3f800000	t 1
+thermal_heat_map	A	g:bf800000	v:4 g:00000000 g:00000000 g:3f800000 g:3f800000	t -1
+thermal_heat_map	A	g:40000000	v:4 g:3f800000 g:00000000 g:00000000 g:3f800000	t 2
+thermal_heat_map	A	g:7fc00000	v:4 g:00000000 g:00000000 g:3f800000 g:3f800000	t NaN
+thermal_heat_map	A	g:3e99999a	v:4 g:00000000 g:3f800000 g:3f4ccccc g:3f800000	t 0.3
+thermal_heat_map	A	g:3f19999a	v:4 g:3eccccd0 g:3f800000 g:00000000 g:3f800000	t 0.6
+ThermalVisParams::default	A	-	e:ThermalColorMode.Temperature v:4 g:3f800000 g:00000000 g:00000000 g:3f800000 g:3f800000	ThermalVisParams::default()
+CycleDiagramParams::default	A	-	v:3 g:00000000 g:00000000 g:00000000 g:3f800000 g:3f800000 v:4 g:3f800000 g:00000000 g:00000000 g:3f800000 v:4 g:3e4ccccd g:3f000000 g:3f800000 g:3f800000	CycleDiagramParams::default()

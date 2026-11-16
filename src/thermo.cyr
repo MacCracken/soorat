@@ -1,0 +1,47 @@
+# thermo.cyr — the producer-free half of Rust 1.2.0's src/thermo_render.rs (M5 part c): its colour mode, the two
+# parameter structs and their defaults, and `thermal_heat_map`. Rust compiles these without the `thermo` feature, so
+# they are in `[lib]`. The renderers, which read ushma's types, are src/thermo_render.cyr in the `[lib.thermo]`
+# profile.
+#
+# **Layout.** `SrThermalVisParams` (32 bytes): color_mode (an SR_THERMAL_COLOR_MODE_*) at 0, base_color (an SrColor)
+# at 8, alpha (f32) at 24. `SrCycleDiagramParams` (52 bytes): origin as origin_0 … origin_2 (f32, Cyrius has no array
+# fields) at 0, x_scale and y_scale (f32) at 12 and 16, ts_color and pv_color (SrColor) at 20 and 36.
+
+enum SrThermalColorMode {
+    SR_THERMAL_COLOR_MODE_TEMPERATURE = 0;
+    SR_THERMAL_COLOR_MODE_ALPHA_BLEND = 1;
+}
+
+struct SrThermalVisParams { color_mode; base_color: SrColor; alpha: f32; _pad0: f32; }
+struct SrCycleDiagramParams { origin_0: f32; origin_1: f32; origin_2: f32; x_scale: f32; y_scale: f32;
+    ts_color: SrColor; pv_color: SrColor; }
+
+# The default parameters into out: Temperature, red, alpha 1. Mirrors `impl Default for ThermalVisParams`.
+fn SrThermalVisParams_default(out) {
+    store64(out, SR_THERMAL_COLOR_MODE_TEMPERATURE);
+    memcpy(out + 8, SR_COLOR_RED, 16);
+    store32(out + 24, _SR_C1);
+    store32(out + 28, 0);
+    return out;
+}
+
+# The default diagram parameters into out: origin 0, scales 1, a red T-s and a (0.2, 0.5, 1, 1) P-v diagram. Mirrors
+# `impl Default for CycleDiagramParams`.
+fn SrCycleDiagramParams_default(out) {
+    store32(out, 0);
+    store32(out + 4, 0);
+    store32(out + 8, 0);
+    store32(out + 12, _SR_C1);
+    store32(out + 16, _SR_C1);
+    memcpy(out + 20, SR_COLOR_RED, 16);
+    store32(out + 36, 0x3E4CCCCD);
+    store32(out + 40, 0x3F000000);
+    store32(out + 44, _SR_C1);
+    store32(out + 48, _SR_C1);
+    return out;
+}
+
+# The heat-map colour of t (f32 bits) into out: `visualization_heat_map`'s. Mirrors `thermal_heat_map`.
+fn sr_thermal_heat_map(t, out) {
+    return sr_visualization_heat_map(t, out);
+}

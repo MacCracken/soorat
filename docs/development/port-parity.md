@@ -1039,7 +1039,7 @@ production stdlib leaves. So the PE binaries were built from a wrapper that incl
 `lib/overflow.cyr` and `lib/bayan.cyr` before the test file. `cyrius vet` is clean (8 dependencies, none untrusted or
 missing).
 
-## 6. M5: science visualization (parts a and b, 2026-11-15)
+## 6. M5: science visualization (parts a–c, 2026-11-15)
 
 ### 6.1 Part a: the acoustic types and line renderers, the `acoustics` profile
 
@@ -1121,4 +1121,45 @@ a ported test (vertex count), not a row: its row alone would have been 665 KB.
 | `acoustic/pressure_slice_32x32` | 182 µs | 1,024 cells, about 178 ns each: two vec reads, the normalization, the heat map, 4 vertices |
 | `acoustic/mode_pattern_32x32` | 159 µs | 1,024 samples through viz's height field (M3's 32² terrain: 98 µs), plus the vec reads and callbacks |
 | `acoustic/balloon_32x64` | 1.76 ms | 2,145 vertices, about 820 ns each: an f32 acos and a 37-azimuth nearest scan per vertex |
+
+### 6.5 Part c: the thermal renderers, the `thermo` profile
+
+| Function | Rows | f64-once differs from Rust's f32 |
+|---|---|---|
+| `thermal_grid_to_mesh` | 46 | 31 (67.4 %): viz's f64 builder; the colours are Rust's |
+| `temperature_profile_to_lines` | 47 | 39 (83.0 %): origin + direction · (i · dx) in f64, where Rust narrows each first |
+| `cycle_diagram_to_lines` | 47 | 35 (74.5 %): origin + normalized · scale in f64 |
+| `thermal_network_to_lines` | 47 | 42 (89.4 %): the circle with cos and sin correctly rounded in f64, and the crosses about it |
+| `heat_flux_to_arrows` | 49 | 42 (85.7 %): magnitude, direction, length and head in f64 |
+
+`thermo` (12 rows: the heat map, both defaults) is class A. All 248 rows pass; `thermo_render` has its own replay,
+`tests/parity_thermo.tcyr`, 47 identical and 189 accepted E.
+
+- **ushma's types are f64 on both sides.** Rust ushma 1.4.0's structs hold f64 as ushma 2.0.0's do; Rust narrows with
+  `as f32` before its f32 arithmetic. So, unlike acoustics, the oracle feeds any f64 (`f:` tokens), not just
+  f32-representable values. The harness and tests build ushma's structs at their documented layouts through typed
+  pointers (`_sr_us_grid` and the other casts in `src/thermo_render.cyr`).
+- **An f32 overflow can change an output's length.** A flux of (1e30, 1e30): Rust's f32 square overflows, its
+  magnitude is infinite and the arrow is skipped; in f64 the magnitude is 1.4e30 and the arrow draws. `validate.py`
+  wrote class-E rows by filling Rust's row's token structure (`g_tokens`), which kept Rust's empty `v:0`; it now
+  writes a fresh token list (`seq_tokens`). The acoustic side table came out byte-identical, since none of its rows
+  changed length.
+- **Rust's network re-derives** by reading each node's position from its middle cross line, checking it is Rust's f32
+  formula with `cosf` and `sinf` within 1 ulp of correctly rounded, and re-deriving everything else from it.
+- **ushma's cost.** A minimal consumer is 127,792 bytes, and 840,104 with ushma and hisab: about 712 KB, much of it
+  the bayan ushma includes for its JSON (bayan's tables are ~372 KB). hisab resolves to 3.5.0 (goonj is declared
+  first; ushma pins 3.4.1, L11).
+- **Static data.** A bare test compile is 45,368 bytes; optics with physics-debug adds 40.4 KB, acoustics 46.9 KB,
+  thermo with its renderers 60.0 KB (105,352). No two of those fit together under the 128 KiB advisory, so each has its
+  own replay. `cos` moved from `src/crmath_ext.cyr` into `src/crmath.cyr`: it is one function on `sin`'s tables, and
+  the thermo profile would otherwise have carried `crmath_ext`'s 33 KB of exp and log10 tables.
+
+### 6.6 Part c speed (`taskset -c 10 cyrius bench`; two runs agreed)
+
+| Bench (extra: no Rust twin) | Cyrius | Notes |
+|---|---|---|
+| `thermo/grid_32x32` | 168 µs | 1,024 cells through viz's heat-map builder |
+| `thermo/flux_32x32` | 204 µs | 1,024 arrows (3,072 lines), about 200 ns each |
+| `thermo/network_32` | 15.0 µs | 32 nodes: 32 correctly rounded cos/sin pairs, 32 edges, 96 cross lines |
+| `thermo/profile_100` | 9.5 µs | 99 lines |
 

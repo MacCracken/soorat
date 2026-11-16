@@ -2,6 +2,7 @@ commit	575b34808baf3405852ed90dbd1f395f342f49c4	goonj	https://github.com/MacCrac
 commit	96c1d8d9972f52b5dfd87af1c2441ba6819f6fdd	hisab	https://github.com/MacCracken/hisab.git	3.5.0
 commit	4b72df7bbbc076646b6bdc0d336d796e854ca1da	impetus	https://github.com/MacCracken/impetus.git	2.0.0
 commit	75ba6aa3cae6012c06c1dd5125e67a1bd01a1123	prakash	https://github.com/MacCracken/prakash.git	2.15.2
+commit	cdc91eeb61bfc9af3c444d59d5c2c824641366a1	ushma	https://github.com/MacCracken/ushma.git	2.0.0
 346716377b00f36e58eb16cf7fe1dd62dd8fe577930d0d0429f822795b35817c  lib/alloc.cyr
 5afd5bb7cba4e49fee331f6a2838f4e01d9781defaf531403f6616f42ac7151b  lib/alloc_agnos.cyr
 57af1877c5082793ecfcfb2bf358c81cda79eaaae4feaa12eb7b963c4cbdf739  lib/alloc_cx.cyr
@@ -27,6 +28,7 @@ b99081e633d572569ee63c6a915fe4aa39b3ac4ff5665c08cc4c9416ed2f6928  lib/boxed.cyr
 6e64c5db09b1fd4fa5ca246b52f56d8526f5619e2ff02d46f65b500367509f83  lib/hisab.cyr
 02860e21f99681317b27a70a86df9ec35ea2810edd7666792cf9a5ffc43d2b01  lib/impetus-3d.cyr
 e532c082ce75b0f18dc8e3c07462300b428e432aa19e6a5fcc2b0b6b174be45d  lib/io.cyr
+af05f6b5ad67b9379f0d8d747255c7763d0209e1e5b51fe16a872d184673af35  lib/log.cyr
 3a85748ee6bf83fe72bb310f21341c97232649def8c6064213da5502d86888f4  lib/math.cyr
 6390e2b0611636af94078acc9a6122eaaeab59b31c5cffe95bbcbc77d89748e5  lib/mmap.cyr
 16d92c974874d54467facb1a59d120f164d0215ad24a75a8aebe2abcb4c38a57  lib/overflow.cyr
@@ -53,5 +55,6 @@ aeeba5627b78ffca6a34ebcbe318f50726a87d4f19713bf9ed070bbbec7ded74  lib/unicode/_d
 224acfc288e499dd9d14f37cfb4f09a6db23a91cbc7d840083cc25f4ba40c9aa  lib/unicode/casefold.cyr
 34e0d5bc69f7fdf414d3262b2c54e462f243701e68454bad21ad1a1e9f4a6c8b  lib/unicode/categories.cyr
 c1f5dc3cd1aa0be1ce1939a1d9fd1eda83f409e09e301a902ce7fcf65dd4eb40  lib/unicode/normalize.cyr
+15f71f9b817aae4e5ee80652ef6322b11e6f4e0203d2a1eaff439e4129ebffe8  lib/ushma.cyr
 0566d0b778ac0e41ae27debbb5a7f7e579f14cc9e222a6e367309ea0e1408081  lib/vec.cyr
 cyrius	6.7.18

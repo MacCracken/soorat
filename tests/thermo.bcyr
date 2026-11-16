@@ -1,0 +1,148 @@
+# thermo.bcyr — the thermal renderers of M5 part c (the `thermo` profile, ushma). Rust 1.2.0 has no bench for them, so
+# these are extras: a 32 × 32 thermal grid's heat-map mesh, a 32 × 32 heat-flux field's arrows, a 32-node ring
+# network, and a 100-sample temperature profile.
+
+include "tests/lib.cyr"
+include "src/thermo_render.cyr"
+
+var _sink = 0;
+
+# The f64 bits of num / den.
+fn fr(num, den): i64 {
+    var a: f64 = f64_from(num);
+    var b: f64 = f64_from(den);
+    var r: f64 = a / b;
+    return r;
+}
+
+# Runs the thermo benches.
+fn main(): i64 {
+    alloc_init();
+    var A = arena_allocator_growable(1 << 20);
+    var M = alloc(48);
+    var tp[32];
+    SrThermalVisParams_default(&tp);
+    var gm = alloc(sizeof(UsGridVisualization));
+    memset(gm, 0, sizeof(UsGridVisualization));
+    var g: *UsGridVisualization = _sr_us_grid(gm);
+    var vals = vec_new();
+    var q = 0;
+    while (q < 1024) {
+        vec_push(vals, fr(300 + (q * 37) % 101, 1));
+        q = q + 1;
+    }
+    var one: f64 = fr(1, 4);
+    var lo: f64 = fr(300, 1);
+    var hi: f64 = fr(400, 1);
+    g.values = vals;
+    g.nx = 32;
+    g.ny = 32;
+    g.dx = one;
+    g.dy = one;
+    g.min_temp = lo;
+    g.max_temp = hi;
+    var b1 = bench_new("thermo/grid_32x32");
+    bench_batch_start(b1);
+    var i = 0;
+    while (i < 500) {
+        reset_via(A);
+        _sink = sr_thermal_grid_to_mesh(gm, 0, &tp, A, M);
+        i = i + 1;
+    }
+    bench_batch_stop(b1, 500);
+    bench_report(b1);
+
+    var fm = alloc(sizeof(UsHeatFluxField));
+    memset(fm, 0, sizeof(UsHeatFluxField));
+    var fx: *UsHeatFluxField = _sr_us_flux(fm);
+    var fl = vec_new();
+    q = 0;
+    while (q < 1024) {
+        vec_push(fl, fr((q * 13) % 41 - 20, 1));
+        vec_push(fl, fr((q * 7) % 29 - 14, 1));
+        q = q + 1;
+    }
+    var mm: f64 = fr(0, 1);
+    fx.fluxes = fl;
+    fx.nx = 32;
+    fx.ny = 32;
+    fx.dx = one;
+    fx.dy = one;
+    fx.max_magnitude = mm;
+    var lb = SrLineBatch_new();
+    var b2 = bench_new("thermo/flux_32x32");
+    bench_batch_start(b2);
+    i = 0;
+    while (i < 500) {
+        SrLineBatch_clear(lb);
+        _sink = sr_heat_flux_to_arrows(fm, 0, 0x3E800000, lb);
+        i = i + 1;
+    }
+    bench_batch_stop(b2, 500);
+    bench_report(b2);
+
+    var nm = alloc(sizeof(UsNetworkVisualization));
+    memset(nm, 0, sizeof(UsNetworkVisualization));
+    var nw: *UsNetworkVisualization = _sr_us_network(nm);
+    var temps = vec_new();
+    var edges = vec_new();
+    var conds = vec_new();
+    q = 0;
+    while (q < 32) {
+        vec_push(temps, fr(300 + q * 3, 1));
+        vec_push(edges, q);
+        vec_push(edges, (q + 1) % 32);
+        vec_push(conds, fr(q % 5, 4));
+        q = q + 1;
+    }
+    nw.node_temperatures = temps;
+    nw.edges = edges;
+    nw.conductances = conds;
+    var ctr[16];
+    store32(&ctr, 0);
+    store32(&ctr + 4, 0);
+    store32(&ctr + 8, 0);
+    var b3 = bench_new("thermo/network_32");
+    bench_batch_start(b3);
+    i = 0;
+    while (i < 2000) {
+        SrLineBatch_clear(lb);
+        _sink = sr_thermal_network_to_lines(nm, &ctr, 0x40A00000, 0x3E4CCCCD, lb);
+        i = i + 1;
+    }
+    bench_batch_stop(b3, 2000);
+    bench_report(b3);
+
+    var pm = alloc(sizeof(UsTemperatureProfile));
+    memset(pm, 0, sizeof(UsTemperatureProfile));
+    var p: *UsTemperatureProfile = _sr_us_profile(pm);
+    var pt = vec_new();
+    q = 0;
+    while (q < 100) {
+        vec_push(pt, fr(300 + q, 1));
+        q = q + 1;
+    }
+    var ex: f64 = fr(1, 1);
+    var pmin: f64 = fr(300, 1);
+    var pmax: f64 = fr(399, 1);
+    p.temperatures = pt;
+    p.dx = one;
+    p.direction_x = ex;
+    p.min_temp = pmin;
+    p.max_temp = pmax;
+    var b4 = bench_new("thermo/profile_100");
+    bench_batch_start(b4);
+    i = 0;
+    while (i < 5000) {
+        SrLineBatch_clear(lb);
+        _sink = sr_temperature_profile_to_lines(pm, lb);
+        i = i + 1;
+    }
+    bench_batch_stop(b4, 5000);
+    bench_report(b4);
+    SrLineBatch_drop(lb);
+    return 0;
+}
+
+var r = main();
+sys_exit_group(r);

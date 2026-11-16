@@ -1,0 +1,424 @@
+# thermo_render.cyr — the ushma half of Rust 1.2.0's src/thermo_render.rs (M5 part c): thermal grids as heat-map
+# meshes; temperature profiles, cycle diagrams, thermal networks and heat-flux arrows as lines.
+#
+# **OPTIONAL**, as Rust gates it behind `thermo`: bundled by the `[lib.thermo]` profile. It includes ushma 2.0.0 itself,
+# and hisab before it (ushma's bundle calls it).
+#
+# **Inputs are ushma's Cyrius types** (plan §2.5, ADR 0002 #30), read at their documented layouts: a
+# UsGridVisualization (values vec, nx, ny, origin_x/y, dx/dy, min_temp/max_temp), a UsTemperatureProfile
+# (temperatures vec, dx, origin_x/y/z, direction_x/y/z, min_temp/max_temp), a UsCycleDiagramData (ts_points and
+# pv_points vecs, two f64 words a point), a UsNetworkVisualization (node_temperatures vec, edges vec of two words an
+# edge, conductances vec) and a UsHeatFluxField (fluxes vec, two words a vector, nx, ny, dx/dy, max_magnitude). Rust
+# ushma 1.4's types are f64 too: only the names and the flattening changed.
+#
+# **Precision (D4 rule b, class E).** Rust narrowed ushma's f64 values to f32 (`as f32`) and computed positions in
+# f32. Here every position is computed in f64 from ushma's values and rounded once (a grid's origin and spacing are
+# the f32 fields of viz's XzGrid, as Rust's are). A normalized value Rust narrows (a temperature's place in its range,
+# a flux's length over the longest) is narrowed once, as Rust does, and the colour math after it is Rust's f32
+# sequence (`(a + b) · 0.5`, `t · alpha`, the heat map). The network's angles take f32 π widened, and their cos and
+# sin correctly rounded (src/crmath.cyr); its f32 constants (0.1, 0.2, f32::EPSILON) are widened exactly.
+
+include "lib/hisab.cyr"
+include "lib/ushma.cyr"
+
+var _SR_TH_0_1: f64 = f32_to(0x3DCCCCCD);    # 0.1f32
+var _SR_TH_0_2: f64 = f32_to(0x3E4CCCCD);    # 0.2f32
+var _SR_TH_TAU32: f64 = f32_to(0x40C90FDB);  # 2 · std::f32::consts::PI
+var _SR_TH_HALF32 = 0x3F000000;               # 0.5f32, for the f32 colour math
+
+# ushma's structs, as typed pointers (the casts).
+fn _sr_us_grid(p): *UsGridVisualization { return p; }
+fn _sr_us_profile(p): *UsTemperatureProfile { return p; }
+fn _sr_us_cycle(p): *UsCycleDiagramData { return p; }
+fn _sr_us_network(p): *UsNetworkVisualization { return p; }
+fn _sr_us_flux(p): *UsHeatFluxField { return p; }
+
+# ── 1. thermal grids ──────────────────────────────────────────────────────────────────
+
+# A thermal grid's colour for cell (ix, iy) into out: ctx holds the values vec, nx, min_temp and max_temp (f64), the
+# colour mode, alpha (f32 bits) and the base colour (an SrColor pointer). Temperature heat-maps unit_t; AlphaBlend
+# gives the base colour with alpha unit_t · alpha.
+fn _sr_tg_color(ctx, ix, iy, out) {
+    var v: f64 = vec_get(load64(ctx), iy * load64(ctx + 8) + ix);
+    var mn: f64 = load64(ctx + 16);
+    var mx: f64 = load64(ctx + 24);
+    var t = sr_unit_t(v, mn, mx);
+    if (load64(ctx + 32) == SR_THERMAL_COLOR_MODE_ALPHA_BLEND) {
+        return sr_with_alpha(load64(ctx + 48), _sr_f32_mul(t, load64(ctx + 40)), out);
+    }
+    return sr_heat_rgba(t, load64(ctx + 40), out);
+}
+
+# The heat-map mesh of grid (a ushma UsGridVisualization) into out (an SrMeshData) from the allocator a: a +Y quad
+# per cell on the XZ plane at y_pos (f32 bits), x from origin_x, z from origin_y, each temperature normalized over
+# min_temp … max_temp (clamped; a non-finite one maps to 0) and coloured by params' mode (an SrThermalVisParams).
+# Empty when the values don't cover nx · ny (warning). out, or 0 when an allocation fails. Mirrors
+# `thermal_grid_to_mesh`.
+fn sr_thermal_grid_to_mesh(grid, y_pos, params, a, out) {
+    var g: *UsGridVisualization = _sr_us_grid(grid);
+    var vals = g.values;
+    var nv = 0;
+    if (vals != 0) { nv = vec_len(vals); }
+    var dims[16];
+    store64(&dims, g.nx);
+    store64(&dims + 8, g.ny);
+    if (sr_grid_is_backed(&dims, 2, nv, "thermal_grid_to_mesh") == 0) { return _sr_mesh_empty(out); }
+    _sr_debug("soorat::thermo_render: building thermal grid heatmap");
+    var ox: f64 = g.origin_x;
+    var oz: f64 = g.origin_y;
+    var dx: f64 = g.dx;
+    var dz: f64 = g.dy;
+    var plane: SrXzGrid;
+    var pp = &plane;
+    store64(pp, g.nx);
+    store64(pp + 8, g.ny);
+    store32(pp + 16, f32_from(ox));
+    store32(pp + 20, f32_from(oz));
+    store32(pp + 24, y_pos & 0xFFFFFFFF);
+    store32(pp + 28, f32_from(dx));
+    store32(pp + 32, f32_from(dz));
+    var ctx[56];
+    store64(&ctx, vals);
+    store64(&ctx + 8, g.nx);
+    store64(&ctx + 16, g.min_temp);
+    store64(&ctx + 24, g.max_temp);
+    store64(&ctx + 32, load64(params));
+    store64(&ctx + 40, load32(params + 24));
+    store64(&ctx + 48, params + 8);
+    return sr_xz_heatmap_mesh(pp, &_sr_tg_color, &ctx, a, out);
+}
+
+# ── 2. temperature profiles ───────────────────────────────────────────────────────────
+
+# Draws profile (a ushma UsTemperatureProfile) into batch: a line from sample i to i + 1 for each pair, sample i at
+# origin + direction · (i · dx), coloured by the heat map of the mean of the two temperatures' places in
+# min_temp … max_temp (a range of at least f64::EPSILON). Nothing for fewer than 2 samples. 1, or 0 when an allocation
+# fails. Mirrors `temperature_profile_to_lines`.
+fn sr_temperature_profile_to_lines(profile, batch): i64 {
+    var p: *UsTemperatureProfile = _sr_us_profile(profile);
+    var temps = p.temperatures;
+    var n = 0;
+    if (temps != 0) { n = vec_len(temps); }
+    if (n < 2) { return 1; }
+    var mn: f64 = p.min_temp;
+    var mx: f64 = p.max_temp;
+    var range: f64 = _sr_max64(mx - mn, _SR_VIZ_EPS64);
+    var ox: f64 = p.origin_x;
+    var oy: f64 = p.origin_y;
+    var oz: f64 = p.origin_z;
+    var ex: f64 = p.direction_x;
+    var ey: f64 = p.direction_y;
+    var ez: f64 = p.direction_z;
+    var dx: f64 = p.dx;
+    var p0[16];
+    var p1[16];
+    var col[16];
+    var ok = 1;
+    var i = 0;
+    while (i < n - 1) {
+        var t0: f64 = vec_get(temps, i);
+        var t1: f64 = vec_get(temps, i + 1);
+        var n0 = f32_from((t0 - mn) / range);
+        var n1 = f32_from((t1 - mn) / range);
+        var fi: f64 = f64_from(i);
+        var fi1: f64 = f64_from(i + 1);
+        var d0: f64 = fi * dx;
+        var d1: f64 = fi1 * dx;
+        _sr_put3(&p0, ox + (ex * d0), oy + (ey * d0), oz + (ez * d0));
+        _sr_put3(&p1, ox + (ex * d1), oy + (ey * d1), oz + (ez * d1));
+        sr_visualization_heat_map(_sr_f32_mul(_sr_f32_add(n0, n1), _SR_TH_HALF32), &col);
+        if (SrLineBatch_line(batch, &p0, &p1, &col) == 0) { ok = 0; }
+        i = i + 1;
+    }
+    return ok;
+}
+
+# ── 3. cycle diagrams ─────────────────────────────────────────────────────────────────
+
+# The smallest and largest finite coordinate k (0 or 1) of the n points (two f64 words each) of the vec pts into
+# out (2 f64), as Rust's `finite_min_max` folds: 1, or 0 when none is finite.
+fn _sr_coord_min_max(pts, n, k, out): i64 {
+    var found = 0;
+    var lo: f64 = 0.0;
+    var hi: f64 = 0.0;
+    var i = 0;
+    while (i < n) {
+        var v: f64 = vec_get(pts, i * 2 + k);
+        if (_sr_f64_finite(v) == 1) {
+            if (found == 0) {
+                lo = v;
+                hi = v;
+                found = 1;
+            } else {
+                if (v <= lo) { lo = v; }
+                if (v >= hi) { hi = v; }
+            }
+        }
+        i = i + 1;
+    }
+    store64(out, lo);
+    store64(out + 8, hi);
+    return found;
+}
+
+# Draws the points of the vec pts (two f64 words each) into batch as connected segments in the XY plane at
+# (ox, oy, oz), each coordinate normalized over its finite range (at least f64::EPSILON) and scaled by xs and ys;
+# a segment with a non-finite end is skipped. Nothing for fewer than 2 points or no finite coordinate. 1, or 0
+# when an allocation fails. Mirrors `draw_diagram_lines`.
+fn _sr_diagram(pts, ox: f64, oy: f64, oz: f64, xs: f64, ys: f64, color, batch): i64 {
+    var n = 0;
+    if (pts != 0) { n = vec_len(pts) / 2; }
+    if (n < 2) { return 1; }
+    var mmx[16];
+    var mmy[16];
+    if (_sr_coord_min_max(pts, n, 0, &mmx) == 0) { return 1; }
+    if (_sr_coord_min_max(pts, n, 1, &mmy) == 0) { return 1; }
+    var minx: f64 = load64(&mmx);
+    var maxx: f64 = load64(&mmx + 8);
+    var miny: f64 = load64(&mmy);
+    var maxy: f64 = load64(&mmy + 8);
+    var rx: f64 = _sr_max64(maxx - minx, _SR_VIZ_EPS64);
+    var ry: f64 = _sr_max64(maxy - miny, _SR_VIZ_EPS64);
+    var p0[16];
+    var p1[16];
+    var ok = 1;
+    var i = 0;
+    while (i < n - 1) {
+        var x0: f64 = vec_get(pts, i * 2);
+        var y0: f64 = vec_get(pts, i * 2 + 1);
+        var x1: f64 = vec_get(pts, i * 2 + 2);
+        var y1: f64 = vec_get(pts, i * 2 + 3);
+        var fin = _sr_f64_finite(x0) & _sr_f64_finite(y0) & _sr_f64_finite(x1) & _sr_f64_finite(y1);
+        if (fin == 1) {
+            _sr_put3(&p0, ox + (((x0 - minx) / rx) * xs), oy + (((y0 - miny) / ry) * ys), oz);
+            _sr_put3(&p1, ox + (((x1 - minx) / rx) * xs), oy + (((y1 - miny) / ry) * ys), oz);
+            if (SrLineBatch_line(batch, &p0, &p1, color) == 0) { ok = 0; }
+        }
+        i = i + 1;
+    }
+    return ok;
+}
+
+# Draws cycle (a ushma UsCycleDiagramData) into batch: its T-s diagram at params' origin in ts_color, then its P-v
+# diagram pv_offset (f32 bits) along X in pv_color, both scaled by params' x_scale and y_scale (an
+# SrCycleDiagramParams). 1, or 0 when an allocation fails. Mirrors `cycle_diagram_to_lines`.
+fn sr_cycle_diagram_to_lines(cycle, params, pv_offset, batch): i64 {
+    var c: *UsCycleDiagramData = _sr_us_cycle(cycle);
+    var ox: f64 = f32_to(load32(params));
+    var oy: f64 = f32_to(load32(params + 4));
+    var oz: f64 = f32_to(load32(params + 8));
+    var xs: f64 = f32_to(load32(params + 12));
+    var ys: f64 = f32_to(load32(params + 16));
+    var off: f64 = f32_to(pv_offset);
+    var ok = _sr_diagram(c.ts_points, ox, oy, oz, xs, ys, params + 20, batch);
+    return ok & _sr_diagram(c.pv_points, ox + off, oy, oz, xs, ys, params + 36, batch);
+}
+
+# ── 4. thermal networks ───────────────────────────────────────────────────────────────
+
+# Draws network (a ushma UsNetworkVisualization) into batch as a node-link diagram: its n nodes on a circle of radius
+# (f32 bits) about center (3 f32), node i at angle 2π · i / n; each edge whose nodes exist as a line coloured by the
+# mean of their temperatures' places in the network's range, and again node_size · 0.1 higher when its conductance
+# is over half the largest; then each node as a cross of half-size node_size, coloured by its temperature. A
+# temperature's place is over min … max of the node temperatures (a range of at least f64::EPSILON). Nothing for no
+# nodes. 1, or 0 when an allocation fails. Mirrors `thermal_network_to_lines`.
+fn sr_thermal_network_to_lines(network, center, radius, node_size, batch): i64 {
+    var nw: *UsNetworkVisualization = _sr_us_network(network);
+    var temps = nw.node_temperatures;
+    var n = 0;
+    if (temps != 0) { n = vec_len(temps); }
+    if (n == 0) { return 1; }
+    var maxb = 0x7FEFFFFFFFFFFFFF;
+    var minb = 0xFFEFFFFFFFFFFFFF;
+    var mnt: f64 = maxb;
+    var mxt: f64 = minb;
+    var i = 0;
+    while (i < n) {
+        var t: f64 = vec_get(temps, i);
+        if (t < mnt) { mnt = t; }
+        if (t > mxt) { mxt = t; }
+        i = i + 1;
+    }
+    var range: f64 = _sr_max64(mxt - mnt, _SR_VIZ_EPS64);
+    var pos = fl_alloc(n * 16);
+    if (pos == 0) { return 0; }
+    var cx: f64 = f32_to(load32(center));
+    var cy: f64 = f32_to(load32(center + 4));
+    var cz: f64 = f32_to(load32(center + 8));
+    var r: f64 = f32_to(radius);
+    var nf: f64 = f64_from(n);
+    i = 0;
+    while (i < n) {
+        var fi: f64 = f64_from(i);
+        var ang: f64 = (_SR_TH_TAU32 * fi) / nf;
+        var ca: f64 = _sr_km_cr_cos(ang);
+        var sa: f64 = _sr_km_cr_sin(ang);
+        store64(pos + i * 16, cx + (r * ca));
+        store64(pos + i * 16 + 8, cz + (r * sa));
+        i = i + 1;
+    }
+    var conds = nw.conductances;
+    var nc = 0;
+    if (conds != 0) { nc = vec_len(conds); }
+    var zero: f64 = 0.0;
+    var mxc: f64 = zero;
+    i = 0;
+    while (i < nc) {
+        var cv: f64 = vec_get(conds, i);
+        mxc = _sr_max64(mxc, cv);
+        i = i + 1;
+    }
+    mxc = _sr_max64(mxc, _SR_VIZ_EPS64);
+    var half: f64 = 0.5;
+    var ns: f64 = f32_to(node_size);
+    var raise: f64 = cy + (ns * _SR_TH_0_1);
+    var pa[16];
+    var pb[16];
+    var col[16];
+    var ok = 1;
+    var edges = nw.edges;
+    var ne = 0;
+    if (edges != 0) { ne = vec_len(edges) / 2; }
+    var e = 0;
+    while (e < ne) {
+        var ea = vec_get(edges, e * 2);
+        var eb = vec_get(edges, e * 2 + 1);
+        if (ea >= 0 && eb >= 0 && ea < n && eb < n) {
+            var ta: f64 = vec_get(temps, ea);
+            var tb: f64 = vec_get(temps, eb);
+            var na = f32_from((ta - mnt) / range);
+            var nb = f32_from((tb - mnt) / range);
+            sr_visualization_heat_map(_sr_f32_mul(_sr_f32_add(na, nb), _SR_TH_HALF32), &col);
+            var ax: f64 = load64(pos + ea * 16);
+            var az: f64 = load64(pos + ea * 16 + 8);
+            var bx: f64 = load64(pos + eb * 16);
+            var bz: f64 = load64(pos + eb * 16 + 8);
+            _sr_put3(&pa, ax, cy, az);
+            _sr_put3(&pb, bx, cy, bz);
+            if (SrLineBatch_line(batch, &pa, &pb, &col) == 0) { ok = 0; }
+            var cond: f64 = zero;
+            if (e < nc) { cond = vec_get(conds, e); }
+            if (cond / mxc > half) {
+                _sr_put3(&pa, ax, raise, az);
+                _sr_put3(&pb, bx, raise, bz);
+                if (SrLineBatch_line(batch, &pa, &pb, &col) == 0) { ok = 0; }
+            }
+        }
+        e = e + 1;
+    }
+    i = 0;
+    while (i < n) {
+        var tn: f64 = vec_get(temps, i);
+        sr_visualization_heat_map(f32_from((tn - mnt) / range), &col);
+        var px: f64 = load64(pos + i * 16);
+        var pz: f64 = load64(pos + i * 16 + 8);
+        _sr_put3(&pa, px - ns, cy, pz);
+        _sr_put3(&pb, px + ns, cy, pz);
+        if (SrLineBatch_line(batch, &pa, &pb, &col) == 0) { ok = 0; }
+        _sr_put3(&pa, px, cy - ns, pz);
+        _sr_put3(&pb, px, cy + ns, pz);
+        if (SrLineBatch_line(batch, &pa, &pb, &col) == 0) { ok = 0; }
+        _sr_put3(&pa, px, cy, pz - ns);
+        _sr_put3(&pb, px, cy, pz + ns);
+        if (SrLineBatch_line(batch, &pa, &pb, &col) == 0) { ok = 0; }
+        i = i + 1;
+    }
+    fl_free(pos);
+    return ok;
+}
+
+# ── 5. heat-flux arrows ───────────────────────────────────────────────────────────────
+
+# |(qx, qy)| in f64.
+#must_use
+fn _sr_hypot2(qx: f64, qy: f64): f64 {
+    var r: f64 = f64_sqrt((qx * qx) + (qy * qy));
+    return r;
+}
+
+# Draws flux (a ushma UsHeatFluxField) into batch as arrows on the XZ plane at y_pos (f32 bits): from each grid point
+# (ix · dx, iy · dy) along its flux (qx, qy → x, z), as long as arrow_scale (f32 bits) times its magnitude over the
+# largest (clamped to 1), with a head 0.2 of that and coloured by the same ratio. The largest is the stored
+# max_magnitude when finite and positive, else the largest finite magnitude, and at least f32::EPSILON. A non-finite
+# or shorter than f32::EPSILON flux draws nothing. Nothing when the fluxes don't cover nx · ny (warning). 1, or 0 when
+# an allocation fails. Mirrors `heat_flux_to_arrows`.
+fn sr_heat_flux_to_arrows(flux, y_pos, arrow_scale, batch): i64 {
+    var fx: *UsHeatFluxField = _sr_us_flux(flux);
+    var fl = fx.fluxes;
+    var nv = 0;
+    if (fl != 0) { nv = vec_len(fl) / 2; }
+    var nx = fx.nx;
+    var ny = fx.ny;
+    var dims[16];
+    store64(&dims, nx);
+    store64(&dims + 8, ny);
+    if (sr_grid_is_backed(&dims, 2, nv, "heat_flux_to_arrows") == 0) { return 1; }
+    _sr_debug("soorat::thermo_render: building heat flux arrows");
+    var zero: f64 = 0.0;
+    var one: f64 = 1.0;
+    var mm: f64 = fx.max_magnitude;
+    var mxm: f64 = zero;
+    if (_sr_f64_finite(mm) == 1 && mm > zero) {
+        mxm = mm;
+    } else {
+        var found = 0;
+        var k = 0;
+        while (k < nv) {
+            var qa: f64 = vec_get(fl, k * 2);
+            var qb: f64 = vec_get(fl, k * 2 + 1);
+            var m: f64 = _sr_hypot2(qa, qb);
+            if (_sr_f64_finite(m) == 1) {
+                if (found == 0 || m >= mxm) { mxm = m; }
+                found = 1;
+            }
+            k = k + 1;
+        }
+    }
+    mxm = _sr_max64(mxm, _SR_F32_EPS);
+    var dx: f64 = fx.dx;
+    var dy: f64 = fx.dy;
+    var y: f64 = f32_to(y_pos);
+    var sc: f64 = f32_to(arrow_scale);
+    var bs[16];
+    var tp[16];
+    var arm[16];
+    var col[16];
+    var ok = 1;
+    var iy = 0;
+    while (iy < ny) {
+        var ix = 0;
+        while (ix < nx) {
+            var qx: f64 = vec_get(fl, (iy * nx + ix) * 2);
+            var qy: f64 = vec_get(fl, (iy * nx + ix) * 2 + 1);
+            var mag: f64 = _sr_hypot2(qx, qy);
+            if (_sr_f64_finite(mag) == 1 && mag >= _SR_F32_EPS) {
+                var dxr: f64 = qx / mag;
+                var dzr: f64 = qy / mag;
+                var t: f64 = mag / mxm;
+                if (t < zero) { t = zero; }
+                if (t > one) { t = one; }
+                var len: f64 = t * sc;
+                var fix: f64 = f64_from(ix);
+                var fiy: f64 = f64_from(iy);
+                var bx: f64 = fix * dx;
+                var bz: f64 = fiy * dy;
+                var tx: f64 = bx + (dxr * len);
+                var tz: f64 = bz + (dzr * len);
+                sr_visualization_heat_map(f32_from(t), &col);
+                _sr_put3(&bs, bx, y, bz);
+                _sr_put3(&tp, tx, y, tz);
+                if (SrLineBatch_line(batch, &bs, &tp, &col) == 0) { ok = 0; }
+                var hs: f64 = len * _SR_TH_0_2;
+                var bkx: f64 = tx - (dxr * hs);
+                var bkz: f64 = tz - (dzr * hs);
+                _sr_put3(&arm, bkx + ((zero - dzr) * hs), y, bkz + (dxr * hs));
+                if (SrLineBatch_line(batch, &tp, &arm, &col) == 0) { ok = 0; }
+                _sr_put3(&arm, bkx - ((zero - dzr) * hs), y, bkz - (dxr * hs));
+                if (SrLineBatch_line(batch, &tp, &arm, &col) == 0) { ok = 0; }
+            }
+            ix = ix + 1;
+        }
+        iy = iy + 1;
+    }
+    return ok;
+}

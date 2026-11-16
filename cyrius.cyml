@@ -30,12 +30,13 @@ stdlib = ["string", "fmt", "alloc", "vec", "str", "syscalls", "io", "args", "mat
 # file outside `[lib]`, bundled by its `[lib.<feature>]` profile (dist/soorat-<feature>.cyr) and including its
 # dependency itself; a consumer that wants it takes that bundle and declares the dependency (ranga's `spectral`).
 # The repository's tests use every feature, so CI resolves them all:
-# `cyrius deps --features optics,physics-debug,acoustics`.
+# `cyrius deps --features optics,physics-debug,acoustics,thermo`.
 [features]
 default = []
 optics = ["prakash"]
 physics-debug = ["impetus"]
 acoustics = ["goonj"]
+thermo = ["ushma"]
 
 # prakash 2.15.2 (`optics`): Color's spectral conversions (src/color_optics.cyr), and the BRDF LUT's split-sum
 # integration (src/pbr_optics.cyr). Its bundle is 1.19 MB, which is why it is optional.
@@ -59,6 +60,15 @@ optional = true
 git = "https://github.com/MacCracken/goonj.git"
 tag = "2.3.2"
 modules = ["dist/goonj.cyr"]
+optional = true
+
+# ushma 2.0.0 (`thermo`): the thermal renderers draw its grids, profiles, cycle diagrams, networks and flux fields
+# (src/thermo_render.cyr). Declared after goonj: with no root hisab pin, that order resolves hisab 3.5.0, which both
+# need (plan D9, probe P4; ushma pins 3.4.1, ledger L11).
+[deps.ushma]
+git = "https://github.com/MacCracken/ushma.git"
+tag = "2.0.0"
+modules = ["dist/ushma.cyr"]
 optional = true
 
 [test]
@@ -100,6 +110,7 @@ modules = [
     "src/pbr_material.cyr",
     "src/render_graph.cyr",
     "src/acoustic.cyr",
+    "src/thermo.cyr",
 ]
 
 # The `optics` feature's bundle, dist/soorat-optics.cyr: the library plus Color's prakash conversions, and
@@ -131,6 +142,7 @@ modules = [
     "src/pbr_material.cyr",
     "src/render_graph.cyr",
     "src/acoustic.cyr",
+    "src/thermo.cyr",
     "src/color_optics.cyr",
     "src/pbr_optics.cyr",
 ]
@@ -166,8 +178,44 @@ modules = [
     "src/pbr_material.cyr",
     "src/render_graph.cyr",
     "src/acoustic.cyr",
+    "src/thermo.cyr",
     "src/crmath_ext.cyr",
     "src/acoustic_render.cyr",
+]
+
+
+# The `thermo` feature's bundle, dist/soorat-thermo.cyr: the library plus the thermal renderers on ushma 2.0.0
+# (src/thermo_render.cyr, which includes hisab and ushma). ushma, with the bayan it reads JSON with, costs a binary
+# ~712 KB. A consumer takes this bundle and declares ushma.
+[lib.thermo]
+modules = [
+    "src/error.cyr",
+    "src/log.cyr",
+    "src/mathx.cyr",
+    "src/crmath.cyr",
+    "src/tables_data.cyr",
+    "src/tables.cyr",
+    "src/math.cyr",
+    "src/layout.cyr",
+    "src/color.cyr",
+    "src/lights.cyr",
+    "src/lod.cyr",
+    "src/sprite.cyr",
+    "src/batch.cyr",
+    "src/text.cyr",
+    "src/ui.cyr",
+    "src/debug_geom.cyr",
+    "src/viz.cyr",
+    "src/primitives.cyr",
+    "src/terrain.cyr",
+    "src/animation.cyr",
+    "src/shadow_math.cyr",
+    "src/env_cpu.cyr",
+    "src/pbr_material.cyr",
+    "src/render_graph.cyr",
+    "src/acoustic.cyr",
+    "src/thermo.cyr",
+    "src/thermo_render.cyr",
 ]
 
 
@@ -201,6 +249,7 @@ modules = [
     "src/pbr_material.cyr",
     "src/render_graph.cyr",
     "src/acoustic.cyr",
+    "src/thermo.cyr",
     "src/json.cyr",
 ]
 
@@ -233,6 +282,7 @@ modules = [
     "src/pbr_material.cyr",
     "src/render_graph.cyr",
     "src/acoustic.cyr",
+    "src/thermo.cyr",
     "src/gltf.cyr",
 ]
 
@@ -264,5 +314,6 @@ modules = [
     "src/pbr_material.cyr",
     "src/render_graph.cyr",
     "src/acoustic.cyr",
+    "src/thermo.cyr",
     "src/debug_collider.cyr",
 ]

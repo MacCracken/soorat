@@ -40,7 +40,7 @@ jobs:
       - name: Resolve dependencies (every feature: the repository tests them all)
         # The optional features' tests (tests/color_optics.tcyr, tests/parity_features.tcyr) include prakash and
         # impetus, optional dependencies, so the default resolve would leave them uncompilable (ranga's CI does the same).
-        run: cyrius deps --locked --features optics,physics-debug,acoustics
+        run: cyrius deps --locked --features optics,physics-debug,acoustics,thermo
 
       - name: Build
         run: cyrius build

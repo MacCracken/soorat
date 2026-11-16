@@ -1,0 +1,406 @@
+# thermo_render.tcyr — the ported tests of Rust 1.2.0's src/thermo_render.rs (M5 part c), all 24: the 6 without the
+# `thermo` feature (heat map, params) and the 18 for grids, profiles, cycle diagrams, networks and heat-flux arrows.
+# Cyrius-only tests check the parameter layouts, the network's nodes on their circle, and a flux past f32's range,
+# which f64 draws (ADR 0002 #30). The golden rows (tests/golden/thermo.tsv, thermo_render.tsv) are replayed by
+# tests/parity.tcyr and tests/parity_thermo.tcyr.
+
+include "tests/lib.cyr"
+include "src/thermo_render.cyr"
+include "tests/support.cyr"
+
+# The f64 bits of num / den.
+fn fr(num, den): i64 {
+    var a: f64 = f64_from(num);
+    var b: f64 = f64_from(den);
+    var r: f64 = a / b;
+    return r;
+}
+
+# A vec of the n f64 bit patterns at p.
+fn fvec(p, n): i64 {
+    var v = vec_new();
+    var i = 0;
+    while (i < n) {
+        vec_push(v, load64(p + i * 8));
+        i = i + 1;
+    }
+    return v;
+}
+
+# A ushma UsGridVisualization of nx × ny values (vec), origin 0, spacing sp (f64 bits), bounds lo … hi (f64 bits).
+fn grid(vals, nx, ny, sp, lo, hi): i64 {
+    var m = alloc(sizeof(UsGridVisualization));
+    memset(m, 0, sizeof(UsGridVisualization));
+    var g: *UsGridVisualization = _sr_us_grid(m);
+    g.values = vals;
+    g.nx = nx;
+    g.ny = ny;
+    var spf: f64 = sp;
+    var lof: f64 = lo;
+    var hif: f64 = hi;
+    g.dx = spf;
+    g.dy = spf;
+    g.min_temp = lof;
+    g.max_temp = hif;
+    return m;
+}
+
+# A ushma UsTemperatureProfile along +X from the origin, dx 1, bounds lo … hi (f64 bits).
+fn profile(temps, lo, hi): i64 {
+    var m = alloc(sizeof(UsTemperatureProfile));
+    memset(m, 0, sizeof(UsTemperatureProfile));
+    var p: *UsTemperatureProfile = _sr_us_profile(m);
+    p.temperatures = temps;
+    var one: f64 = 1.0;
+    var lof: f64 = lo;
+    var hif: f64 = hi;
+    p.dx = one;
+    p.direction_x = one;
+    p.min_temp = lof;
+    p.max_temp = hif;
+    return m;
+}
+
+# A ushma UsNetworkVisualization.
+fn network(temps, edges, conds): i64 {
+    var m = alloc(sizeof(UsNetworkVisualization));
+    memset(m, 0, sizeof(UsNetworkVisualization));
+    var nw: *UsNetworkVisualization = _sr_us_network(m);
+    nw.node_temperatures = temps;
+    nw.edges = edges;
+    nw.conductances = conds;
+    return m;
+}
+
+# A ushma UsHeatFluxField of nx × ny vectors (vec, two words each), spacing 1, max_magnitude mm (f64 bits).
+fn fluxf(vecs, nx, ny, mm): i64 {
+    var m = alloc(sizeof(UsHeatFluxField));
+    memset(m, 0, sizeof(UsHeatFluxField));
+    var f: *UsHeatFluxField = _sr_us_flux(m);
+    f.fluxes = vecs;
+    f.nx = nx;
+    f.ny = ny;
+    var one: f64 = 1.0;
+    var mmf: f64 = mm;
+    f.dx = one;
+    f.dy = one;
+    f.max_magnitude = mmf;
+    return m;
+}
+
+# A vec of the integers given, each widened to f64.
+fn ivec4(a, b, c, d, n): i64 {
+    var v = vec_new();
+    if (n > 0) { vec_push(v, f64_from(a)); }
+    if (n > 1) { vec_push(v, f64_from(b)); }
+    if (n > 2) { vec_push(v, f64_from(c)); }
+    if (n > 3) { vec_push(v, f64_from(d)); }
+    return v;
+}
+
+# The alpha (f32 bits) of vertex i of mesh m.
+fn valpha(m, i): i64 { return load32(load64(m) + i * 48 + 44); }
+
+# 1 if no position or colour float of mesh m is NaN.
+fn mesh_no_nan(m): i64 {
+    var i = 0;
+    while (i < load64(m + 8) * 12) {
+        var b = load32(load64(m) + i * 4);
+        if ((b & 0x7F800000) == 0x7F800000 && (b & 0x007FFFFF) != 0) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+# 1 if every position float of batch b is finite.
+fn batch_finite(b): i64 {
+    var i = 0;
+    while (i < SrLineBatch_vertex_count(b)) {
+        var k = 0;
+        while (k < 3) {
+            if ((load32(load64(b) + i * 28 + k * 4) & 0x7F800000) == 0x7F800000) { return 0; }
+            k = k + 1;
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
+# Runs the ported thermo_render tests and the Cyrius-only ones.
+fn main() {
+    alloc_init();
+    var c = alloc(16);
+    var A = arena_allocator_growable(1 << 20);
+    var M = alloc(48);
+    var tp[32];
+    SrThermalVisParams_default(&tp);
+    var cp[56];
+    SrCycleDiagramParams_default(&cp);
+
+    test_group("heat_map_endpoints");
+    sr_visualization_heat_map(0, c);
+    assert_eq(load32(c + 8), 0x3F800000, "cold is blue");
+    sr_visualization_heat_map(0x3F800000, c);
+    assert(load32(c) == 0x3F800000 && load32(c + 4) == 0, "hot is red");
+
+    test_group("heat_map_clamps");
+    sr_visualization_heat_map(0xBF800000, c);
+    assert_eq(load32(c + 8), 0x3F800000, "under → blue");
+    sr_visualization_heat_map(0x40000000, c);
+    assert_eq(load32(c), 0x3F800000, "over → red");
+
+    test_group("heat_map_gradient_smooth");
+    var inr = 1;
+    var i = 0;
+    while (i <= 100) {
+        sr_visualization_heat_map(f32_from(fr(i, 100)), c);
+        var k = 0;
+        while (k < 3) {
+            var ch: f64 = t_f(c, k);
+            if (ch < 0.0 || ch > 1.0) { inr = 0; }
+            k = k + 1;
+        }
+        if (load32(c + 12) != 0x3F800000) { inr = 0; }
+        i = i + 1;
+    }
+    assert(inr == 1, "every channel in [0, 1], alpha 1");
+
+    test_group("thermal_heat_map_public");
+    sr_thermal_heat_map(0x3F000000, c);
+    assert_eq(load32(c + 4), 0x3F800000, "0.5 → green 1");
+
+    test_group("thermal_vis_params_default");
+    assert(load64(&tp) == SR_THERMAL_COLOR_MODE_TEMPERATURE && load32(&tp + 24) == 0x3F800000, "Temperature, alpha 1");
+
+    test_group("cycle_diagram_params_default");
+    assert(load32(&cp) == 0 && load32(&cp + 4) == 0 && load32(&cp + 8) == 0, "origin 0");
+    assert(load32(&cp + 12) == 0x3F800000 && load32(&cp + 16) == 0x3F800000, "scales 1");
+
+    test_group("alpha_blend_alpha_stays_in_range");
+    var vals = ivec4(250, 500, 0, 350, 4);
+    vec_set(vals, 2, 0x7FF8000000000000);
+    var ab[32];
+    SrThermalVisParams_default(&ab);
+    store64(&ab, SR_THERMAL_COLOR_MODE_ALPHA_BLEND);
+    reset_via(A);
+    sr_thermal_grid_to_mesh(grid(vals, 2, 2, fr(1, 1), fr(300, 1), fr(400, 1)), 0, &ab, A, M);
+    var inrange = 1;
+    i = 0;
+    while (i < load64(M + 8)) {
+        var al: f64 = f32_to(valpha(M, i));
+        if (al < 0.0 || al > 1.0) { inrange = 0; }
+        i = i + 1;
+    }
+    assert(load64(M + 8) == 16 && inrange == 1, "16 vertices, alpha in [0, 1]");
+    assert(valpha(M, 0) == 0 && valpha(M, 4) == 0x3F800000, "below range 0, above range 1");
+    assert(t_winding_ok(M) == 1, "upward");
+
+    test_group("heat_flux_nan_and_stale_max_are_safe");
+    var fv = vec_new();
+    vec_push(fv, 0x7FF8000000000000);
+    vec_push(fv, 0);
+    vec_push(fv, fr(50, 1));
+    vec_push(fv, 0);
+    var lb = SrLineBatch_new();
+    sr_heat_flux_to_arrows(fluxf(fv, 2, 1, 0), 0, 0x3F800000, lb);
+    assert_eq(SrLineBatch_line_count(lb), 3, "only the finite vector draws");
+    assert(batch_finite(lb) == 1, "finite positions");
+    var x0: f64 = f32_to(load32(load64(lb)));
+    var x1: f64 = f32_to(load32(load64(lb) + 28));
+    var tol: f64 = 0.00001;
+    var one: f64 = 1.0;
+    assert(t_near(x1 - x0, one, tol) == 1, "the shaft is arrow_scale long");
+    SrLineBatch_drop(lb);
+
+    test_group("thermal_grid_empty");
+    reset_via(A);
+    sr_thermal_grid_to_mesh(grid(vec_new(), 0, 0, fr(1, 1), 0, 0), 0, &tp, A, M);
+    assert(load64(M + 8) == 0 && load64(M + 24) == 0, "empty");
+
+    test_group("thermal_grid_basic");
+    reset_via(A);
+    sr_thermal_grid_to_mesh(grid(ivec4(300, 350, 400, 450, 4), 2, 2, fr(1, 1), fr(300, 1), fr(450, 1)), 0, &tp, A, M);
+    assert(load64(M + 8) == 16 && load64(M + 24) == 24, "16 vertices, 24 indices");
+
+    test_group("thermal_grid_alpha_blend");
+    reset_via(A);
+    sr_thermal_grid_to_mesh(grid(ivec4(300, 400, 500, 600, 4), 2, 2, fr(1, 2), fr(300, 1), fr(600, 1)), 0x3F800000,
+        &ab, A, M);
+    var ca: f64 = f32_to(valpha(M, 0));
+    var ha: f64 = f32_to(valpha(M, 12));
+    assert(load64(M + 8) == 16 && ha > ca, "the hottest cell is the most opaque");
+
+    test_group("temperature_profile_empty");
+    lb = SrLineBatch_new();
+    sr_temperature_profile_to_lines(profile(vec_new(), 0, 0), lb);
+    assert_eq(SrLineBatch_is_empty(lb), 1, "nothing drawn");
+    SrLineBatch_drop(lb);
+
+    test_group("temperature_profile_single");
+    lb = SrLineBatch_new();
+    sr_temperature_profile_to_lines(profile(ivec4(300, 0, 0, 0, 1), fr(300, 1), fr(300, 1)), lb);
+    assert_eq(SrLineBatch_is_empty(lb), 1, "nothing drawn");
+    SrLineBatch_drop(lb);
+
+    test_group("temperature_profile_basic");
+    lb = SrLineBatch_new();
+    sr_temperature_profile_to_lines(profile(ivec4(300, 350, 400, 450, 4), fr(300, 1), fr(450, 1)), lb);
+    assert_eq(SrLineBatch_line_count(lb), 3, "3 lines");
+    SrLineBatch_drop(lb);
+
+    test_group("cycle_diagram_empty");
+    var cy = alloc(sizeof(UsCycleDiagramData));
+    memset(cy, 0, sizeof(UsCycleDiagramData));
+    var cyc: *UsCycleDiagramData = _sr_us_cycle(cy);
+    cyc.ts_points = vec_new();
+    cyc.pv_points = vec_new();
+    lb = SrLineBatch_new();
+    sr_cycle_diagram_to_lines(cy, &cp, 0x40A00000, lb);
+    assert_eq(SrLineBatch_is_empty(lb), 1, "nothing drawn");
+    SrLineBatch_drop(lb);
+
+    test_group("cycle_diagram_basic");
+    var ts[48];
+    store64(&ts, fr(0, 1));
+    store64(&ts + 8, fr(300, 1));
+    store64(&ts + 16, fr(100, 1));
+    store64(&ts + 24, fr(600, 1));
+    store64(&ts + 32, fr(200, 1));
+    store64(&ts + 40, fr(300, 1));
+    var pv[48];
+    store64(&pv, fr(1, 1000));
+    store64(&pv + 8, fr(100000, 1));
+    store64(&pv + 16, fr(1, 100));
+    store64(&pv + 24, fr(50000, 1));
+    store64(&pv + 32, fr(1, 1000));
+    store64(&pv + 40, fr(100000, 1));
+    cyc.ts_points = fvec(&ts, 6);
+    cyc.pv_points = fvec(&pv, 6);
+    lb = SrLineBatch_new();
+    sr_cycle_diagram_to_lines(cy, &cp, 0x40A00000, lb);
+    assert_eq(SrLineBatch_line_count(lb), 4, "2 T-s and 2 P-v segments");
+    SrLineBatch_drop(lb);
+
+    var ctr[16];
+    t_set3(&ctr, 0, 0, 0);
+
+    test_group("thermal_network_empty");
+    lb = SrLineBatch_new();
+    sr_thermal_network_to_lines(network(vec_new(), vec_new(), vec_new()), &ctr, 0x40A00000, 0x3E4CCCCD, lb);
+    assert_eq(SrLineBatch_is_empty(lb), 1, "nothing drawn");
+    SrLineBatch_drop(lb);
+
+    test_group("thermal_network_basic");
+    var e3 = vec_new();
+    vec_push(e3, 0);
+    vec_push(e3, 1);
+    vec_push(e3, 1);
+    vec_push(e3, 2);
+    var c3 = vec_new();
+    vec_push(c3, fr(1, 10));
+    vec_push(c3, fr(1, 20));
+    lb = SrLineBatch_new();
+    sr_thermal_network_to_lines(network(ivec4(300, 350, 400, 0, 3), e3, c3), &ctr, 0x40A00000, 0x3E4CCCCD, lb);
+    assert(SrLineBatch_line_count(lb) >= 11, "edges, a doubled edge and 9 cross lines");
+    SrLineBatch_drop(lb);
+
+    test_group("thermal_network_out_of_bounds_edge");
+    var e2 = vec_new();
+    vec_push(e2, 0);
+    vec_push(e2, 1);
+    vec_push(e2, 0);
+    vec_push(e2, 5);
+    var c2 = vec_new();
+    vec_push(c2, fr(1, 10));
+    vec_push(c2, fr(1, 10));
+    lb = SrLineBatch_new();
+    sr_thermal_network_to_lines(network(ivec4(300, 400, 0, 0, 2), e2, c2), &ctr, 0x40A00000, 0x3E4CCCCD, lb);
+    assert(SrLineBatch_line_count(lb) > 0, "the bad edge is skipped");
+    SrLineBatch_drop(lb);
+
+    test_group("heat_flux_empty");
+    lb = SrLineBatch_new();
+    sr_heat_flux_to_arrows(fluxf(vec_new(), 0, 0, 0), 0, 0x3F800000, lb);
+    assert_eq(SrLineBatch_is_empty(lb), 1, "nothing drawn");
+    SrLineBatch_drop(lb);
+
+    test_group("heat_flux_basic");
+    var f4 = vec_new();
+    vec_push(f4, fr(100, 1));
+    vec_push(f4, 0);
+    vec_push(f4, 0);
+    vec_push(f4, fr(0 - 50, 1));
+    vec_push(f4, fr(50, 1));
+    vec_push(f4, fr(50, 1));
+    vec_push(f4, 0);
+    vec_push(f4, 0);
+    lb = SrLineBatch_new();
+    sr_heat_flux_to_arrows(fluxf(f4, 2, 2, fr(100, 1)), 0, 0x3F800000, lb);
+    assert_eq(SrLineBatch_line_count(lb), 9, "3 vectors × 3 lines");
+    SrLineBatch_drop(lb);
+
+    test_group("heat_flux_zero_vectors_skipped");
+    var fz = vec_new();
+    vec_push(fz, 0);
+    vec_push(fz, 0);
+    vec_push(fz, 0);
+    vec_push(fz, 0);
+    lb = SrLineBatch_new();
+    sr_heat_flux_to_arrows(fluxf(fz, 2, 1, 0), 0, 0x3F800000, lb);
+    assert_eq(SrLineBatch_is_empty(lb), 1, "nothing drawn");
+    SrLineBatch_drop(lb);
+
+    test_group("thermal_grid_equal_temps");
+    reset_via(A);
+    sr_thermal_grid_to_mesh(grid(ivec4(350, 350, 350, 350, 4), 2, 2, fr(1, 1), fr(350, 1), fr(350, 1)), 0, &tp, A, M);
+    assert(load64(M + 8) == 16 && load64(M + 24) == 24 && mesh_no_nan(M) == 1, "16 vertices, no NaN");
+
+    test_group("heat_flux_single_cell");
+    var f1 = vec_new();
+    vec_push(f1, fr(100, 1));
+    vec_push(f1, fr(50, 1));
+    lb = SrLineBatch_new();
+    sr_heat_flux_to_arrows(fluxf(f1, 1, 1, fr(1118, 10)), 0, 0x3F800000, lb);
+    assert_eq(SrLineBatch_line_count(lb), 3, "1 vector × 3 lines");
+    SrLineBatch_drop(lb);
+
+    # Cyrius-only: the parameter structs' layouts (src/thermo.cyr's header).
+    test_group("thermo_param_layouts");
+    assert(sizeof(SrThermalVisParams) == 32 && sizeof(SrCycleDiagramParams) == 52, "32 and 52 bytes");
+    assert(memeq(&tp + 8, SR_COLOR_RED, 16) == 1, "a red base colour at 8");
+    assert(load32(&cp + 36) == 0x3E4CCCCD && load32(&cp + 40) == 0x3F000000 && load32(&cp + 44) == 0x3F800000,
+        "the P-v colour (0.2, 0.5, 1, 1) at 36");
+
+    # Cyrius-only: node i sits on the circle at angle 2π · i / n, its middle cross line at (x, y ± s, z).
+    test_group("network_nodes_sit_on_the_circle");
+    lb = SrLineBatch_new();
+    sr_thermal_network_to_lines(network(ivec4(300, 310, 320, 330, 4), vec_new(), vec_new()), &ctr, 0x40000000,
+        0x3DCCCCCD, lb);
+    var mid = load64(lb) + (3 * 1 + 1) * 2 * 28;
+    var nx: f64 = f32_to(load32(mid));
+    var nz: f64 = f32_to(load32(mid + 8));
+    var two: f64 = 2.0;
+    var zero: f64 = 0.0;
+    var eps6: f64 = 0.000001;
+    assert(SrLineBatch_line_count(lb) == 12 && t_near(nx, zero, eps6) == 1 && t_near(nz, two, eps6) == 1,
+        "node 1 of 4 at (0, 0, 2)");
+    SrLineBatch_drop(lb);
+
+    # Cyrius-only: a flux of (1e30, 1e30) has a magnitude past f32's range, so Rust's f32 skips it as non-finite; in
+    # f64 it is finite and draws (ADR 0002 #30).
+    test_group("a_flux_past_f32_range_draws_in_f64");
+    var fb = vec_new();
+    var big: f64 = 1000000000000000019884624838656.0;
+    vec_push(fb, big);
+    vec_push(fb, big);
+    lb = SrLineBatch_new();
+    sr_heat_flux_to_arrows(fluxf(fb, 1, 1, 0x7FF0000000000000), 0, 0x3F800000, lb);
+    assert(SrLineBatch_line_count(lb) == 3 && batch_finite(lb) == 1, "3 finite lines");
+    SrLineBatch_drop(lb);
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

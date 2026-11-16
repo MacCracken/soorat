@@ -12,7 +12,7 @@ description = "Writes soorat's golden corpus (tests/golden/*.tsv) from the froze
 [dependencies]
 # `optics` from M1 part b2 (Color's prakash conversions); serde_json is rust-old's own dev-dependency, at its version,
 # for Color's serde documents (the `color_json` rows).
-soorat = { path = "../../rust-old", features = ["oracle", "optics", "physics-debug", "acoustics"] }
+soorat = { path = "../../rust-old", features = ["oracle", "optics", "physics-debug", "acoustics", "thermo"] }
 prakash = "=1.2.0"
 # impetus: the collider shapes `debug_collider` draws (`physics-debug`), at rust-old's version.
 impetus = "=1.4.0"
@@ -20,6 +20,8 @@ serde_json = "=1.0.154"
 # goonj and hisab: the acoustic inputs `acoustic_render` draws (`acoustics`, M5), at rust-old's versions.
 goonj = { version = "=1.4.3", features = ["soorat-compat"] }
 hisab = "=1.4.0"
+# ushma: the thermal data `thermo_render` draws (`thermo`, M5), at rust-old's version.
+ushma = { version = "=1.4.0", features = ["soorat-compat"] }
 # bytemuck: the vertex bytes the `*_digest` rows hash, as rust-old casts them (its own dependency, at its version).
 bytemuck = "=1.25.2"
 

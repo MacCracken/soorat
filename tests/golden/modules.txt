@@ -23,4 +23,6 @@ pbr_optics
 render_graph
 acoustic
 acoustic_render
+thermo
+thermo_render
 json

@@ -6,7 +6,7 @@
 > milestone (plan §3.1; done = ✅ in the plan's §14). The golden corpus checks every ported function on its
 > grid besides; this ledger is about the oracle's own assertions.
 
-**502 Rust tests** (460 unit, 12 integration, 9 GPU smoke, 18 oracle-hook, 2 shader-validation, 1 doc): 277 ported, 28 not applicable, 3 deferred, 194 pending, 0 unaccounted. Milestones done: M0, M1, M2, M3, M4.
+**502 Rust tests** (460 unit, 12 integration, 9 GPU smoke, 18 oracle-hook, 2 shader-validation, 1 doc): 301 ported, 28 not applicable, 3 deferred, 170 pending, 0 unaccounted. Milestones done: M0, M1, M2, M3, M4.
 
 | Rust file | Kind | Milestone | Cyrius tests | Rust tests | Ported | N/A | Deferred | Pending |
 |---|---|---|---|---:|---:|---:|---:|---:|
@@ -34,7 +34,7 @@
 | `src/profiler.rs` | unit | M6 | `tests/profiler.tcyr` | 8 | 0 | 0 | 0 | 8 |
 | `src/capabilities.rs` | unit | M6 | `tests/capabilities.tcyr` | 4 | 0 | 0 | 0 | 4 |
 | `src/acoustic_render.rs` | unit | M5 | `tests/acoustic_render.tcyr` | 35 | 35 | 0 | 0 | 0 |
-| `src/thermo_render.rs` | unit | M5 | `tests/thermo_render.tcyr` | 24 | 0 | 0 | 0 | 24 |
+| `src/thermo_render.rs` | unit | M5 | `tests/thermo_render.tcyr` | 24 | 24 | 0 | 0 | 0 |
 | `src/fluid_render.rs` | unit | M5 | `tests/fluid_render.tcyr` | 15 | 0 | 0 | 0 | 15 |
 | `src/em_render.rs` | unit | M5 | `tests/em_render.tcyr` | 37 | 0 | 0 | 0 | 37 |
 | `src/texture.rs` | unit | M6 | `tests/texture.tcyr` | 5 | 0 | 0 | 0 | 5 |
@@ -55,11 +55,11 @@
 | `tests/gpu_smoke.rs` | gpu smoke | M6+M7+M8 | `tests/gpu_smoke.tcyr` | 9 | 0 | 0 | 0 | 9 |
 | `tests/oracle.rs` | oracle hooks | — | — | 18 | 0 | 18 | 0 | 0 |
 | `tests/shaders.rs` | shader validation | — | — | 2 | 0 | 2 | 0 | 0 |
-| **Total** | | | | **502** | **277** | **28** | **3** | **194** |
+| **Total** | | | | **502** | **301** | **28** | **3** | **170** |
 
 ## Pending by milestone
 
-M5: 76, M6: 64, M7: 4, M8: 35, M9: 15
+M5: 52, M6: 64, M7: 4, M8: 35, M9: 15
 
 ## Rust's ignored tests
 
