@@ -12,6 +12,7 @@ cargo run --release --locked --manifest-path scripts/oracle/Cargo.toml -- --chec
 python3 -I -B scripts/oracle/validate.py .                                         # re-derive every row; check the .e.tsv
 python3 -I -B scripts/oracle/validate.py . --write                                 # (re)write the .e.tsv and .cr.tsv side tables
 python3 -I -B scripts/oracle/gen_layout.py . [--check]                              # (re)write src/layout.cyr, tests/layout_probe.cyr
+python3 -I -B scripts/oracle/gen_tables.py . [--check]                              # (re)write src/tables_data.cyr
 cyrius test --bounds tests/parity.tcyr                                             # replay the corpus against the port
 ```
 
@@ -39,6 +40,7 @@ Every port's harness reads the same files. This README records what is specific 
 | `color` | M1 | 3,397 | `src/m_color.rs` | `Color` without its `optics` half: every byte in `from_rgba8`; `to_rgba8` at every k/510 and every halfway point (Rust rounds half away from zero); the colour maps across and beyond their domain, each stop ± 1 ulp, ±0, ±∞, NaN (A, B) |
 | `lights` | M1 | 1,066 | `src/m_lights.rs` | the three light constructors and the light array; `GpuLight::spot`'s cone cosines are class C, and `lights.cr.tsv` holds the 28 rows where glibc's `cosf` misrounds (ADR 0002 #16) |
 | `lod` | M1 | 770 | `src/m_lod.rs` | `LodChain` and `TerrainLod`: every threshold ± 1 ulp, NaN, ±∞, empty chains, mismatched lengths (`E:Pipeline`) (A) |
+| `tables` | M1 | 5,215 | `src/m_tables.rs` | `environment`'s f16 and sRGB conversions, through the oracle hooks. f16 ⇄ f32 (A, 64 values a row): every subnormal half, every exponent's mantissa edges, every rounding midpoint ± 1 ulp, NaN payloads. sRGB (C): dense grids, each knee ± 2 ulp; `tables.cr.tsv` holds the 3 rows where glibc's `powf` misrounds. The 256-entry decode table (A), which `gen_tables.py` turns into `src/tables_data.cyr` |
 
 ## Format 1
 
@@ -86,9 +88,17 @@ operation (f64 carries more than 2·24 + 2 bits). So `validate.py`:
 - derives the class-E outputs: the same formula with the f32 inputs and constants widened exactly, no
   intermediate rounding, and the result rounded once.
 
-It re-derives every row of `math`, `color`, `lights` and `lod` bit for bit, checks `constants` against
-`rust-old/src`, and writes two side tables: `math.e.tsv` (class E) and `lights.cr.tsv` (a spot light's cone cosines,
-correctly rounded as glibc's f64 `cos` rounded once, where Rust's f32 `cosf` differs).
+It re-derives every row of `math`, `color`, `lights`, `lod` and `tables` bit for bit, checks `constants` against
+`rust-old/src`, and writes three side tables: `math.e.tsv` (class E); `lights.cr.tsv` (a spot light's cone cosines,
+correctly rounded as glibc's f64 `cos` rounded once, where Rust's f32 `cosf` differs); and `tables.cr.tsv` (the sRGB
+transfer functions with `powf` correctly rounded). A transfer-function row that differs from the correctly rounded
+value must be Rust's formula with `powf` exactly 1 ulp off, or it fails. f16 rows are checked against Python's IEEE
+half (`struct` format `e`).
+
+## `gen_tables.py`
+
+`src/tables_data.cyr` is generated from `tables.tsv`'s `srgb8_decode_table` row: Rust's own 256 values, written as
+`store32` lines that fill a static table at load. `--check` (CI) fails when it is stale.
 
 ## `gen_layout.py`
 

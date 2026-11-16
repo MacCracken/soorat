@@ -88,6 +88,12 @@ EXTRA = {
     "math/normalize3": "M1: `normalize3` in f64, rounded once; no Rust bench",
     "math/normal_to_basis": "M1: `normal_to_basis` in f64, rounded once; no Rust bench (acoustic and em call it, M5)",
     "math/perspective_90": "M1: `perspective_90` in f64, rounded once; no Rust bench (`shadow/point_shadow_6_faces`, M4)",
+    # environment's f16 and sRGB conversions have no Rust bench; M4's face encoding calls them per component.
+    "tables/f16_to_f32": "M1: binary16 → binary32 (bit manipulation); no Rust bench (environment's HDR faces, M4)",
+    "tables/f32_to_f16": "M1: binary32 → binary16, ties to even; no Rust bench (environment's HDR faces, M4)",
+    "tables/srgb_to_linear": "M1: sRGB decode, f32 with a correctly rounded pow; no Rust bench (environment, M4)",
+    "tables/linear_to_srgb": "M1: sRGB encode, f32 with a correctly rounded pow; no Rust bench (environment, M4)",
+    "tables/srgb8_decode": "M1: a decode-table lookup (the generated table); no Rust bench (environment, M4)",
 }
 
 

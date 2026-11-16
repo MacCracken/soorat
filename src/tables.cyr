@@ -1,0 +1,106 @@
+# tables.cyr — Rust 1.2.0's f16 and sRGB conversions (M1 part d), crate-private in its `environment` module.
+#
+# HDR cube faces upload as f16 and LDR faces decode through sRGB (M4's src/env_cpu.cyr). These are soorat-internal,
+# as they are in Rust.
+# - **f16 ⇄ f32** is bit manipulation, IEEE 754 binary16 with round to nearest even: class A
+#   (tests/golden/tables.tsv).
+# - **sRGB** (IEC 61966-2-1) follows Rust's f32 sequence (D4 rule a) around one `powf`. Rust's is host glibc's,
+#   which misrounds 3 of the corpus's 5,108 sRGB rows by 1 ulp. ganita's f32 `pow` widens, computes and narrows,
+#   and is correctly rounded on all of them: class C, bound 0, against tests/golden/tables.cr.tsv (ADR 0002 #16).
+# - **The sRGB-byte decode table** (`_SR_SRGB8_DECODE`, 256 f32) is generated from the oracle's own values by
+#   scripts/oracle/gen_tables.py, into src/tables_data.cyr (port plan §6.2).
+
+# f32 bits of the sRGB constants and 2⁻²⁴ (from rustc; `1.0 / 2.4` as Rust folds it in f32).
+var _SR_SRGB_KNEE = 0x3D25AEE6;     # 0.040_45f32
+var _SR_SRGB_LKNEE = 0x3B4D2E1C;    # 0.003_130_8f32
+var _SR_SRGB_12_92 = 0x414EB852;
+var _SR_SRGB_0_055 = 0x3D6147AE;
+var _SR_SRGB_1_055 = 0x3F870A3D;
+var _SR_SRGB_2_4 = 0x4019999A;
+var _SR_SRGB_INV_2_4 = 0x3ED55555;  # 1.0f32 / 2.4f32
+var _SR_F16_SUB_UNIT = 0x33800000;  # 2⁻²⁴, the smallest subnormal half
+
+# IEEE 754 binary16 h (its 16 bits) → binary32 bits: a subnormal is mant × 2⁻²⁴ (exact), an infinity or NaN keeps
+# its sign and payload, a normal half rebiases its exponent. Mirrors `environment::f16_to_f32`.
+#must_use
+fn _sr_f16_to_f32(h): i64 {
+    var sign = ((h >> 15) & 1) << 31;
+    var exp = (h >> 10) & 0x1F;
+    var mant = h & 0x3FF;
+    if (exp == 0) {
+        var v = _sr_f32_mul(f32_from(f64_from(mant)), _SR_F16_SUB_UNIT);
+        if (sign != 0) { return v ^ 0x80000000; }
+        return v;
+    }
+    if (exp == 31) { return sign | 0x7F800000 | (mant << 13); }
+    return sign | ((exp + 112) << 23) | (mant << 13);
+}
+
+# value >> shift, rounded to nearest with ties to even (the half's rounding).
+#must_use
+fn _sr_f16_round(value, shift): i64 {
+    var half = 1 << (shift - 1);
+    var rem = value & ((1 << shift) - 1);
+    var r = value >> shift;
+    if (rem > half || (rem == half && (r & 1) == 1)) { return r + 1; }
+    return r;
+}
+
+# IEEE 754 binary32 bits → binary16 bits, round to nearest even: overflow → ±inf, below half the smallest subnormal
+# → ±0, a NaN → the quiet NaN (sign kept). A carry out of the mantissa bumps the exponent, up to inf. Mirrors
+# `environment::f32_to_f16`.
+#must_use
+fn _sr_f32_to_f16(v): i64 {
+    var x = v & 0xFFFFFFFF;
+    var sign = (x >> 16) & 0x8000;
+    var exp = (x >> 23) & 0xFF;
+    var mant = x & 0x7FFFFF;
+    if (exp == 0xFF) {
+        if (mant != 0) { return sign | 0x7E00; }
+        return sign | 0x7C00;
+    }
+    var e = exp - 127 + 15;
+    if (e >= 0x1F) { return sign | 0x7C00; }
+    if (e <= 0) {
+        if (e < 0 - 10) { return sign; }
+        return sign | _sr_f16_round(mant | 0x800000, 14 - e);
+    }
+    return sign | _sr_f16_round((e << 23) | mant, 13);
+}
+
+# ((c + 0.055) / 1.055) in native f32.
+#must_use
+fn _sr_f32_srgb_base(c: f32, a: f32, d: f32): i64 {
+    var r: f32 = (c + a) / d;
+    return r;
+}
+
+# (k · p) − s in native f32.
+#must_use
+fn _sr_f32_mul_sub(k: f32, p: f32, s: f32): i64 {
+    var r: f32 = (k * p) - s;
+    return r;
+}
+
+# sRGB decode of c (f32 bits): c / 12.92 up to the knee 0.04045, else ((c + 0.055) / 1.055)^2.4, the pow correctly
+# rounded. Mirrors `environment::srgb_to_linear`.
+#must_use
+fn _sr_srgb_to_linear(c): i64 {
+    if (_sr_f32_le(c, _SR_SRGB_KNEE) == 1) { return _sr_f32_div(c, _SR_SRGB_12_92); }
+    return ganita_f32_pow(_sr_f32_srgb_base(c, _SR_SRGB_0_055, _SR_SRGB_1_055), _SR_SRGB_2_4);
+}
+
+# sRGB encode of l (f32 bits): l · 12.92 up to the knee 0.0031308, else 1.055 · l^(1/2.4) − 0.055, the pow
+# correctly rounded. Mirrors `environment::linear_to_srgb`.
+#must_use
+fn _sr_linear_to_srgb(l): i64 {
+    if (_sr_f32_le(l, _SR_SRGB_LKNEE) == 1) { return _sr_f32_mul(l, _SR_SRGB_12_92); }
+    return _sr_f32_mul_sub(_SR_SRGB_1_055, ganita_f32_pow(l, _SR_SRGB_INV_2_4), _SR_SRGB_0_055);
+}
+
+# The linear value (f32 bits) of the sRGB-encoded byte b: an entry of the generated table. Mirrors
+# `environment::srgb8_decode_table()[b]`.
+#must_use
+fn _sr_srgb8_decode(b): i64 {
+    return load32(_SR_SRGB8_DECODE + (b & 0xFF) * 4);
+}

@@ -16,7 +16,9 @@
 >
 > **M1 parts a–c are done (2026-11-15)**: error, log, math, mathx, layout (generated), colour's core, lights and lod. 6,697 golden rows all pass. The 1,149 class-E rows match the f64-once values bit for bit, and on the 28 spot-cone rows where glibc's `cosf` misrounds, the port gives the correctly rounded value (§14; port-parity §2). `material` moved to M6: it is a GPU object.
 >
-> Next: **M1 parts b2 and d**: colour's `optics` half and serde (prakash, bayan; b2) and the f16 and sRGB tables (d). The `ranga` feature cannot be combined with `acoustics` or `thermo` until L18 lands.
+> **M1 part d is done (2026-11-15)**: f16 ⇄ f32 and the sRGB transfer functions, with the decode table generated from the oracle. All 5,215 `tables` rows pass; on the 3 sRGB rows where glibc's `powf` misrounds, the port gives the correctly rounded value. A correctly rounded `pow` costs about 210–280 ns: a performance item for M4's face encoding (port-parity §2.2).
+>
+> Next: **M1 part b2**: colour's `optics` half and serde (prakash, bayan). It needs the optional-dependency design first (ADR 0002 #9). The `ranga` feature cannot be combined with `acoustics` or `thermo` until L18 lands.
 >
 > **Step 0 detail (2026-11-15, committed as `7f3213a`, tagged as 1.2.0).** 1.1.0 was tagged and released on 2026-11-15 (`0a94507`, GitHub release 14:26 UTC) before the oracle work started. The hooks and D2's fixes therefore ship together as **1.2.0**, the final Rust release and the oracle. It is a minor release, not 1.2.0, because it adds public API (`set_bloom`, `clear_bloom`, `with_bloom_intensity` and the `oracle` feature). The maintainer tags 1.2.0.
 > - Part 1, the hooks: done, every gate green.
@@ -229,7 +231,7 @@ Code lines exclude tests, comments and blank lines. "Track" is C (CPU, needs not
 | M | Rust module | Code | `pub fn` | Tests | Cyrius module(s) | Uses | Track |
 |---|---|---|---|---|---|---|---|
 | M1 | `error.rs` | 40 | — | 9 | `src/error.cyr` (`SR_ERR_*`) | — | C |
-| M1 | *(Rust semantics, f16, sRGB, ulp)* | — | — | — | `src/mathx.cyr`, `src/crmath.cyr` (stand-in, L1), `src/tables.cyr` (generated) | ganita | C |
+| M1 | *(Rust semantics, f16, sRGB, ulp)* | — | — | — | `src/mathx.cyr`, `src/tables.cyr` with `src/tables_data.cyr` (generated). `src/crmath.cyr` (the `log10` stand-in, L1) arrives with its only caller, `acoustic_render` (M5) | ganita | C |
 | M1 | `math_util.rs` | 153 | 8 | 13 | `src/math.cyr` (Mat4, look_at, perspective, inverse-transpose, basis) | — | C |
 | M1 | `color.rs` | 207 | 14 | 23 | `src/color.cyr` | prakash (`optics`) | C |
 | M1 | `vertex.rs`, `instancing.rs`, the 15 `#[repr(C)]` types | 2 + layouts | — | 14 | `src/layout.cyr` | mabda vertex types | C |
@@ -481,7 +483,7 @@ Large milestones go in parts, each part gated.
 
 | Milestone | Modules | Key work | Golden grid (minimum) | Gate |
 |---|---|---|---|---|
-| **M1 Foundation** (parts a–d) | a: error, log, math. b: mathx, layout, color (b2: its `optics` half and serde). c: lights, lod. d: crmath, tables (f16, sRGB). `material` moved to M6 (a GPU object) | `RenderError` → `SR_ERR_*`. Rust-semantics helpers (`sr_round`, checked ops, `sr_partition_point`, stable sort). f16 and sRGB with generated tables. Mat4 and vector ops with D4(b) packing. All 15 layouts proved (P1) | every f16 edge; the full sRGB domain; colour hex parsing including malformed input; matrices at degenerate inputs (zero up, zero extent, NaN); every layout row | C |
+| **M1 Foundation** (parts a–d) | a: error, log, math. b: mathx, layout, color (b2: its `optics` half and serde). c: lights, lod. d: tables (f16, sRGB; crmath moved to M5, its only caller's milestone). `material` moved to M6 (a GPU object) | `RenderError` → `SR_ERR_*`. Rust-semantics helpers (`sr_round`, checked ops, `sr_partition_point`, stable sort). f16 and sRGB with generated tables. Mat4 and vector ops with D4(b) packing. All 15 layouts proved (P1) | every f16 edge; the full sRGB domain; colour hex parsing including malformed input; matrices at degenerate inputs (zero up, zero extent, NaN); every layout row | C |
 | **M2 2D** (a–b) | sprite, batch, text, ui, debug_geom | sprite batching with the u16 index limit, the stable z-sort, UV rects; bitmap-font layout; UI quads; wire shapes and impetus collider shapes | batches at 0, 1, the limit and the limit + 1; sort ties; every glyph; each `ImColliderShape` kind | C |
 | **M3 Geometry and animation** (a–c) | primitives, terrain, viz, animation, gltf | outward winding everywhere; height fields with non-finite heights; keyframe sampling (LINEAR, STEP, and CUBICSPLINE with Hermite tangents per ADR 0002 #13); slerp; unsorted and cyclic joint chains; the GLB loader with every 1.1.0 rejection | tessellation counts 3…1024; slerp across θ including the switch; chains of 1–64 joints, sorted and unsorted; the `test_support` GLB fixtures plus truncated and malicious ones | C |
 | **M4 Lighting math and infrastructure** | shadow_math, env_cpu, pbr_material, render_graph, profiler, capabilities | directional light matrices (including the centred variant); practical splits; the atlas; mip chains and box filters; the BRDF LUT bytes; the render graph over mabda `rg_*` | splits over (near, far, λ, count) including bad input; atlas tiling at 1…64 lights; mips for sizes 1…2048; the LUT at every resolution 1.1.0 allows | C |
@@ -647,7 +649,7 @@ Where the gap matters (sprite batching at scale), the remedies are the sibling o
 |---|---|---|---|---|---|
 | D1–D9 | ✅ decided 2026-11-15 | — | — | — | |
 | M0 Prepare and initialize | ✅ done 2026-11-15 | 1,473 (all pending until M1); 12 class-G scenes | 0 of 471 | Rust column recorded | steps 0–8; next M1 |
-| M1 Foundation | ◐ parts a–c done 2026-11-15; b2 and d open | 6,697 (math 1,436 class E; color 3,397; lights 1,066; lod 770; layout 19; constants 9 of 18), all passing; 1,149 accepted (E), 28 accepted (cr) | 58 of 471 (M1: 58 of 63; the 5 left are b2's) | 6 of 35 twinned (`color/*`, `vertex/bytemuck_cast_100`) + 6 `math/*` extras | a: error, log, math. b: mathx, layout (generated), color (core). c: lights, lod. **Open:** b2 colour `optics` + serde (prakash, bayan); d f16 and sRGB tables. `material` moved to M6 |
+| M1 Foundation | ◐ parts a–d done 2026-11-15; b2 open | 11,912 (math 1,436 class E; color 3,397; lights 1,066; lod 770; tables 5,215; layout 19; constants 9 of 18), all passing; 1,149 accepted (E), 31 accepted (cr) | 62 of 471 (M1: 62 of 67; the 5 left are b2's) | 6 of 35 twinned (`color/*`, `vertex/bytemuck_cast_100`) + 11 extras (`math/*`, `tables/*`) | a: error, log, math. b: mathx, layout (generated), color (core). c: lights, lod. d: f16 and sRGB (`tables`, its decode table generated). **Open:** b2 colour `optics` + serde (prakash, bayan). `material` moved to M6; crmath to M5 |
 | M2 2D | ☐ | | | | |
 | M3 Geometry and animation | ☐ | | | | |
 | M4 Lighting math and infrastructure | ☐ | | | | |

@@ -6,7 +6,7 @@
 > milestone (plan §3.1; done = ✅ in the plan's §14). The golden corpus checks every ported function on its
 > grid besides; this ledger is about the oracle's own assertions.
 
-**502 Rust tests** (460 unit, 12 integration, 9 GPU smoke, 18 oracle-hook, 2 shader-validation, 1 doc): 58 ported, 28 not applicable, 3 deferred, 413 pending, 0 unaccounted. Milestones done: M0.
+**502 Rust tests** (460 unit, 12 integration, 9 GPU smoke, 18 oracle-hook, 2 shader-validation, 1 doc): 62 ported, 28 not applicable, 3 deferred, 409 pending, 0 unaccounted. Milestones done: M0.
 
 | Rust file | Kind | Milestone | Cyrius tests | Rust tests | Ported | N/A | Deferred | Pending |
 |---|---|---|---|---:|---:|---:|---:|---:|
@@ -28,7 +28,7 @@
 | `src/animation.rs` | unit | M3 | `tests/animation.tcyr` | 21 | 0 | 0 | 0 | 21 |
 | `src/gltf_loader.rs` | unit | M3 | `tests/gltf.tcyr` | 5 | 0 | 0 | 0 | 5 |
 | `src/shadow.rs` | unit | M4 | `tests/shadow_math.tcyr`<br>`tests/shadow.tcyr` | 23 | 0 | 0 | 0 | 23 |
-| `src/environment.rs` | unit | M4+M7 | `tests/env_cpu.tcyr`<br>`tests/environment.tcyr` | 8 | 0 | 0 | 0 | 8 |
+| `src/environment.rs` | unit | M1+M4+M7 | `tests/tables.tcyr`<br>`tests/env_cpu.tcyr`<br>`tests/environment.tcyr` | 8 | 4 | 0 | 0 | 4 |
 | `src/pbr_material.rs` | unit | M4 | `tests/pbr_material.tcyr` | 8 | 0 | 0 | 0 | 8 |
 | `src/render_graph.rs` | unit | M4 | `tests/render_graph.tcyr` | 10 | 0 | 0 | 0 | 10 |
 | `src/profiler.rs` | unit | M4 | `tests/profiler.tcyr` | 8 | 0 | 0 | 0 | 8 |
@@ -55,11 +55,11 @@
 | `tests/gpu_smoke.rs` | gpu smoke | M6+M7+M8 | `tests/gpu_smoke.tcyr` | 9 | 0 | 0 | 0 | 9 |
 | `tests/oracle.rs` | oracle hooks | — | — | 18 | 0 | 18 | 0 | 0 |
 | `tests/shaders.rs` | shader validation | — | — | 2 | 0 | 2 | 0 | 0 |
-| **Total** | | | | **502** | **58** | **28** | **3** | **413** |
+| **Total** | | | | **502** | **62** | **28** | **3** | **409** |
 
 ## Pending by milestone
 
-M1: 5, M2: 53, M3: 63, M4: 59, M5: 111, M6: 68, M7: 4, M8: 35, M9: 15
+M1: 5, M2: 53, M3: 63, M4: 55, M5: 111, M6: 68, M7: 4, M8: 35, M9: 15
 
 ## Rust's ignored tests
 

@@ -59,6 +59,9 @@ jobs:
       - name: Generated layouts current (src/layout.cyr, tests/layout_probe.cyr, against tests/golden/layout.tsv)
         run: python3 -I -B scripts/oracle/gen_layout.py . --check
 
+      - name: Generated tables current (src/tables_data.cyr, from tests/golden/tables.tsv)
+        run: python3 -I -B scripts/oracle/gen_tables.py . --check
+
       - name: Audit (fmt, lint, docs, tests, bench)
         # Run directly, not through a pipe, so the job sees audit's own exit status.
         run: cyrius audit

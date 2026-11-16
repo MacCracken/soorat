@@ -25,6 +25,7 @@ mod m_layout;
 mod m_lights;
 mod m_lod;
 mod m_math;
+mod m_tables;
 
 /// One module's rows, written as `tests/golden/<name>.tsv`.
 pub struct Module {
@@ -187,6 +188,7 @@ fn main() {
         m_color::module(),
         m_lights::module(),
         m_lod::module(),
+        m_tables::module(),
     ];
 
     let mut index = String::from(

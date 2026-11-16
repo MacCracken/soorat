@@ -1,0 +1,70 @@
+# tables.bcyr — src/tables.cyr's benchmarks (M1 part d).
+#
+# Rust 1.2.0 has no bench for its f16 and sRGB conversions (crate-private in `environment`), so these are EXTRA rows
+# in docs/benchmarks-rust-v-cyrius.md: the per-component cost behind M4's face encoding and mip chains. Each is a
+# batch of 1,000,000 calls, its input stepping through a range so no single path is measured alone.
+
+include "tests/lib.cyr"
+
+var N = 1000000;
+var _sink = 0;
+
+# Runs the tables benches.
+fn main(): i64 {
+    alloc_init();
+    var i = 0;
+
+    var b1 = bench_new("tables/f16_to_f32");
+    bench_batch_start(b1);
+    i = 0;
+    while (i < N) {
+        _sink = _sr_f16_to_f32(i & 0x7BFF);
+        i = i + 1;
+    }
+    bench_batch_stop(b1, N);
+    bench_report(b1);
+
+    var b2 = bench_new("tables/f32_to_f16");
+    bench_batch_start(b2);
+    i = 0;
+    while (i < N) {
+        _sink = _sr_f32_to_f16(0x38000000 + (i << 7));
+        i = i + 1;
+    }
+    bench_batch_stop(b2, N);
+    bench_report(b2);
+
+    var b3 = bench_new("tables/srgb_to_linear");
+    bench_batch_start(b3);
+    i = 0;
+    while (i < N) {
+        _sink = _sr_srgb_to_linear(0x3D800000 + ((i & 0xFFFF) << 8));
+        i = i + 1;
+    }
+    bench_batch_stop(b3, N);
+    bench_report(b3);
+
+    var b4 = bench_new("tables/linear_to_srgb");
+    bench_batch_start(b4);
+    i = 0;
+    while (i < N) {
+        _sink = _sr_linear_to_srgb(0x3C000000 + ((i & 0xFFFF) << 8));
+        i = i + 1;
+    }
+    bench_batch_stop(b4, N);
+    bench_report(b4);
+
+    var b5 = bench_new("tables/srgb8_decode");
+    bench_batch_start(b5);
+    i = 0;
+    while (i < N) {
+        _sink = _sr_srgb8_decode(i);
+        i = i + 1;
+    }
+    bench_batch_stop(b5, N);
+    bench_report(b5);
+    return 0;
+}
+
+var r = main();
+sys_exit_group(r);

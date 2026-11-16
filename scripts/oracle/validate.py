@@ -435,6 +435,95 @@ def check_lod():
     return bad
 
 
+# ── tables: f16 (Python's IEEE half) and sRGB (powf correctly rounded, ADR 0002 #16) ──
+
+def f16_to_f32_ref(h):
+    """IEEE binary16 → binary32: struct's `e` for every finite or infinite half; a NaN's bits kept (sign, payload)."""
+    if (h >> 10) & 0x1F == 0x1F and h & 0x3FF:
+        return from_bits(((h & 0x8000) << 16) | 0x7F800000 | ((h & 0x3FF) << 13))
+    return struct.unpack("<e", struct.pack("<H", h))[0]
+
+
+def f32_to_f16_ref(x):
+    """IEEE binary32 → binary16, round to nearest even, overflow → ±inf, a NaN → the quiet NaN 0x7e00 (sign kept)."""
+    if math.isnan(x):
+        return (0x8000 if math.copysign(1.0, x) < 0 else 0) | 0x7E00
+    try:
+        return struct.unpack("<H", struct.pack("<e", x))[0]
+    except OverflowError:
+        return (0x8000 if x < 0 else 0) | 0x7C00
+
+
+SRGB_KNEE = from_bits(0x3D25AEE6)       # 0.040_45f32
+SRGB_12_92 = from_bits(0x414EB852)
+SRGB_0_055 = from_bits(0x3D6147AE)
+SRGB_1_055 = from_bits(0x3F870A3D)
+SRGB_2_4 = from_bits(0x4019999A)
+SRGB_INV_2_4 = from_bits(0x3ED55555)    # 1.0f32 / 2.4f32, folded in f32
+SRGB_LKNEE = from_bits(0x3B4D2E1C)      # 0.003_130_8f32
+
+
+def powf_cr(b, e):
+    """The correctly rounded f32 pow of two f32s (glibc's f64 pow, correctly rounded, rounded once)."""
+    try:
+        return r32(math.pow(b, e))
+    except (ValueError, OverflowError):
+        return math.nan if b < 0 else math.inf
+
+
+def ulp_step(x, k):
+    return from_bits((bits(x) + k) & 0xFFFFFFFF) if not math.isnan(x) else x
+
+
+def srgb_decode(c, pw=powf_cr):
+    if c <= SRGB_KNEE:
+        return r32(c / SRGB_12_92)
+    return pw(r32(r32(c + SRGB_0_055) / SRGB_1_055), SRGB_2_4)
+
+
+def srgb_encode(l, pw=powf_cr):
+    if l <= SRGB_LKNEE:
+        return r32(l * SRGB_12_92)
+    return r32(r32(SRGB_1_055 * pw(l, SRGB_INV_2_4)) - SRGB_0_055)
+
+
+def check_tables(plat):
+    """Re-derives every `tables` row; returns (rows that differ, the tables.cr.tsv rows). A transfer-function row
+    that differs from the correctly rounded value must be Rust's formula with powf 1 ulp off (glibc's misrounding),
+    or it is a failure."""
+    path = os.path.join(GOLDEN, "tables.tsv")
+    if not os.path.exists(path):
+        return 0, []
+    _, body = rows(path)
+    bad, cr = 0, []
+    for fn, _cls, ins, outs, note in body:
+        if fn == "f16_to_f32":
+            ok = same([f16_to_f32_ref(h) for h in i_values(ins)], g_values(outs))
+        elif fn == "f32_to_f16":
+            ok = [f32_to_f16_ref(x) for x in g_values(ins)] == i_values(outs)
+        elif fn == "srgb8_decode_table":
+            ok = same([srgb_decode(r32(i / 255.0)) for i in range(256)], g_values(outs))
+        elif fn in ("srgb_to_linear", "linear_to_srgb"):
+            f = srgb_decode if fn == "srgb_to_linear" else srgb_encode
+            x = g_values(ins)[0]
+            want = g_values(outs)
+            mine = [f(x)]
+            ok = same(mine, want)
+            if not ok:
+                # glibc's powf 1 ulp off, either way, explains the row: record the correctly rounded value.
+                off = [f(x, lambda b, e, k=k: ulp_step(powf_cr(b, e), k)) for k in (-1, 1)]
+                if any(same([o], want) for o in off):
+                    cr.append(f"{fn}\t{ins}\t{g_tokens(outs, mine)}\t{note}; Rust 1.2.0 (glibc powf) {outs}")
+                    ok = True
+        else:
+            ok = False
+            print(f"tables: {fn}: no re-derivation in validate.py")
+        if not ok:
+            bad += 1
+            print(f"tables: {fn} {note}: re-derived outputs differ from the corpus")
+    return bad, cr
+
+
 def main():
     failures = 0
     head, body = rows(os.path.join(GOLDEN, "math.tsv"))
@@ -459,24 +548,31 @@ def main():
 
     failures += check_color()
     failures += check_lod()
-    lbad, cr_rows = check_lights(plat)
-    failures += lbad
-    cr_path = os.path.join(GOLDEN, "lights.cr.tsv")
-    cr_text = side_table("lights.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's outputs with each f32 cos "
-                         "correctly rounded (glibc's f64 cos, rounded once), where glibc's cosf differs", cr_rows, plat)
-    if WRITE:
-        with open(cr_path, "w", encoding="utf-8") as f:
-            f.write(cr_text)
-        print(f"wrote {cr_path} ({len(cr_rows)} rows)")
-    else:
-        try:
-            with open(cr_path, encoding="utf-8") as f:
-                if f.read() != cr_text:
-                    failures += 1
-                    print("lights.cr.tsv: stale (run with --write)")
-        except FileNotFoundError:
-            failures += 1
-            print("lights.cr.tsv: missing (run with --write)")
+    lbad, lcr = check_lights(plat)
+    tbad, tcr = check_tables(plat)
+    failures += lbad + tbad
+    sides = [
+        ("lights.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's outputs with each f32 cos correctly "
+         "rounded (glibc's f64 cos, rounded once), where glibc's cosf differs", lcr),
+        ("tables.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's sRGB transfer functions with powf "
+         "correctly rounded (glibc's f64 pow, rounded once), where glibc's powf differs by 1 ulp", tcr),
+    ]
+    for name, what, side_rows in sides:
+        side_path = os.path.join(GOLDEN, name)
+        text = side_table(name, what, side_rows, plat)
+        if WRITE:
+            with open(side_path, "w", encoding="utf-8") as f:
+                f.write(text)
+            print(f"wrote {side_path} ({len(side_rows)} rows)")
+        else:
+            try:
+                with open(side_path, encoding="utf-8") as f:
+                    if f.read() != text:
+                        failures += 1
+                        print(f"{name}: stale (run with --write)")
+            except FileNotFoundError:
+                failures += 1
+                print(f"{name}: missing (run with --write)")
 
     # constants.tsv against the literals in rust-old/src
     src = {}

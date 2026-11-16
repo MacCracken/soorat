@@ -21,6 +21,7 @@
 # - M1 part b: `color` (all but the `optics` functions), the colour constants, and `layout` (every GPU type, measured
 #   in Cyrius by tests/layout_probe.cyr).
 # - M1 part c: `lights` (the spot cones class C at 0 ulp against lights.cr.tsv) and `lod`; `constants`' MAX_LIGHTS.
+# - M1 part d: `tables` (f16 class A; the sRGB transfer functions class C at 0 ulp against tables.cr.tsv).
 
 # The library first: a file that declares an `enum` (src/error.cyr) must be included before any top-level statement.
 include "tests/lib.cyr"
@@ -221,6 +222,44 @@ fn _par_lod(fp, fl): i64 {
     return 0;
 }
 
+# ── tables (src/tables.cyr, src/tables_data.cyr) ─────────────────────────────────────
+
+fn _par_tables(fp, fl): i64 {
+    if (_par_eq(fp, fl, "f16_to_f32") == 1 || _par_eq(fp, fl, "f32_to_f16") == 1) {
+        var to32 = _par_eq(fp, fl, "f16_to_f32");
+        var n = _par_in(0);
+        _par_got_seq(n);
+        var j = 0;
+        while (j < n) {
+            if (to32 == 1) {
+                _par_got_g(_sr_f16_to_f32(_par_in(1 + j)));
+            } else {
+                _par_got_i(_sr_f32_to_f16(_par_in(1 + j)));
+            }
+            j = j + 1;
+        }
+        return 1;
+    }
+    if (_par_eq(fp, fl, "srgb_to_linear") == 1) {
+        _par_got_g(_sr_srgb_to_linear(_par_in(0)));
+        return 1;
+    }
+    if (_par_eq(fp, fl, "linear_to_srgb") == 1) {
+        _par_got_g(_sr_linear_to_srgb(_par_in(0)));
+        return 1;
+    }
+    if (_par_eq(fp, fl, "srgb8_decode_table") == 1) {
+        _par_got_seq(256);
+        var b = 0;
+        while (b < 256) {
+            _par_got_g(_sr_srgb8_decode(b));
+            b = b + 1;
+        }
+        return 1;
+    }
+    return 0;
+}
+
 # ── color (src/color.cyr) ────────────────────────────────────────────────────────────
 
 fn _par_color(fp, fl): i64 {
@@ -342,14 +381,17 @@ fn _par_dispatch(mp, ml, fp, fl): i64 {
     if (_par_eq(mp, ml, "layout") == 1) { return _par_layout(fp, fl); }
     if (_par_eq(mp, ml, "lights") == 1) { return _par_lights(fp, fl); }
     if (_par_eq(mp, ml, "lod") == 1) { return _par_lod(fp, fl); }
+    if (_par_eq(mp, ml, "tables") == 1) { return _par_tables(fp, fl); }
     return 0;
 }
 
-# A class-C function's ulp bound, or -1 (measured). The spot cones' cos is correctly rounded (ganita's f32 tier),
-# so it is held to 0 against lights.cr.tsv where glibc misrounds and to Rust's bits elsewhere (ADR 0002 #16).
+# A class-C function's ulp bound, or -1 (measured). The spot cones' cos and the sRGB transfer functions' pow are
+# correctly rounded (ganita's f32 tier), so they are held to 0 against lights.cr.tsv and tables.cr.tsv where glibc
+# misrounds, and to Rust's bits elsewhere (ADR 0002 #16).
 #must_use
 fn _par_c_bound(fp, fl): i64 {
     if (_par_eq(fp, fl, "GpuLight::spot") == 1) { return 0; }
+    if (_par_eq(fp, fl, "srgb_to_linear") == 1 || _par_eq(fp, fl, "linear_to_srgb") == 1) { return 0; }
     return 0 - 1;
 }
 

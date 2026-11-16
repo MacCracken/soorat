@@ -45,6 +45,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `color/*` and `vertex/bytemuck_cast_100`, and `math/*` extras (`tests/{math,color}.bcyr`, `bench-history.csv`).
   - `dist/soorat.cyr`, the bundle `cyrius distlib` writes from `[lib]`; CI checks it is current, runs
     `cyrius test --bounds`, and checks the generated layouts.
+- **M1 part d: f16 and sRGB** (`src/tables.cyr`; `src/tables_data.cyr`, generated from the oracle by
+  `scripts/oracle/gen_tables.py`). These are `environment`'s crate-private conversions, which M4's face encoding
+  calls. Four `environment` tests are ported (`tests/tables.tcyr`), with `tables/*` benches (`tests/tables.bcyr`).
+  All 5,215 golden rows pass:
+  - f16 ⇄ f32 is identical to Rust on every subnormal half, every exponent's mantissa edges and every rounding
+    midpoint ± 1 ulp;
+  - sRGB is identical except on the 3 rows where glibc's `powf` misrounds, where the port gives the correctly rounded
+    value (`tests/golden/tables.cr.tsv`);
+  - the 256-entry decode table is Rust's own.
 
 ### Performance
 - color: one typed f32 helper per formula instead of a ganita call per operation. `color/lerp` 75 → 37 ns (−51 %),

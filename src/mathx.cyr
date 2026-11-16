@@ -26,6 +26,29 @@ fn _sr_f32_lt(a, b): i64 {
     return 0;
 }
 
+# 1 when a ≤ b as f32 values (0 when either is NaN).
+#must_use
+fn _sr_f32_le(a, b): i64 {
+    var x: f64 = f32_to(a & 0xFFFFFFFF);
+    var y: f64 = f32_to(b & 0xFFFFFFFF);
+    if (x <= y) { return 1; }
+    return 0;
+}
+
+# a · b in native f32 (one rounding), as bits.
+#must_use
+fn _sr_f32_mul(a: f32, b: f32): i64 {
+    var r: f32 = a * b;
+    return r;
+}
+
+# a / b in native f32 (one rounding), as bits.
+#must_use
+fn _sr_f32_div(a: f32, b: f32): i64 {
+    var r: f32 = a / b;
+    return r;
+}
+
 # x restricted to [lo, hi], as Rust's `f32::clamp`: lo when x < lo, hi when x > hi, else x itself, bits kept (−0
 # stays −0, a NaN stays NaN). Every caller passes lo ≤ hi, neither NaN (Rust panics otherwise).
 #must_use

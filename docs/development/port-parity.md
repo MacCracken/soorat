@@ -528,7 +528,7 @@ output. The Rust side is about 400 lines on top of the `gltf` crate.
 - A texture's decode memory goes through a freeing allocator.
 - The 16.7 Mpx cap is an ADR 0002 row: soorat 1.2.0 allows larger images up to the device limit.
 
-## 2. M1: foundation (parts a–c, 2026-11-15)
+## 2. M1: foundation (parts a–d, 2026-11-15)
 
 Same dev box and toolchain as §1. Re-run: `cyrius test --bounds tests/parity.tcyr` (the replay),
 `python3 -I -B scripts/oracle/validate.py .` (the independent re-derivation), `taskset -c 2 cyrius bench`.
@@ -541,6 +541,7 @@ Same dev box and toolchain as §1. Re-run: `cyrius test --bounds tests/parity.tc
 | `color` | 3,397 | A, B | all identical to Rust, including every −0 output. Re-run with class B held to exact bits: still all identical |
 | `lights` | 1,066 | A; C (`GpuLight::spot`, bound 0) | 1,038 identical; the **28 spot rows where glibc's `cosf` misrounds** (28 of 2,016 cosines, 1.4 %) give the correctly rounded value, never glibc's |
 | `lod` | 770 | A | all identical, thresholds ± 1 ulp and NaN included |
+| `tables` | 5,215 | A (f16, the decode table); C (sRGB, bound 0) | f16 ⇄ f32 identical on every subnormal half, every exponent's mantissa edges and every rounding midpoint ± 1 ulp. sRGB: 5,105 identical; the **3 rows where glibc's `powf` misrounds** (0.06 %, each by 1 ulp, as P3 found) give the correctly rounded value. The generated 256-entry decode table equals Rust's, and `validate.py` gets the same 256 with `pow` correctly rounded |
 | `layout` | 19 | A | all identical, measured on the compiled structs (`tests/layout_probe.cyr`) |
 | `constants` | 9 of 18 | A | identical; the other 9 arrive with their modules |
 
@@ -575,7 +576,25 @@ The Rust numbers are sub-nanosecond because criterion's loop inlines each call; 
   which looks like the compiler's code for 48 f64 locals: a performance item for M4, whose shadow benches call it.
 
 One full run read about 2× slow on everything, `noop` included (3 → 6 ns). Two repeat runs agreed with the earlier
-numbers, so it was the machine's state; `bench-history.csv` keeps that run, and the record uses the later one.
+numbers, so it was the machine's state; `bench-history.csv` keeps that run, and the record uses the later one. It
+happened again at part d (the files after the first ran 2× slow), and again two full repeat runs agreed with the
+per-file numbers. The box changes clock state (`cpu MHz` near 4 GHz when boosting), so **a run is accepted only
+when a repeat agrees**, and the history keeps the outliers.
+
+**Part d's extras** (no Rust bench: `environment` keeps these crate-private):
+
+| Bench | Cyrius | What dominates |
+|---|---|---|
+| `tables/f16_to_f32` | 6.6–13 ns | bit manipulation and a call |
+| `tables/f32_to_f16` | 12.5–25 ns | the rounding branch |
+| `tables/srgb8_decode` | 3.5–7 ns | a table load |
+| `tables/srgb_to_linear`, `linear_to_srgb` | 202–285 ns | **ganita's correctly rounded `pow`: 271 ns of 283**, measured alone |
+
+The ranges are the box's clock states. A plain f64 `exp(y · ln x)` takes 49 ns but is not correctly rounded, and
+x87 `exp`/`ln` differ across targets (§1.4). Nothing in M1 calls sRGB in a loop. M4's face encoding does, three
+times per texel, which is about 1.2 s for six 512² faces. So M4 decides between an exhaustively checked fast `pow`
+on the sRGB domain (about 3·10⁷ f32 inputs to decode, 8·10⁷ to encode) and a quantized encode by threshold search, which gives Rust's
+bytes without calling `pow` at all.
 
 ### 2.3 What M1 taught (rules for the next parts)
 
@@ -592,3 +611,7 @@ numbers, so it was the machine's state; `bench-history.csv` keeps that run, and 
   `alloc_init`, so they can't use `alloc`.
 - **There is no `offsetof`.** The layouts are measured with P1's marker technique, in generated code
   (`scripts/oracle/gen_layout.py`).
+- **An integer literal passed to an `: f32` parameter warns under `--bounds`**, as a field assignment does. Pass the
+  bits through a variable (`var f255 = 0x437F0000;`), as the modules' named constants already do.
+- **A static table is generated code**: `scripts/oracle/gen_tables.py` writes the decode table as `store32` lines
+  run once at load. Cyrius has no array initializer.

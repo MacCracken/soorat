@@ -71,7 +71,7 @@ FILES = {
     "src/gltf_loader.rs": ("M3", ["tests/gltf.tcyr"]),
     # shadow: all 23 tests are CPU (matrices, splits, atlas tiling, point faces, the uniforms' layouts): M4.
     "src/shadow.rs": ("M4", ["tests/shadow_math.tcyr", "tests/shadow.tcyr"]),
-    "src/environment.rs": ("M4", ["tests/env_cpu.tcyr", "tests/environment.tcyr"]),
+    "src/environment.rs": ("M4", ["tests/tables.tcyr", "tests/env_cpu.tcyr", "tests/environment.tcyr"]),
     "src/pbr_material.rs": ("M4", ["tests/pbr_material.tcyr"]),
     "src/render_graph.rs": ("M4", ["tests/render_graph.tcyr"]),
     "src/profiler.rs": ("M4", ["tests/profiler.tcyr"]),
@@ -120,7 +120,13 @@ TEST_MILESTONE = {
     ("src/instancing.rs", "instance_data_batch_cast"): "M6",
     # debug_draw's line pipeline half (M6): the wgpu vertex-buffer layout descriptor.
     ("src/debug_draw.rs", "line_vertex_layout"): "M6",
-    # environment's GPU half (M7): the IBL bind group and the cube map types. The other six are its CPU half (M4).
+    # environment's f16 and sRGB conversions (M1 part d, src/tables.cyr, tests/tables.tcyr).
+    ("src/environment.rs", "f16_roundtrip_exact_values"): "M1",
+    ("src/environment.rs", "f16_special_values"): "M1",
+    ("src/environment.rs", "f16_rounds_to_nearest_even"): "M1",
+    ("src/environment.rs", "srgb_transfer_roundtrip"): "M1",
+    # environment's GPU half (M7): the IBL bind group and the cube map types. Its downsample and mip-chain tests are
+    # its CPU half (M4).
     ("src/environment.rs", "ibl_bind_group_layout_types"): "M7",
     ("src/environment.rs", "environment_map_types"): "M7",
     # The integration tests (the rest use sprites and batches: M2).

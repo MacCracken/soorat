@@ -39,6 +39,8 @@ modules = [
     "src/error.cyr",
     "src/log.cyr",
     "src/mathx.cyr",
+    "src/tables_data.cyr",
+    "src/tables.cyr",
     "src/math.cyr",
     "src/layout.cyr",
     "src/color.cyr",
