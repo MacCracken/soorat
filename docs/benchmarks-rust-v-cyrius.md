@@ -5,17 +5,17 @@
 
 **Rust column:** `rust-old/bench-history.csv`, run `2026-11-15T21:19:13Z` at `7f3213a`: the 1.2.0 release run (plan §4 step 8), criterion medians.
 
-**Cyrius column:** `bench-history.csv` at the repository root (`timestamp,commit,branch,benchmark,estimate_ns`, as the Rust history), its latest run: `2026-11-16T00:43:07Z` at `dbb7b77+wip`, `cyrius bench` means. `scripts/bench_record.py . --append <cyrius bench log>` adds a run.
+**Cyrius column:** `bench-history.csv` at the repository root (`timestamp,commit,branch,benchmark,estimate_ns`, as the Rust history), its latest run: `2026-11-16T01:01:49Z` at `9a8b384+wip`, `cyrius bench` means. `scripts/bench_record.py . --append <cyrius bench log>` adds a run.
 
-**35 Rust benches:** 6 twinned, 0 not applicable, 29 pending, 0 missing. Milestones done (plan §14): M0.
+**35 Rust benches:** 6 twinned, 0 not applicable, 29 pending, 0 missing. Milestones done (plan §14): M0, M1.
 
 | Rust bench | Milestone | Rust 1.2.0 | Cyrius twin | Cyrius | Cyrius / Rust |
 |---|---|---:|---|---:|---:|
-| `color/from_hex` | M1 | 1.36 ns | `color/from_hex` | 19.61 ns | 14.4× |
-| `color/from_rgba8` | M1 | 3.30 ns | `color/from_rgba8` | 15.28 ns | 4.64× |
-| `color/lerp` | M1 | 1.05 ns | `color/lerp` | 37.93 ns | 36.0× |
-| `color/luminance` | M1 | 0.76 ns | `color/luminance` | 10.84 ns | 14.2× |
-| `color/to_array` | M1 | 0.52 ns | `color/to_array` | 4.80 ns | 9.26× |
+| `color/from_hex` | M1 | 1.36 ns | `color/from_hex` | 19.98 ns | 14.7× |
+| `color/from_rgba8` | M1 | 3.30 ns | `color/from_rgba8` | 15.58 ns | 4.73× |
+| `color/lerp` | M1 | 1.05 ns | `color/lerp` | 38.79 ns | 36.8× |
+| `color/luminance` | M1 | 0.76 ns | `color/luminance` | 11.04 ns | 14.5× |
+| `color/to_array` | M1 | 0.52 ns | `color/to_array` | 4.90 ns | 9.45× |
 | `sprite/create` | M2 | 2.39 ns | `sprite/create` — pending | — | — |
 | `sprite/create_full_builder` | M2 | 3.54 ns | `sprite/create_full_builder` — pending | — | — |
 | `sprite/center_bounds` | M2 | 0.25 ns | `sprite/center_bounds` — pending | — | — |
@@ -24,7 +24,7 @@
 | `sprite/batch_sort_100` | M2 | 73.57 ns | `sprite/batch_sort_100` — pending | — | — |
 | `sprite/batch_push_1000` | M2 | 8.31 µs | `sprite/batch_push_1000` — pending | — | — |
 | `sprite/batch_sort_1000` | M2 | 565.87 ns | `sprite/batch_sort_1000` — pending | — | — |
-| `vertex/bytemuck_cast_100` | M1 | 0.77 ns | `vertex/byte_view_100` | 1.26 ns | 1.64× |
+| `vertex/bytemuck_cast_100` | M1 | 0.77 ns | `vertex/byte_view_100` | 1.28 ns | 1.66× |
 | `vertex/quad_generation_100` | M2 | 633.72 ns | `vertex/quad_generation_100` — pending | — | — |
 | `pipeline/batch_to_vertices_100` | M2 | 1.19 µs | `pipeline/batch_to_vertices_100` — pending | — | — |
 | `pipeline/batch_to_vertices_1000` | M2 | 11.90 µs | `pipeline/batch_to_vertices_1000` — pending | — | — |
@@ -51,15 +51,20 @@
 
 | Cyrius bench | What it measures | Cyrius |
 |---|---|---:|
-| `math/compose_trs` | M1: `compose_trs` in f64, rounded once; no Rust bench (animation's joint chains call it, M3) | 47.24 ns |
-| `math/look_at` | M1: `look_at` in f64, rounded once; no Rust bench (`shadow/directional_matrix` calls it, M4) | 78.40 ns |
-| `math/mul_mat4` | M1: `mul_mat4` in f64, rounded once (D4 rule b); no Rust bench (`shadow/*` call it, M4) | 115.00 ns |
-| `math/normal_to_basis` | M1: `normal_to_basis` in f64, rounded once; no Rust bench (acoustic and em call it, M5) | 59.35 ns |
-| `math/normalize3` | M1: `normalize3` in f64, rounded once; no Rust bench | 17.92 ns |
-| `math/perspective_90` | M1: `perspective_90` in f64, rounded once; no Rust bench (`shadow/point_shadow_6_faces`, M4) | 30.85 ns |
-| `noop` | the scaffold's harness check: an empty call, i.e. loop and call overhead (tests/soorat.bcyr) | 2.30 ns |
-| `tables/f16_to_f32` | M1: binary16 → binary32 (bit manipulation); no Rust bench (environment's HDR faces, M4) | 6.64 ns |
-| `tables/f32_to_f16` | M1: binary32 → binary16, ties to even; no Rust bench (environment's HDR faces, M4) | 12.51 ns |
-| `tables/linear_to_srgb` | M1: sRGB encode, f32 with a correctly rounded pow; no Rust bench (environment, M4) | 202.00 ns |
-| `tables/srgb8_decode` | M1: a decode-table lookup (the generated table); no Rust bench (environment, M4) | 3.46 ns |
-| `tables/srgb_to_linear` | M1: sRGB decode, f32 with a correctly rounded pow; no Rust bench (environment, M4) | 214.00 ns |
+| `color_optics/from_prakash` | M1 (`optics`): a prakash Rgb clamped and narrowed to a Color; no Rust bench | 23.00 ns |
+| `color_optics/from_temperature` | M1 (`optics`): a blackbody colour through prakash's fit; no Rust bench | 458.00 ns |
+| `color_optics/from_wavelength` | M1 (`optics`): a spectral colour through prakash; no Rust bench | 60.73 ns |
+| `json/color_from_json` | M1: a serde_json Color document, read (bayan's value tree); no Rust bench | 2.11 µs |
+| `json/color_to_json` | M1: Color's serde document, written (bayan's round-trip digits); no Rust bench | 3.90 µs |
+| `math/compose_trs` | M1: `compose_trs` in f64, rounded once; no Rust bench (animation's joint chains call it, M3) | 49.08 ns |
+| `math/look_at` | M1: `look_at` in f64, rounded once; no Rust bench (`shadow/directional_matrix` calls it, M4) | 80.78 ns |
+| `math/mul_mat4` | M1: `mul_mat4` in f64, rounded once (D4 rule b); no Rust bench (`shadow/*` call it, M4) | 125.00 ns |
+| `math/normal_to_basis` | M1: `normal_to_basis` in f64, rounded once; no Rust bench (acoustic and em call it, M5) | 65.77 ns |
+| `math/normalize3` | M1: `normalize3` in f64, rounded once; no Rust bench | 18.64 ns |
+| `math/perspective_90` | M1: `perspective_90` in f64, rounded once; no Rust bench (`shadow/point_shadow_6_faces`, M4) | 32.46 ns |
+| `noop` | the scaffold's harness check: an empty call, i.e. loop and call overhead (tests/soorat.bcyr) | 2.79 ns |
+| `tables/f16_to_f32` | M1: binary16 → binary32 (bit manipulation); no Rust bench (environment's HDR faces, M4) | 7.00 ns |
+| `tables/f32_to_f16` | M1: binary32 → binary16, ties to even; no Rust bench (environment's HDR faces, M4) | 13.43 ns |
+| `tables/linear_to_srgb` | M1: sRGB encode, f32 with a correctly rounded pow; no Rust bench (environment, M4) | 216.00 ns |
+| `tables/srgb8_decode` | M1: a decode-table lookup (the generated table); no Rust bench (environment, M4) | 3.91 ns |
+| `tables/srgb_to_linear` | M1: sRGB decode, f32 with a correctly rounded pow; no Rust bench (environment, M4) | 213.00 ns |

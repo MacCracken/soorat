@@ -10,7 +10,11 @@ description = "Writes soorat's golden corpus (tests/golden/*.tsv) from the froze
 # The oracle by path, never edited. Cargo.lock is seeded from rust-old/Cargo.lock, so every
 # shared dependency is the oracle's exact version. Features grow with the milestones' modules.
 [dependencies]
-soorat = { path = "../../rust-old", features = ["oracle"] }
+# `optics` from M1 part b2 (Color's prakash conversions); serde_json is rust-old's own dev-dependency, at its version,
+# for Color's serde documents (the `color_json` rows).
+soorat = { path = "../../rust-old", features = ["oracle", "optics"] }
+prakash = "=1.2.0"
+serde_json = "=1.0.154"
 
 [profile.release]
 overflow-checks = true

@@ -22,44 +22,19 @@
 #   in Cyrius by tests/layout_probe.cyr).
 # - M1 part c: `lights` (the spot cones class C at 0 ulp against lights.cr.tsv) and `lod`; `constants`' MAX_LIGHTS.
 # - M1 part d: `tables` (f16 class A; the sRGB transfer functions class C at 0 ulp against tables.cr.tsv).
+# - M1 part b2: `json` (`Color::from_json`). Its three `Color::from_json_bayan_*` rows, documents serde_json reads and
+#   bayan's tree can't, stay pending until bayan changes (ADR 0002 #19). `color_optics` needs the `optics` feature's
+#   prakash and is replayed by tests/parity_optics.tcyr.
 
 # The library first: a file that declares an `enum` (src/error.cyr) must be included before any top-level statement.
 include "tests/lib.cyr"
+include "src/json.cyr"
 include "tests/layout_probe.cyr"
 include "tests/ulp.cyr"
 
 alloc_init();
 
 include "tests/parity_core.cyr"
-
-# Scratch arrays for one row's f32 inputs and outputs (a matrix is 16 f32, 64 bytes).
-var _par_ga = alloc(64);
-var _par_gb = alloc(64);
-var _par_gc = alloc(64);
-var _par_gr = alloc(64);
-var _par_gu = alloc(64);
-
-# Reads `v:n` then n `g:` tokens from token k into the f32 array buf. Returns the index of the token after them.
-fn _par_in_g32s(k, buf): i64 {
-    var n = _par_in(k);
-    var j = 0;
-    while (j < n) {
-        store32(buf + j * 4, _par_in(k + 1 + j));
-        j = j + 1;
-    }
-    return k + 1 + n;
-}
-
-# Appends `v:n` and the n f32 at buf to the got list.
-fn _par_got_g32s(buf, n) {
-    _par_got_seq(n);
-    var j = 0;
-    while (j < n) {
-        _par_got_g(load32(buf + j * 4));
-        j = j + 1;
-    }
-    return 0;
-}
 
 # ── constants (M1: IDENTITY_MAT4; the rest arrive with their modules) ────────────────
 
@@ -260,6 +235,23 @@ fn _par_tables(fp, fl): i64 {
     return 0;
 }
 
+# ── json (src/json.cyr) ──────────────────────────────────────────────────────────────
+
+fn _par_json(fp, fl): i64 {
+    if (_par_eq(fp, fl, "Color::from_json") == 1) {
+        var doc = _par_in_cstr(0);
+        if (doc == 0) { return 0 - 1; }
+        var t, v = SrColor_from_json(doc, strlen(doc), _par_gr);
+        if (is_err_result(t) == 1) {
+            _par_got_err(v);
+        } else {
+            _par_got_g32s(_par_gr, 4);
+        }
+        return 1;
+    }
+    return 0;
+}
+
 # ── color (src/color.cyr) ────────────────────────────────────────────────────────────
 
 fn _par_color(fp, fl): i64 {
@@ -382,6 +374,7 @@ fn _par_dispatch(mp, ml, fp, fl): i64 {
     if (_par_eq(mp, ml, "lights") == 1) { return _par_lights(fp, fl); }
     if (_par_eq(mp, ml, "lod") == 1) { return _par_lod(fp, fl); }
     if (_par_eq(mp, ml, "tables") == 1) { return _par_tables(fp, fl); }
+    if (_par_eq(mp, ml, "json") == 1) { return _par_json(fp, fl); }
     return 0;
 }
 
@@ -416,9 +409,11 @@ fn _par_module_done(mp, ml) {
     return 0;
 }
 
-# Every module is replayed here.
+# Every module is replayed here except `color_optics`, which needs the `optics` feature's prakash:
+# tests/parity_optics.tcyr replays it.
 #must_use
 fn _par_skip(mp, ml): i64 {
+    if (_par_eq(mp, ml, "color_optics") == 1) { return 1; }
     return 0;
 }
 

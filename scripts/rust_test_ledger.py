@@ -54,7 +54,7 @@ KIND_OF_FILE = {"tests/integration.rs": "integration", "tests/gpu_smoke.rs": "gp
 FILES = {
     "src/error.rs": ("M1", ["tests/error.tcyr"]),
     "src/math_util.rs": ("M1", ["tests/math.tcyr"]),
-    "src/color.rs": ("M1", ["tests/color.tcyr"]),
+    "src/color.rs": ("M1", ["tests/color.tcyr", "tests/color_optics.tcyr"]),
     "src/vertex.rs": ("M1", ["tests/layout.tcyr"]),
     "src/instancing.rs": ("M1", ["tests/layout.tcyr"]),
     "src/lights.rs": ("M1", ["tests/lights.tcyr"]),

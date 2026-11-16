@@ -1,8 +1,9 @@
-# color.tcyr — the ported tests of Rust 1.2.0's src/color.rs (M1 part b): 18 of its 23. `color_serde_roundtrip`
-# arrives with bayan and the four `optics` tests with prakash (M1 part b2). The golden rows (tests/golden/color.tsv,
-# 3,397) are replayed by tests/parity.tcyr.
+# color.tcyr — the ported tests of Rust 1.2.0's src/color.rs (M1 parts b and b2): 19 of its 23, with
+# `color_serde_roundtrip` through src/json.cyr. The four `optics` tests need prakash and are tests/color_optics.tcyr.
+# The golden rows (tests/golden/color.tsv, 3,397; tests/golden/json.tsv, 180) are replayed by tests/parity.tcyr.
 
 include "tests/lib.cyr"
+include "src/json.cyr"
 include "tests/support.cyr"
 
 # f32 bits (from rustc).
@@ -102,6 +103,16 @@ fn main() {
     test_group("color_to_array");
     assert(t_arr_eq(SrColor_to_array(SR_COLOR_RED, arr), t_set4(d, F1, F0, F0, F1), 4) == 1, "RED");
 
+    # serde_json's round trip, through src/json.cyr's writer and reader.
+    test_group("color_serde_roundtrip");
+    SrColor_new(F01, F02, F03, 0x3F666666, c);
+    var sb = str_builder_new();
+    assert_eq(SrColor_to_json(c, sb), 0, "written");
+    var js = str_builder_build(sb);
+    var jt, jv = SrColor_from_json(str_data(js), str_len(js), d);
+    assert(is_ok(jt) == 1, "read back");
+    assert(t_arr_eq(c, d, 4) == 1, "the same colour");
+
     test_group("color_to_wgpu");
     SrColor_to_wgpu(SR_COLOR_RED, w);
     var wr: f64 = load64(w);
@@ -170,6 +181,38 @@ fn main() {
     assert(t_arr_eq(e, c, 4) == 1, "lerp(a, b, t, a)");
     assert(load32(SR_COLOR_CORNFLOWER_BLUE) == 0x3EC8B439, "0.392f32");
     assert_eq(sizeof(SrColor), 16, "SrColor is 16 bytes");
+
+    # Cyrius-only: every f32 survives the writer and reader bit for bit (signed zeros, subnormals, the extremes), a
+    # non-finite component is written `null` and refused, as serde_json does.
+    test_group("cyrius: JSON round trip, bit for bit");
+    var jvals = alloc(64);
+    store64(jvals, 0x80000000);
+    store64(jvals + 8, 0x00000001);
+    store64(jvals + 16, 0x7F7FFFFF);
+    store64(jvals + 24, 0xFF7FFFFF);
+    store64(jvals + 32, 0x00800000);
+    store64(jvals + 40, 0x3EAAAAAB);
+    store64(jvals + 48, 0x4B800001);
+    store64(jvals + 56, 0xBDCCCCCD);
+    var jk = 0;
+    while (jk < 8) {
+        var x = load64(jvals + jk * 8);
+        SrColor_new(x, load64(jvals + ((jk + 1) & 7) * 8), load64(jvals + ((jk + 2) & 7) * 8), F1, c);
+        var sb2 = str_builder_new();
+        var rc = SrColor_to_json(c, sb2);
+        var s2 = str_builder_build(sb2);
+        var t2, v2 = SrColor_from_json(str_data(s2), str_len(s2), d);
+        assert(rc == 0 && is_ok(t2) == 1, "written and read");
+        assert(load64(c) == load64(d) && load64(c + 8) == load64(d + 8), "bit-identical");
+        jk = jk + 1;
+    }
+    SrColor_new(FNAN, F0, F0, F1, c);
+    var sb3 = str_builder_new();
+    var rc3 = SrColor_to_json(c, sb3);
+    var s3 = str_builder_build(sb3);
+    var t3, v3 = SrColor_from_json(str_data(s3), str_len(s3), d);
+    assert(is_err_result(t3) == 1, "NaN is written null, which doesn't read back");
+    assert_eq(v3, SR_ERR_DESERIALIZE, "SR_ERR_DESERIALIZE");
 
     return assert_summary();
 }

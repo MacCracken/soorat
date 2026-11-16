@@ -293,6 +293,36 @@ fn _par_got_text(p, len) {
     _par_got_s(out, n);
 }
 
+# ── soorat: f32 sequences ──
+# Scratch arrays for one row's f32 inputs and outputs (a matrix is 16 f32, 64 bytes).
+var _par_ga = alloc(64);
+var _par_gb = alloc(64);
+var _par_gc = alloc(64);
+var _par_gr = alloc(64);
+var _par_gu = alloc(64);
+
+# Reads `v:n` then n `g:` tokens from token k into the f32 array buf. Returns the index of the token after them.
+fn _par_in_g32s(k, buf): i64 {
+    var n = _par_in(k);
+    var j = 0;
+    while (j < n) {
+        store32(buf + j * 4, _par_in(k + 1 + j));
+        j = j + 1;
+    }
+    return k + 1 + n;
+}
+
+# Appends `v:n` and the n f32 at buf to the got list.
+fn _par_got_g32s(buf, n) {
+    _par_got_seq(n);
+    var j = 0;
+    while (j < n) {
+        _par_got_g(load32(buf + j * 4));
+        j = j + 1;
+    }
+    return 0;
+}
+
 # Reads `v:n` then n f64 tokens at token k into buf; returns n.
 fn _par_in_f64s(k, buf): i64 {
     var n = _par_in(k);

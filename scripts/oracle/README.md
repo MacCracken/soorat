@@ -38,6 +38,8 @@ Every port's harness reads the same files. This README records what is specific 
 | `layout` | M0 | 19 | `src/m_layout.rs` | size and field offsets of every GPU-facing `#[repr(C)]` type (probe P1) |
 | `math` | M0 | 1,436 | `src/m_math.rs` | `math_util` on probe P2's grid: `mul_mat4`, `normalize3`, `cross`, `perspective_90`, `look_at`, `compose_trs`, `normal_to_basis` (class E) and `flatten_mat4` (class A). `math.e.tsv`: 1,149 rows where f64-once differs |
 | `color` | M1 | 3,397 | `src/m_color.rs` | `Color` without its `optics` half: every byte in `from_rgba8`; `to_rgba8` at every k/510 and every halfway point (Rust rounds half away from zero); the colour maps across and beyond their domain, each stop ± 1 ulp, ±0, ±∞, NaN (A, B) |
+| `color_optics` | M1 | 1,704 | `src/m_color_optics.rs` | `Color`'s `optics` half (the oracle crate turns on soorat's `optics` feature and depends on prakash 1.2.0): `from_prakash` at f32 midpoints and the clamp's edges, `to_prakash`, `from_temperature` every 100 K, `from_wavelength` every 0.5 nm, `n:` for `None` (A). Replayed by tests/parity_optics.tcyr |
+| `json` | M1 | 180 | `src/m_json.rs` | serde_json 1.0.154 (rust-old's dev-dependency, at its version) reading `Color` documents: its own output for a colour grid, and hand-written ones for serde's derive semantics; `E:Deserialize` for a refusal (A). The three `Color::from_json_bayan_*` rows are pending (ADR 0002 #19) |
 | `lights` | M1 | 1,066 | `src/m_lights.rs` | the three light constructors and the light array; `GpuLight::spot`'s cone cosines are class C, and `lights.cr.tsv` holds the 28 rows where glibc's `cosf` misrounds (ADR 0002 #16) |
 | `lod` | M1 | 770 | `src/m_lod.rs` | `LodChain` and `TerrainLod`: every threshold ± 1 ulp, NaN, ±∞, empty chains, mismatched lengths (`E:Pipeline`) (A) |
 | `tables` | M1 | 5,215 | `src/m_tables.rs` | `environment`'s f16 and sRGB conversions, through the oracle hooks. f16 ⇄ f32 (A, 64 values a row): every subnormal half, every exponent's mantissa edges, every rounding midpoint ± 1 ulp, NaN payloads. sRGB (C): dense grids, each knee ± 2 ulp; `tables.cr.tsv` holds the 3 rows where glibc's `powf` misrounds. The 256-entry decode table (A), which `gen_tables.py` turns into `src/tables_data.cyr` |
@@ -58,7 +60,7 @@ fn <TAB> class <TAB> inputs <TAB> outputs <TAB> note
 | `f:<16 hex>` | an f64 as its bit pattern, lowercase |
 | `i:<decimal>` | an integer, or a boolean as 0 / 1 |
 | `e:<Enum>.<Variant>` | an enum variant |
-| `s:<percent-encoded UTF-8>` | a string |
+| `s:<percent-encoded UTF-8>` | a string: every byte outside 0x21–0x7e, and `%`, as `%XX` (uppercase) |
 | `n:` | `None` |
 | `E:<Variant>` | `Err(RenderError::<Variant>)`, with the payload not compared |
 | `v:<len>` | a sequence; its element tokens follow |

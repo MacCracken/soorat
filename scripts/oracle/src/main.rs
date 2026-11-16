@@ -20,7 +20,9 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 mod m_color;
+mod m_color_optics;
 mod m_constants;
+mod m_json;
 mod m_layout;
 mod m_lights;
 mod m_lod;
@@ -83,6 +85,25 @@ impl Toks {
     /// `i:<decimal>`: an integer (or a boolean as 0 / 1).
     pub fn i(mut self, x: i128) -> Self {
         self.0.push(format!("i:{x}"));
+        self
+    }
+    /// `s:<text>`: a string, percent-encoded: every byte outside 0x21..=0x7e, and `%`, as `%XX` (uppercase), so a
+    /// token never holds a space or a tab.
+    pub fn s(mut self, text: &str) -> Self {
+        let mut t = String::from("s:");
+        for &b in text.as_bytes() {
+            if (0x21..=0x7e).contains(&b) && b != b'%' {
+                t.push(b as char);
+            } else {
+                let _ = write!(t, "%{b:02X}");
+            }
+        }
+        self.0.push(t);
+        self
+    }
+    /// `n:`: `None`.
+    pub fn none(mut self) -> Self {
+        self.0.push("n:".to_string());
         self
     }
     /// `E:<Variant>`: `Err(RenderError::<Variant>)`, its payload not compared.
@@ -186,9 +207,11 @@ fn main() {
         m_layout::module(),
         m_math::module(),
         m_color::module(),
+        m_color_optics::module(),
         m_lights::module(),
         m_lod::module(),
         m_tables::module(),
+        m_json::module(),
     ];
 
     let mut index = String::from(

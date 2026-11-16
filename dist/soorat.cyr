@@ -23,6 +23,9 @@ include "lib/result.cyr"
 # neither (ADR 0002 #1). `sr_error_message(code)` gives thiserror's message up to its `{0}`, the part that
 # doesn't depend on the payload.
 #
+# One code is Cyrius-only: SR_ERR_DESERIALIZE (ADR 0002 #19), a JSON reader's refusal, where Rust's serde_json returns
+# its own error type rather than a RenderError (pravash's PV_ERR_DESERIALIZE is the precedent).
+#
 # `From<mabda::GpuError>` (Rust's `impl From`) arrives with mabda at M6, as `sr_error_from_gpu`; its five tests
 # move there with it (docs/development/rust-test-ledger.md).
 
@@ -39,6 +42,7 @@ enum SrRenderError {
     SR_ERR_WINDOW = 9;
     SR_ERR_SCREENSHOT = 10;
     SR_ERR_OTHER = 11;
+    SR_ERR_DESERIALIZE = 12;
 }
 
 # The Rust variant name of an error code (`"Shader"`), "None" for SR_ERR_NONE, or "Unknown" for a value that is
@@ -58,6 +62,7 @@ fn sr_error_name(code): i64 {
         SR_ERR_WINDOW => { return "Window"; }
         SR_ERR_SCREENSHOT => { return "Screenshot"; }
         SR_ERR_OTHER => { return "Other"; }
+        SR_ERR_DESERIALIZE => { return "Deserialize"; }
         _ => { return "Unknown"; }
     }
     return "Unknown";
@@ -81,6 +86,7 @@ fn sr_error_message(code): i64 {
         SR_ERR_WINDOW => { return "window creation failed"; }
         SR_ERR_SCREENSHOT => { return "screenshot failed"; }
         SR_ERR_OTHER => { return "other error"; }
+        SR_ERR_DESERIALIZE => { return "deserialization error"; }
         _ => { return "unknown error"; }
     }
     return "unknown error";
@@ -114,6 +120,11 @@ fn _sr_warn(msg): i64 {
 #   a NaN through;
 # - `round` rounds half away from zero (ganita_f32_round and f64_round round ties to even: 0.5 → 0, Rust 1);
 # - `as u8` saturates, NaN → 0.
+#
+# UPSTREAM(L8): cyrius:docs/development/issues/2026-11-15-f32-returns-consts-and-f16.md
+#   return f32 values (not their bits) and use f32 `const`s once the language allows them; parity: every f32 row of
+#   tests/golden/*.tsv.
+#
 # Arithmetic stays on ganita's native f32 tier (ganita_f32_add, _sub, _mul, _div: one f32 rounding each), which is
 # Rust's sequence under D4 rule a.
 
@@ -193,6 +204,38 @@ fn _sr_f32_to_u8(x): i64 {
     if (v <= zero) { return 0; }
     if (v >= top) { return 255; }
     return f64_to(v);
+}
+
+# n (an i64) as f32 bits, rounded once to nearest with ties to even, as Rust's `n as f32` (serde reads a JSON integer
+# into an f32 this way). Going through f64 would round twice above 2⁵³.
+#must_use
+fn _sr_i64_to_f32(n): i64 {
+    if (n == 0) { return 0; }
+    var sign = 0;
+    var m = n;
+    if (n < 0) {
+        sign = 0x80000000;
+        if (n == (0 - 9223372036854775807 - 1)) { return 0xDF000000; }
+        m = 0 - n;
+    }
+    if (m < 16777216) { return f32_from(f64_from(m)) | sign; }
+    var bl = 0;
+    var t = m;
+    while (t > 0) {
+        bl = bl + 1;
+        t = t >> 1;
+    }
+    var sh = bl - 24;
+    var mant = m >> sh;
+    var rem = m & ((1 << sh) - 1);
+    var half = 1 << (sh - 1);
+    if (rem > half || (rem == half && (mant & 1) == 1)) { mant = mant + 1; }
+    var e = bl - 1;
+    if (mant == 16777216) {
+        mant = 8388608;
+        e = e + 1;
+    }
+    return sign | ((e + 127) << 23) | (mant & 0x7FFFFF);
 }
 
 # --- tables_data.cyr ---
@@ -310,6 +353,9 @@ var _sr_srgb8_decode_ready = _sr_srgb8_decode_init();
 # - **sRGB** (IEC 61966-2-1) follows Rust's f32 sequence (D4 rule a) around one `powf`. Rust's is host glibc's,
 #   which misrounds 3 of the corpus's 5,108 sRGB rows by 1 ulp. ganita's f32 `pow` widens, computes and narrows,
 #   and is correctly rounded on all of them: class C, bound 0, against tests/golden/tables.cr.tsv (ADR 0002 #16).
+#   UPSTREAM(L8): cyrius:docs/development/issues/2026-11-15-f32-returns-consts-and-f16.md
+#     call the stdlib's f16 pair once it ships, and drop _sr_f16_to_f32 / _sr_f32_to_f16; parity: the
+#     `f16_to_f32` and `f32_to_f16` rows of tests/golden/tables.tsv (class A).
 # - **The sRGB-byte decode table** (`_SR_SRGB8_DECODE`, 256 f32) is generated from the oracle's own values by
 #   scripts/oracle/gen_tables.py, into src/tables_data.cyr (port plan §6.2).
 

@@ -1,0 +1,74 @@
+# color_optics.tcyr — the ported `optics` tests of Rust 1.2.0's src/color.rs (M1 part b2), all 4. Needs the
+# `optics` feature's prakash (`cyrius deps --features optics`). The golden rows (tests/golden/color_optics.tsv,
+# 1,704) are replayed by tests/parity_optics.tcyr.
+
+include "tests/lib.cyr"
+include "src/color_optics.cyr"
+include "tests/support.cyr"
+
+# Runs the ported optics tests.
+fn main() {
+    alloc_init();
+    var c = alloc(16);
+    var back = alloc(16);
+    var rgb = alloc(24);
+    var tol: f64 = 0.001;
+
+    test_group("color_from_prakash");
+    var r05: f64 = 0.5;
+    var r06: f64 = 0.6;
+    var r07: f64 = 0.7;
+    Rgb_set_r(rgb, r05);
+    Rgb_set_g(rgb, r06);
+    Rgb_set_b(rgb, r07);
+    SrColor_from_prakash(rgb, 0x3F666666, c);
+    assert(t_near(t_f(c, 0), r05, tol) == 1, "r = 0.5");
+    assert(t_near(t_f(c, 1), r06, tol) == 1, "g = 0.6");
+    assert(t_near(t_f(c, 2), r07, tol) == 1, "b = 0.7");
+    var a09: f64 = f32_to(0x3F666666);
+    assert(t_near(t_f(c, 3), a09, f32_to(0x34000000)) == 1, "a = 0.9");
+
+    test_group("color_to_prakash_roundtrip");
+    SrColor_rgb(0x3E99999A, 0x3F000000, 0x3F4CCCCD, c);
+    SrColor_to_prakash(c, rgb);
+    SrColor_from_prakash(rgb, 0x3F800000, back);
+    assert(t_near(t_f(c, 0), t_f(back, 0), tol) == 1, "r");
+    assert(t_near(t_f(c, 1), t_f(back, 1), tol) == 1, "g");
+    assert(t_near(t_f(c, 2), t_f(back, 2), tol) == 1, "b");
+
+    test_group("color_from_temperature");
+    SrColor_from_temperature(3000.0, c);
+    assert(_sr_f32_lt(load32(c + 8), load32(c)) == 1, "3000 K is reddish: r > b");
+    SrColor_from_temperature(10000.0, c);
+    assert(_sr_f32_lt(load32(c), load32(c + 8)) == 1, "10000 K is bluish: b > r");
+
+    test_group("color_from_wavelength");
+    var t, v = SrColor_from_wavelength(650.0, c);
+    assert(is_some(t) == 1, "650 nm is visible");
+    assert(_sr_f32_lt(load32(c + 4), load32(c)) == 1 && _sr_f32_lt(load32(c + 8), load32(c)) == 1, "red");
+    var t2, v2 = SrColor_from_wavelength(520.0, c);
+    assert(_sr_f32_lt(load32(c), load32(c + 4)) == 1, "green: g > r");
+    var t3, v3 = SrColor_from_wavelength(100.0, c);
+    assert(is_none(t3) == 1, "100 nm is out of range");
+
+    # Cyrius-only: to_prakash and from_prakash allocate nothing (the 24 B per call is from_temperature's and
+    # from_wavelength's, prakash's own Rgb: UPSTREAM L21).
+    test_group("cyrius: from_prakash and to_prakash allocate nothing");
+    var before = alloc_used();
+    var i = 0;
+    while (i < 1000) {
+        SrColor_to_prakash(c, rgb);
+        SrColor_from_prakash(rgb, 0x3F800000, back);
+        i = i + 1;
+    }
+    assert_eq(alloc_used() - before, 0, "no bump-heap growth over 1,000 round trips");
+    before = alloc_used();
+    SrColor_from_temperature(6500.0, c);
+    assert_eq(alloc_used() - before, 24, "from_temperature leaves prakash's 24-byte Rgb (L21)");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

@@ -9,6 +9,9 @@
 # neither (ADR 0002 #1). `sr_error_message(code)` gives thiserror's message up to its `{0}`, the part that
 # doesn't depend on the payload.
 #
+# One code is Cyrius-only: SR_ERR_DESERIALIZE (ADR 0002 #19), a JSON reader's refusal, where Rust's serde_json returns
+# its own error type rather than a RenderError (pravash's PV_ERR_DESERIALIZE is the precedent).
+#
 # `From<mabda::GpuError>` (Rust's `impl From`) arrives with mabda at M6, as `sr_error_from_gpu`; its five tests
 # move there with it (docs/development/rust-test-ledger.md).
 
@@ -25,6 +28,7 @@ enum SrRenderError {
     SR_ERR_WINDOW = 9;
     SR_ERR_SCREENSHOT = 10;
     SR_ERR_OTHER = 11;
+    SR_ERR_DESERIALIZE = 12;
 }
 
 # The Rust variant name of an error code (`"Shader"`), "None" for SR_ERR_NONE, or "Unknown" for a value that is
@@ -44,6 +48,7 @@ fn sr_error_name(code): i64 {
         SR_ERR_WINDOW => { return "Window"; }
         SR_ERR_SCREENSHOT => { return "Screenshot"; }
         SR_ERR_OTHER => { return "Other"; }
+        SR_ERR_DESERIALIZE => { return "Deserialize"; }
         _ => { return "Unknown"; }
     }
     return "Unknown";
@@ -67,6 +72,7 @@ fn sr_error_message(code): i64 {
         SR_ERR_WINDOW => { return "window creation failed"; }
         SR_ERR_SCREENSHOT => { return "screenshot failed"; }
         SR_ERR_OTHER => { return "other error"; }
+        SR_ERR_DESERIALIZE => { return "deserialization error"; }
         _ => { return "unknown error"; }
     }
     return "unknown error";

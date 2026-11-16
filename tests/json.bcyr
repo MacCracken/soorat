@@ -1,0 +1,45 @@
+# json.bcyr — src/json.cyr's benchmarks (M1 part b2). Rust 1.2.0 has no serde bench, so these are EXTRA rows in
+# docs/benchmarks-rust-v-cyrius.md. The writer reuses one builder, cleared each call (its length word: lib/str.cyr's
+# builder is { buf, len, cap }), so the heap doesn't grow; the reader parses one serde_json document per call on its
+# reset arena.
+
+include "tests/lib.cyr"
+include "src/json.cyr"
+
+var N = 100000;
+
+# Runs the JSON benches.
+fn main(): i64 {
+    alloc_init();
+    var c = SrColor_from_hex(0x336699FF, alloc(16));
+    var out = alloc(16);
+    var sb = str_builder_new();
+    var i = 0;
+
+    var bw = bench_new("json/color_to_json");
+    bench_batch_start(bw);
+    i = 0;
+    while (i < N) {
+        store64(sb + 8, 0);
+        var rc = SrColor_to_json(c, sb);
+        i = i + 1;
+    }
+    bench_batch_stop(bw, N);
+    bench_report(bw);
+
+    var doc = "{\"r\":0.2,\"g\":0.4,\"b\":0.6,\"a\":1.0}";
+    var n = strlen(doc);
+    var br = bench_new("json/color_from_json");
+    bench_batch_start(br);
+    i = 0;
+    while (i < N) {
+        var t, v = SrColor_from_json(doc, n, out);
+        i = i + 1;
+    }
+    bench_batch_stop(br, N);
+    bench_report(br);
+    return 0;
+}
+
+var r = main();
+sys_exit_group(r);

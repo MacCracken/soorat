@@ -17,6 +17,7 @@ operation for + - * / and sqrt (f64 carries more than 2·24 + 2 bits). So:
 Also checks `constants.tsv` against the literals in rust-old/src, and the format of every module file.
 Stdlib only.
 """
+import json as _json
 import math
 import os
 import re
@@ -524,6 +525,187 @@ def check_tables(plat):
     return bad, cr
 
 
+# ── color_optics: prakash 1.2.0's formulas (glibc's pow and log, as Rust's), then Color::from_prakash ──────────
+
+def clamp64(x, lo, hi):
+    """Rust's f64::clamp: lo when x < lo, hi when x > hi, else x (NaN and -0 kept)."""
+    if x < lo:
+        return lo
+    if x > hi:
+        return hi
+    return x
+
+
+def from_prakash(rgb, alpha):
+    return [r32(clamp64(c, 0.0, 1.0)) for c in rgb] + [alpha]
+
+
+def temperature_rgb(kelvin):
+    """prakash 1.2.0's color_temperature_to_rgb (Tanner Helland's fit), in Rust's order."""
+    def pw(x, y):
+        return math.nan if math.isnan(x) else math.pow(x, y)
+
+    def ln(x):
+        return math.nan if math.isnan(x) else math.log(x)
+    temp = clamp64(kelvin / 100.0, 10.0, 400.0)
+    r = 1.0 if temp <= 66.0 else clamp64(329.698_727_446 * pw(temp - 60.0, -0.133_204_759_2) / 255.0, 0.0, 1.0)
+    if temp <= 66.0:
+        g = clamp64(99.470_802_586_1 * ln(temp) - 161.119_568_166_1, 0.0, 255.0) / 255.0
+    else:
+        g = clamp64(288.122_169_528_3 * pw(temp - 60.0, -0.075_514_849_37) / 255.0, 0.0, 1.0)
+    if temp >= 66.0:
+        b = 1.0
+    elif temp <= 19.0:
+        b = 0.0
+    else:
+        b = clamp64(138.517_731_223_1 * ln(temp - 10.0) - 305.044_792_730_7, 0.0, 255.0) / 255.0
+    return [r, g, b]
+
+
+def wavelength_rgb(w):
+    """prakash 1.2.0's wavelength_to_rgb, or None outside 380-780 nm (NaN included)."""
+    if not (380.0 <= w <= 780.0):
+        return None
+    if w < 440.0:
+        r, g, b = -(w - 440.0) / (440.0 - 380.0), 0.0, 1.0
+    elif w < 490.0:
+        r, g, b = 0.0, (w - 440.0) / (490.0 - 440.0), 1.0
+    elif w < 510.0:
+        r, g, b = 0.0, 1.0, -(w - 510.0) / (510.0 - 490.0)
+    elif w < 580.0:
+        r, g, b = (w - 510.0) / (580.0 - 510.0), 1.0, 0.0
+    elif w < 645.0:
+        r, g, b = 1.0, -(w - 645.0) / (645.0 - 580.0), 0.0
+    else:
+        r, g, b = 1.0, 0.0, 0.0
+    if w < 420.0:
+        factor = 0.3 + 0.7 * (w - 380.0) / (420.0 - 380.0)
+    elif w > 700.0:
+        factor = 0.3 + 0.7 * (780.0 - w) / (780.0 - 700.0)
+    else:
+        factor = 1.0
+    return [r * factor, g * factor, b * factor]
+
+
+def f64_tok_values(tokens):
+    return [struct.unpack("<d", struct.pack("<Q", b))[0] for b in f64_bits_tokens(tokens)]
+
+
+def check_color_optics():
+    path = os.path.join(GOLDEN, "color_optics.tsv")
+    if not os.path.exists(path):
+        return 0
+    _, body = rows(path)
+    bad = 0
+    for fn, _cls, ins, outs, note in body:
+        if fn == "Color::from_prakash":
+            ok = same(from_prakash(f64_tok_values(ins), g_values(ins)[0]), g_values(outs))
+        elif fn == "Color::to_prakash":
+            x = g_values(ins)
+            ok = [struct.unpack("<Q", struct.pack("<d", v))[0] for v in x[0:3]] == f64_bits_tokens(outs)
+        elif fn == "Color::from_temperature":
+            ok = same(from_prakash(temperature_rgb(f64_tok_values(ins)[0]), 1.0), g_values(outs))
+        elif fn == "Color::from_wavelength":
+            rgb = wavelength_rgb(f64_tok_values(ins)[0])
+            ok = outs == "n:" if rgb is None else same(from_prakash(rgb, 1.0), g_values(outs))
+        else:
+            ok = False
+            print(f"color_optics: {fn}: no re-derivation in validate.py")
+        if not ok:
+            bad += 1
+            print(f"color_optics: {fn} {note}: re-derived outputs differ from the corpus")
+    return bad
+
+
+# ── json: serde's derive semantics for Color, as serde_json 1.0.154 reads ────────────────────────────────
+
+
+
+def int_to_f32(n):
+    """The f32 nearest the integer n, ties to even (Rust's `n as f32`), exactly: no f64 step."""
+    if n == 0:
+        return 0.0
+    sign = -1.0 if n < 0 else 1.0
+    m = abs(n)
+    bl = m.bit_length()
+    if bl <= 24:
+        return sign * float(m)
+    sh = bl - 24
+    mant, rem, half = m >> sh, m & ((1 << sh) - 1), 1 << (sh - 1)
+    if rem > half or (rem == half and mant & 1):
+        mant += 1
+    return r32(sign * float(mant) * 2.0 ** sh)
+
+
+class _Num:
+    def __init__(self, text, is_int):
+        self.text, self.is_int = text, is_int
+
+
+def _serde_f32(v):
+    """A serde f32 field: a number (the integer `n as f32`, the integer -0 as -0.0, a float's f64 `as f32`, refused
+    when that f64 is infinite), else None (refused)."""
+    if not isinstance(v, _Num):
+        return None
+    if v.is_int:
+        if v.text.lstrip("-") == "0" and v.text.startswith("-"):
+            return -0.0
+        return int_to_f32(int(v.text))
+    x = float(v.text)
+    if math.isinf(x):
+        return None
+    return r32(x)
+
+
+def serde_color(doc):
+    """What serde_json::from_str::<Color>(doc) gives: [r, g, b, a], or None for an error."""
+    known = ("r", "g", "b", "a")
+
+    def pairs(ps):
+        seen = {}
+        for k, val in ps:
+            if k in known and k in seen:
+                raise ValueError("duplicate field")
+            seen[k] = val
+        return seen
+
+    def no_const(_c):
+        raise ValueError("not JSON")
+    try:
+        v = _json.loads(doc, object_pairs_hook=pairs, parse_int=lambda t: _Num(t, True),
+                        parse_float=lambda t: _Num(t, False), parse_constant=no_const)
+    except (ValueError, RecursionError):
+        return None
+    if isinstance(v, dict):
+        fields = [v.get(k) for k in known]
+    elif isinstance(v, list) and len(v) == 4:
+        fields = v
+    else:
+        return None
+    out = [_serde_f32(f) for f in fields]
+    return None if any(o is None for o in out) else out
+
+
+def check_json():
+    path = os.path.join(GOLDEN, "json.tsv")
+    if not os.path.exists(path):
+        return 0
+    _, body = rows(path)
+    bad = 0
+    for fn, _cls, ins, outs, note in body:
+        if fn.startswith("Color::from_json"):
+            doc = re.sub(r"%([0-9A-F]{2})", lambda m: chr(int(m.group(1), 16)), ins[2:]).encode("latin-1").decode("utf-8")
+            got = serde_color(doc)
+            ok = outs == "E:Deserialize" if got is None else same(got, g_values(outs))
+        else:
+            ok = False
+            print(f"json: {fn}: no re-derivation in validate.py")
+        if not ok:
+            bad += 1
+            print(f"json: {fn} {note}: re-derived outputs differ from the corpus")
+    return bad
+
+
 def main():
     failures = 0
     head, body = rows(os.path.join(GOLDEN, "math.tsv"))
@@ -548,6 +730,8 @@ def main():
 
     failures += check_color()
     failures += check_lod()
+    failures += check_color_optics()
+    failures += check_json()
     lbad, lcr = check_lights(plat)
     tbad, tcr = check_tables(plat)
     failures += lbad + tbad

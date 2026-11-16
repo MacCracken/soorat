@@ -6,6 +6,11 @@
 #   a NaN through;
 # - `round` rounds half away from zero (ganita_f32_round and f64_round round ties to even: 0.5 → 0, Rust 1);
 # - `as u8` saturates, NaN → 0.
+#
+# UPSTREAM(L8): cyrius:docs/development/issues/2026-11-15-f32-returns-consts-and-f16.md
+#   return f32 values (not their bits) and use f32 `const`s once the language allows them; parity: every f32 row of
+#   tests/golden/*.tsv.
+#
 # Arithmetic stays on ganita's native f32 tier (ganita_f32_add, _sub, _mul, _div: one f32 rounding each), which is
 # Rust's sequence under D4 rule a.
 
@@ -85,4 +90,36 @@ fn _sr_f32_to_u8(x): i64 {
     if (v <= zero) { return 0; }
     if (v >= top) { return 255; }
     return f64_to(v);
+}
+
+# n (an i64) as f32 bits, rounded once to nearest with ties to even, as Rust's `n as f32` (serde reads a JSON integer
+# into an f32 this way). Going through f64 would round twice above 2⁵³.
+#must_use
+fn _sr_i64_to_f32(n): i64 {
+    if (n == 0) { return 0; }
+    var sign = 0;
+    var m = n;
+    if (n < 0) {
+        sign = 0x80000000;
+        if (n == (0 - 9223372036854775807 - 1)) { return 0xDF000000; }
+        m = 0 - n;
+    }
+    if (m < 16777216) { return f32_from(f64_from(m)) | sign; }
+    var bl = 0;
+    var t = m;
+    while (t > 0) {
+        bl = bl + 1;
+        t = t >> 1;
+    }
+    var sh = bl - 24;
+    var mant = m >> sh;
+    var rem = m & ((1 << sh) - 1);
+    var half = 1 << (sh - 1);
+    if (rem > half || (rem == half && (mant & 1) == 1)) { mant = mant + 1; }
+    var e = bl - 1;
+    if (mant == 16777216) {
+        mant = 8388608;
+        e = e + 1;
+    }
+    return sign | ((e + 127) << 23) | (mant & 0x7FFFFF);
 }

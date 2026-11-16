@@ -25,10 +25,29 @@ dce = true
 stdlib = ["string", "fmt", "alloc", "vec", "str", "syscalls", "io", "args", "math", "ganita", "tagged", "result",
     "freelist", "sakshi"]
 
+# Optional dependencies, each behind a feature (ADR 0002 #9: Rust's Cargo features). A feature's code is a separate
+# file outside `[lib]`, bundled by its `[lib.<feature>]` profile (dist/soorat-<feature>.cyr) and including its
+# dependency itself; a consumer that wants it takes that bundle and declares the dependency (ranga's `spectral`).
+# The repository's tests use every feature, so CI resolves them all: `cyrius deps --features optics`.
+[features]
+default = []
+optics = ["prakash"]
+
+# prakash 2.15.2 (`optics`): Color's spectral conversions (src/color_optics.cyr). Its bundle is 1.19 MB, which is
+# why it is optional.
+[deps.prakash]
+git = "https://github.com/MacCracken/prakash.git"
+tag = "2.15.2"
+modules = ["dist/prakash.cyr"]
+optional = true
+
 [test]
 # `bench` too: the port template omits it, so tests/soorat.bcyr and `cyrius audit` failed
 # (cyrius issue 2026-11-08-cyrius-port-clobbers-project-docs-and-omits-bench.md, item 3).
-stdlib = ["assert", "bench", "overflow"]
+# bayan: src/json.cyr (the `serde` profile) for the tests that read and write JSON. It is no production leaf: bayan
+# carries ~372 KB of unicode tables into every binary that includes it (bayan's open issue
+# 2026-10-31-bundle-carries-unicode-tables-into-every-binary.md), so only the serde bundle's consumers take it.
+stdlib = ["assert", "bench", "overflow", "bayan"]
 
 # `[lib]` is the bundle `cyrius distlib` writes to dist/soorat.cyr. The list IS the concatenation order and it is
 # load-bearing: no src/ file includes another, so each module resolves at file scope against what precedes it (port
@@ -46,4 +65,38 @@ modules = [
     "src/color.cyr",
     "src/lights.cyr",
     "src/lod.cyr",
+]
+
+# The `optics` feature's bundle, dist/soorat-optics.cyr: the library plus Color's prakash conversions.
+[lib.optics]
+modules = [
+    "src/error.cyr",
+    "src/log.cyr",
+    "src/mathx.cyr",
+    "src/tables_data.cyr",
+    "src/tables.cyr",
+    "src/math.cyr",
+    "src/layout.cyr",
+    "src/color.cyr",
+    "src/lights.cyr",
+    "src/lod.cyr",
+    "src/color_optics.cyr",
+]
+
+# The `serde` bundle, dist/soorat-serde.cyr: the library plus Color's serde_json documents (src/json.cyr, on bayan).
+# Rust derives serde unconditionally; here it is opt-in because bayan costs every binary ~372 KB (ADR 0002 #19). A
+# consumer takes this bundle and adds "bayan" to its own `[deps] stdlib`.
+[lib.serde]
+modules = [
+    "src/error.cyr",
+    "src/log.cyr",
+    "src/mathx.cyr",
+    "src/tables_data.cyr",
+    "src/tables.cyr",
+    "src/math.cyr",
+    "src/layout.cyr",
+    "src/color.cyr",
+    "src/lights.cyr",
+    "src/lod.cyr",
+    "src/json.cyr",
 ]

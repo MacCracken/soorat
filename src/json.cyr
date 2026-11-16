@@ -1,0 +1,133 @@
+# json.cyr — serde-compatible JSON for soorat's serde types (M1 part b2: `Color`), ADR 0002 #19.
+#
+# **OPTIONAL.** Outside `[lib]`, bundled by the `[lib.serde]` profile as dist/soorat-serde.cyr. It needs bayan, which
+# carries ~372 KB of unicode tables into any binary that includes it (49 KB → 421 KB for soorat's smoke program), so
+# only a consumer that wants JSON takes it, and adds "bayan" to its own stdlib leaves. Rust derives serde
+# unconditionally.
+#
+# Rust 1.2.0 derives `Serialize` and `Deserialize`, and its tests go through serde_json. The documents serde_json writes
+# decode here to the same bits, and every document written here decodes back to the same bits, here and in serde_json.
+# The text is not serde_json's byte for byte: an f32 is written as bayan's round-trip digits of its exact f64 widening
+# ("0.10000000149011612" where serde_json writes the f32's shortest, "0.1"); both read back to the same f32. NaN and ±∞
+# are written `null`, as serde_json writes them, and like serde_json's such a document doesn't read back. pravash's
+# src/json.cyr is the precedent (its ADR 0002 #6, #10).
+#
+# **Writers.** `SrColor_to_json(c, sb)` appends to a `str_builder` through its non-aborting `_a` calls and returns 0, or
+# -1 when a grow failed. Fields go in Rust's declaration order.
+#
+# **Readers.** `SrColor_from_json(buf, len, out)` parses with bayan's value tree and applies serde's derive semantics,
+# as serde_json 1.0.154 (no `float_roundtrip`) reads:
+# - a struct reads from an object, by field name (unknown fields ignored, every field required), or from an array of
+#   exactly its fields, by position;
+# - an f32 takes a JSON integer (`n as f32`, one rounding) or float (the decimal's f64, then `as f32`); serde_json
+#   refuses a float whose f64 is infinite (`1e400`), and so does this. A finite f64 beyond f32's range is ±∞, as
+#   `as f32` gives;
+# - anything else, and trailing text, is Err(SR_ERR_DESERIALIZE), *out untouched.
+# serde_json reads a float as its integer significand times or divided by one power of ten. For the documents it
+# writes (at most 9 digits, small exponents) that is one correctly rounded step, which is bayan's correctly rounded
+# parse. Two bayan policies are stricter than serde_json (pravash found them, filed at bayan): an integer above
+# i64::MAX, and a duplicated unknown field, are refused here and read by serde_json. tests/golden/json.tsv names both
+# rows (ADR 0002 #19).
+#
+# Not thread-safe: the decode arena is module state, reset by each read. A parsed tree takes about 20× its document's
+# size, so cap an untrusted document's size before reading it.
+
+# ── writer ──────────────────────────────────────────────────────────────────────────
+
+# Appends the C string s: 0, or -1 when the builder can't grow.
+#must_use
+fn _sr_jw(sb, s): i64 {
+    if (str_builder_add_cstr_a(default_alloc(), sb, s) != 0) { return 0 - 1; }
+    return 0;
+}
+
+# Appends the f32 x (bits) as bayan's round-trip digits of its exact f64, or `null` when x is NaN or ±∞.
+#must_use
+fn _sr_jw_f32(sb, x): i64 {
+    var w: f64 = f32_to(x & 0xFFFFFFFF);
+    var buf[40];
+    var n = bayan_f64_to_json(w, &buf);
+    store8(&buf + n, 0);
+    return _sr_jw(sb, &buf);
+}
+
+# Appends c as serde_json writes a `Color` (`{"r":…,"g":…,"b":…,"a":…}`): 0, or -1 when the builder can't grow.
+#must_use
+fn SrColor_to_json(c, sb): i64 {
+    var rc = _sr_jw(sb, "{\"r\":");
+    rc = rc | _sr_jw_f32(sb, load32(c));
+    rc = rc | _sr_jw(sb, ",\"g\":");
+    rc = rc | _sr_jw_f32(sb, load32(c + 4));
+    rc = rc | _sr_jw(sb, ",\"b\":");
+    rc = rc | _sr_jw_f32(sb, load32(c + 8));
+    rc = rc | _sr_jw(sb, ",\"a\":");
+    rc = rc | _sr_jw_f32(sb, load32(c + 12));
+    rc = rc | _sr_jw(sb, "}");
+    return rc;
+}
+
+# ── reader ──────────────────────────────────────────────────────────────────────────
+
+var _sr_json_arena = 0;
+
+# The parsed tree of [buf, buf + len), on the decode arena (reset first), or 0 when the text is not one JSON value
+# (or there is no memory).
+#must_use
+fn _sr_jr_parse(buf, len): i64 {
+    if (_sr_json_arena == 0) { _sr_json_arena = arena_allocator_growable(4096); }
+    if (_sr_json_arena == 0) { return 0; }
+    reset_via(_sr_json_arena);
+    return bayan_json_v_parse_buf_a(_sr_json_arena, buf, len);
+}
+
+# The form of a struct node with n fields: 1 an object, 2 an array of exactly n elements, 0 anything else.
+#must_use
+fn _sr_jr_form(v, n): i64 {
+    if (v == 0) { return 0; }
+    var tag = bayan_json_v_tag(v);
+    if (tag == JTAG_OBJ) { return 1; }
+    if (tag == JTAG_ARR && bayan_json_v_arr_len(v) == n) { return 2; }
+    return 0;
+}
+
+# Field i, named name, of a struct node in form: its value, or 0 when absent.
+#must_use
+fn _sr_jr_at(v, form, i, name): i64 {
+    if (form == 1) { return bayan_json_v_obj_get_by_cstr(v, name); }
+    return bayan_json_v_arr_get(v, i);
+}
+
+# A JSON number into the f32 at out, as serde reads an f32: 1, or 0 for anything else (null, a string, a float whose
+# f64 is infinite).
+fn _sr_jr_f32(v, out): i64 {
+    if (v == 0) { return 0; }
+    var tag = bayan_json_v_tag(v);
+    if (tag == JTAG_INT) {
+        store32(out, _sr_i64_to_f32(bayan_json_v_int(v)));
+        return 1;
+    }
+    if (tag != JTAG_FLOAT) { return 0; }
+    var x: f64 = bayan_json_v_float(v);
+    var d: f64 = x - x;
+    var zero: f64 = 0.0;
+    if (d != zero) { return 0; }
+    store32(out, f32_from(x));
+    return 1;
+}
+
+# Reads a `Color` document into out: Ok(out), or Err(SR_ERR_DESERIALIZE) with out untouched.
+#must_use
+fn SrColor_from_json(buf, len, out): Result {
+    var v = _sr_jr_parse(buf, len);
+    var f = _sr_jr_form(v, 4);
+    if (f == 0) { return Err(SR_ERR_DESERIALIZE); }
+    var w[16];
+    var ok = _sr_jr_f32(_sr_jr_at(v, f, 0, "r"), &w);
+    ok = ok & _sr_jr_f32(_sr_jr_at(v, f, 1, "g"), &w + 4);
+    ok = ok & _sr_jr_f32(_sr_jr_at(v, f, 2, "b"), &w + 8);
+    ok = ok & _sr_jr_f32(_sr_jr_at(v, f, 3, "a"), &w + 12);
+    if (ok == 0) { return Err(SR_ERR_DESERIALIZE); }
+    store64(out, load64(&w));
+    store64(out + 8, load64(&w + 8));
+    return Ok(out);
+}

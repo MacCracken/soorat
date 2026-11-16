@@ -1,0 +1,75 @@
+# color_optics.cyr — Rust 1.2.0's `optics` half of src/color.rs (M1 part b2): Color ⇄ prakash.
+#
+# **OPTIONAL** (ADR 0002 #9, #18). Rust gates these behind the `optics` Cargo feature; here the file is outside
+# `[lib]` and is bundled by the `[lib.optics]` profile as dist/soorat-optics.cyr. It includes prakash itself. A
+# consumer that wants it takes that bundle, declares prakash 2.15.2 and enables `optics`; nothing in soorat's core
+# depends on it. (ranga's `spectral` is the precedent.)
+#
+# **Two allocators.** prakash's `Rgb` (24 bytes: r, g, b as f64) comes from the bump allocator.
+# - `SrColor_from_prakash` only reads one, and clamps per channel itself. prakash's `rgb_clamp` would allocate a
+#   copy.
+# - `SrColor_to_prakash` writes into an `Rgb` the caller owns (`var rgb: Rgb;` works), so it allocates nothing;
+#   Rust returns one by value.
+# - `SrColor_from_temperature` and `SrColor_from_wavelength` call prakash's `color_temperature_to_rgb` and
+#   `wavelength_to_rgb`, each of which returns a fresh `Rgb`: **24 bytes on the bump heap per call**, never freed.
+#   Call them at setup, not per frame.
+#
+# UPSTREAM(L21): prakash:docs/development/issues/2026-11-15-allocation-free-rgb-results.md
+#   call prakash's out-pointer forms once they ship, and drop the 24 B per call; parity: the
+#   `Color::from_temperature` and `Color::from_wavelength` rows of tests/golden/color_optics.tsv (class A).
+#
+# **Precision.** Each channel is clamped to [0, 1] in f64 (Rust's `f64::clamp`: −0 and NaN kept) and narrowed once to
+# f32, as Rust's `as f32` does: class A against the oracle (tests/parity_optics.tcyr).
+
+include "lib/prakash.cyr"
+
+# The f64 x (bits) clamped to [0, 1] as Rust's `f64::clamp` does (−0 and NaN kept), narrowed to f32 bits.
+#must_use
+fn _sr_optics_q(x): i64 {
+    var v: f64 = x;
+    var zero: f64 = 0.0;
+    var one: f64 = 1.0;
+    if (v < zero) { return f32_from(zero); }
+    if (v > one) { return f32_from(one); }
+    return f32_from(v);
+}
+
+# The colour of the prakash Rgb rgb (each channel clamped to [0, 1], narrowed to f32) with alpha (f32 bits), into out.
+# rgb is only read. Mirrors `Color::from_prakash`.
+fn SrColor_from_prakash(rgb, alpha, out) {
+    store32(out, _sr_optics_q(Rgb_r(rgb)));
+    store32(out + 4, _sr_optics_q(Rgb_g(rgb)));
+    store32(out + 8, _sr_optics_q(Rgb_b(rgb)));
+    store32(out + 12, alpha);
+    return out;
+}
+
+# c's r, g and b widened exactly to f64, into the prakash Rgb out (24 bytes the caller owns); alpha is dropped.
+# Mirrors `Color::to_prakash`, which returns the Rgb by value.
+fn SrColor_to_prakash(c, out) {
+    var r: f64 = f32_to(load32(c));
+    var g: f64 = f32_to(load32(c + 4));
+    var b: f64 = f32_to(load32(c + 8));
+    Rgb_set_r(out, r);
+    Rgb_set_g(out, g);
+    Rgb_set_b(out, b);
+    return out;
+}
+
+# The opaque colour of a blackbody at kelvin (f64 bits), by prakash's `color_temperature_to_rgb`, into out. Leaves
+# prakash's 24-byte Rgb on the bump heap (UPSTREAM L21 above). Mirrors `Color::from_temperature`.
+fn SrColor_from_temperature(kelvin, out) {
+    var rgb = color_temperature_to_rgb(kelvin);
+    return SrColor_from_prakash(rgb, 0x3F800000, out);
+}
+
+# The opaque colour of the wavelength nm (f64 bits, nanometres), by prakash's `wavelength_to_rgb`, into out:
+# Some(out), or None outside 380–780 nm (a NaN included). Leaves prakash's 24-byte Rgb on the bump heap when it
+# succeeds (UPSTREAM L21 above). Mirrors `Color::from_wavelength`.
+fn SrColor_from_wavelength(nm, out): Option {
+    var err[8];
+    var rgb = wavelength_to_rgb(nm, &err);
+    if (rgb == 0) { return None(); }
+    SrColor_from_prakash(rgb, 0x3F800000, out);
+    return Some(out);
+}

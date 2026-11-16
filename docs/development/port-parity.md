@@ -528,7 +528,7 @@ output. The Rust side is about 400 lines on top of the `gltf` crate.
 - A texture's decode memory goes through a freeing allocator.
 - The 16.7 Mpx cap is an ADR 0002 row: soorat 1.2.0 allows larger images up to the device limit.
 
-## 2. M1: foundation (parts a–d, 2026-11-15)
+## 2. M1: foundation (parts a–d and b2, 2026-11-15; M1 complete)
 
 Same dev box and toolchain as §1. Re-run: `cyrius test --bounds tests/parity.tcyr` (the replay),
 `python3 -I -B scripts/oracle/validate.py .` (the independent re-derivation), `taskset -c 2 cyrius bench`.
@@ -541,6 +541,8 @@ Same dev box and toolchain as §1. Re-run: `cyrius test --bounds tests/parity.tc
 | `color` | 3,397 | A, B | all identical to Rust, including every −0 output. Re-run with class B held to exact bits: still all identical |
 | `lights` | 1,066 | A; C (`GpuLight::spot`, bound 0) | 1,038 identical; the **28 spot rows where glibc's `cosf` misrounds** (28 of 2,016 cosines, 1.4 %) give the correctly rounded value, never glibc's |
 | `lod` | 770 | A | all identical, thresholds ± 1 ulp and NaN included |
+| `color_optics` | 1,704 | A | all identical, replayed by tests/parity_optics.tcyr (the `optics` feature). Rust calls prakash 1.2.0 (glibc `powf`, `ln`); the port calls prakash 2.15.2: after narrowing to f32 the two agree on all 511 temperatures and 948 wavelengths |
+| `json` | 177 (+ 3 pending) | A | every serde_json document of a colour grid, and 25 hand-written ones (field order, array form, extra, missing and duplicated fields, null, strings, signed zeros, exponents, f32 and f64 overflow, trailing text), decode to Rust's bits or are refused as serde_json refuses them. Three are rows of their own, pending: the integer `-0`, an integer above `i64::MAX`, a duplicated unknown field (bayan's open issues; ADR 0002 #19) |
 | `tables` | 5,215 | A (f16, the decode table); C (sRGB, bound 0) | f16 ⇄ f32 identical on every subnormal half, every exponent's mantissa edges and every rounding midpoint ± 1 ulp. sRGB: 5,105 identical; the **3 rows where glibc's `powf` misrounds** (0.06 %, each by 1 ulp, as P3 found) give the correctly rounded value. The generated 256-entry decode table equals Rust's, and `validate.py` gets the same 256 with `pow` correctly rounded |
 | `layout` | 19 | A | all identical, measured on the compiled structs (`tests/layout_probe.cyr`) |
 | `constants` | 9 of 18 | A | identical; the other 9 arrive with their modules |
@@ -596,6 +598,18 @@ times per texel, which is about 1.2 s for six 512² faces. So M4 decides between
 on the sRGB domain (about 3·10⁷ f32 inputs to decode, 8·10⁷ to encode) and a quantized encode by threshold search, which gives Rust's
 bytes without calling `pow` at all.
 
+**Part b2's extras** (no Rust bench), ns or µs per call:
+
+| Bench | Cyrius |
+|---|---|
+| `color_optics/from_prakash` | 23 ns |
+| `color_optics/from_wavelength` | 61 ns |
+| `color_optics/from_temperature` | 458 ns (prakash's `pow` and `ln`) |
+| `json/color_from_json` | 2.11 µs (bayan's value tree on a reset arena) |
+| `json/color_to_json` | 3.90 µs (four Grisu2 conversions) |
+
+These run at setup, not per frame. The first full run of the three read slow again; the next two agreed.
+
 ### 2.3 What M1 taught (rules for the next parts)
 
 - **An `include` of a file that declares an `enum` must come before the first top-level statement.**
@@ -615,3 +629,12 @@ bytes without calling `pow` at all.
   bits through a variable (`var f255 = 0x437F0000;`), as the modules' named constants already do.
 - **A static table is generated code**: `scripts/oracle/gen_tables.py` writes the decode table as `store32` lines
   run once at load. Cyrius has no array initializer.
+- **An optional dependency is a profile, not an `#ifdef`.** Its code is a file outside `[lib]` that includes the
+  dependency, a `[lib.<feature>]` profile bundles it, and the tests that need it include it (ranga's `spectral`).
+  A replay of its rows gets its own harness (`_par_skip`), so the core replay compiles as a consumer without the
+  feature does.
+- **Measure what a stdlib leaf costs before making it a production dependency.** bayan's unicode tables survive
+  dead-code elimination: adding bayan to `[deps] stdlib` took the smoke binary from 49,072 to 421,264 bytes, though
+  nothing called it. So serde is the `[lib.serde]` profile, and bayan a test leaf.
+- **`fn f(): Option` returns `Some(v)` or `None()`**; the caller binds both halves (`var t, v = f(…)`), as for a
+  Result.

@@ -554,6 +554,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "glam"
+version = "0.29.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8babf46d4c1c9d92deac9f7be466f76dfc4482b6452fc5024b5e8daf6ffeb3ee"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "glow"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -696,6 +705,18 @@ name = "hexf-parse"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
+
+[[package]]
+name = "hisab"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c0eb4099c6646aad6dc16023ea2bf492fa8ff8c42d142f1fdc531a3edf8a699"
+dependencies = [
+ "glam",
+ "serde",
+ "thiserror 2.0.21",
+ "tracing",
+]
 
 [[package]]
 name = "image"
@@ -1465,6 +1486,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "prakash"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6499e189e6db64a3b74aa2ecc625b2522669d2cc9d0c1998a67bfbe86a8cb274"
+dependencies = [
+ "hisab",
+ "serde",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
 name = "presser"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1809,6 +1842,7 @@ dependencies = [
  "image",
  "mabda",
  "pollster 1.0.1",
+ "prakash",
  "serde",
  "thiserror 2.0.21",
  "tracing",
@@ -1820,6 +1854,8 @@ dependencies = [
 name = "soorat-oracle"
 version = "0.0.0"
 dependencies = [
+ "prakash",
+ "serde_json",
  "soorat",
 ]
 

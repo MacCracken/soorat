@@ -7,6 +7,9 @@
 # - **sRGB** (IEC 61966-2-1) follows Rust's f32 sequence (D4 rule a) around one `powf`. Rust's is host glibc's,
 #   which misrounds 3 of the corpus's 5,108 sRGB rows by 1 ulp. ganita's f32 `pow` widens, computes and narrows,
 #   and is correctly rounded on all of them: class C, bound 0, against tests/golden/tables.cr.tsv (ADR 0002 #16).
+#   UPSTREAM(L8): cyrius:docs/development/issues/2026-11-15-f32-returns-consts-and-f16.md
+#     call the stdlib's f16 pair once it ships, and drop _sr_f16_to_f32 / _sr_f32_to_f16; parity: the
+#     `f16_to_f32` and `f32_to_f16` rows of tests/golden/tables.tsv (class A).
 # - **The sRGB-byte decode table** (`_SR_SRGB8_DECODE`, 256 f32) is generated from the oracle's own values by
 #   scripts/oracle/gen_tables.py, into src/tables_data.cyr (port plan §6.2).
 

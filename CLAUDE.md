@@ -29,7 +29,8 @@ soorat is being ported to Cyrius. Plan of record: `docs/development/soorat-port-
     still green.
 
 **Cyrius cleanliness check** (every work-loop step that says "cleanliness check"):
-- `cyrius deps --locked`, `cyrius build`;
+- `cyrius deps --locked --features optics` (the tests use every feature), `cyrius build`, `cyrius distlib --check`
+  (the core bundle and the `optics` and `serde` profiles);
 - `cyrius test --bounds`, with **zero warnings**: the f32 and f64 type diagnostics appear only there;
 - `cyrius fmt --check`, `cyrius lint`;
 - `cyrius audit`, run directly and not through a pipe, so its exit status counts.
@@ -46,6 +47,9 @@ soorat is being ported to Cyrius. Plan of record: `docs/development/soorat-port-
 - **Memory:** per-frame data goes in a frame arena. The global `alloc` never frees.
 - Generate vertices straight into the upload buffer; `memcpy` is a byte loop.
 - **GPU access goes through mabda only.** No wgpu-native FFI in soorat.
+- **Optional dependencies are profiles** (M1): the code is a file outside `[lib]`, bundled by `[lib.<feature>]`
+  (`optics`: prakash; `serde`: bayan, whose tables cost every including binary ~372 KB). Measure a new stdlib
+  leaf's binary cost before making it a production dependency.
 
 ## Development Process
 

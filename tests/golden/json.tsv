@@ -1,0 +1,185 @@
+# soorat golden corpus, format 1: json
+# recorded: soorat 1.2.0 (rust-old/, oracle feature); libm: glibc 2.44 x86_64 fma
+# regenerate: cargo run --release --locked --manifest-path scripts/oracle/Cargo.toml (never patch a row)
+# columns: fn<TAB>class<TAB>inputs<TAB>outputs<TAB>note (tokens: scripts/oracle/README.md)
+# rows: 180
+Color::from_json	A	s:{"r":0.39648104,"g":0.9052608,"b":0.1918894,"a":0.96959686}	v:4 g:3ecaff90 g:3f67bf2c g:3e447ea8 g:3f783780	serde_json's document 0
+Color::from_json	A	s:{"r":0.6919687,"g":0.1633265,"b":0.7579311,"a":0.18694234}	v:4 g:3f3124dc g:3e273f10 g:3f4207c6 g:3e3f6dd0	serde_json's document 1
+Color::from_json	A	s:{"r":0.96636856,"g":0.9621308,"b":0.63557255,"a":0.088296056}	v:4 g:3f7763ee g:3f764e34 g:3f22b4e2 g:3db4d490	serde_json's document 2
+Color::from_json	A	s:{"r":0.3856207,"g":0.71023595,"b":0.8459939,"a":0.7445847}	v:4 g:3ec57014 g:3f35d206 g:3f58930e g:3f3e9d1a	serde_json's document 3
+Color::from_json	A	s:{"r":0.35858297,"g":0.6146867,"b":0.60676134,"a":0.9742403}	v:4 g:3eb79830 g:3f1d5c1c g:3f1b54b6 g:3f7967d0	serde_json's document 4
+Color::from_json	A	s:{"r":0.023759604,"g":0.49950814,"b":0.9675479,"a":0.78538454}	v:4 g:3cc2a380 g:3effbf88 g:3f77b138 g:3f490ef6	serde_json's document 5
+Color::from_json	A	s:{"r":0.27863145,"g":0.058009624,"b":0.2545457,"a":0.34286368}	v:4 g:3e8ea8c8 g:3d6d9b80 g:3e8253d0 g:3eaf8bd4	serde_json's document 6
+Color::from_json	A	s:{"r":0.060971975,"g":0.469162,"b":0.456622,"a":0.6039032}	v:4 g:3d79bdc0 g:3ef03600 g:3ee9ca5c g:3f1a9966	serde_json's document 7
+Color::from_json	A	s:{"r":0.8662168,"g":0.8934014,"b":0.41397786,"a":0.9865782}	v:4 g:3f5dc062 g:3f64b5f4 g:3ed3f4e8 g:3f7c9064	serde_json's document 8
+Color::from_json	A	s:{"r":0.8927388,"g":0.48997355,"b":0.23196745,"a":0.90347886}	v:4 g:3f648a88 g:3efaddd0 g:3e6d88e0 g:3f674a64	serde_json's document 9
+Color::from_json	A	s:{"r":0.09148729,"g":0.7351111,"b":0.5334641,"a":0.32165706}	v:4 g:3dbb5db0 g:3f3c303e g:3f08911a g:3ea4b03c	serde_json's document 10
+Color::from_json	A	s:{"r":0.6874027,"g":0.5971645,"b":0.43755293,"a":0.6643926}	v:4 g:3f2ff9a0 g:3f18dfc6 g:3ee006f0 g:3f2a15a2	serde_json's document 11
+Color::from_json	A	s:{"r":0.09488368,"g":0.94599414,"b":0.18876064,"a":0.33722448}	v:4 g:3dc25260 g:3f722cac g:3e414a78 g:3eaca8b0	serde_json's document 12
+Color::from_json	A	s:{"r":0.25719988,"g":0.8165027,"b":0.0660826,"a":0.59563017}	v:4 g:3e83afb4 g:3f510652 g:3d875650 g:3f187b38	serde_json's document 13
+Color::from_json	A	s:{"r":0.5186503,"g":0.23482215,"b":0.55826926,"a":0.82609296}	v:4 g:3f04c644 g:3e707538 g:3f0eeabc g:3f537ad4	serde_json's document 14
+Color::from_json	A	s:{"r":0.25166357,"g":0.14018703,"b":0.86134243,"a":0.58673835}	v:4 g:3e80da0c g:3e0f8d30 g:3f5c80f0 g:3f16347c	serde_json's document 15
+Color::from_json	A	s:{"r":0.13338888,"g":0.38760674,"b":0.7889973,"a":0.23826635}	v:4 g:3e089718 g:3ec67464 g:3f49fbba g:3e73fc18	serde_json's document 16
+Color::from_json	A	s:{"r":0.13530171,"g":0.99880767,"b":0.71180856,"a":0.93777585}	v:4 g:3e0a8c88 g:3f7fb1dc g:3f363916 g:3f701214	serde_json's document 17
+Color::from_json	A	s:{"r":0.63465595,"g":0.4628166,"b":0.7416849,"a":0.26453328}	v:4 g:3f2278d0 g:3eecf64c g:3f3ddf10 g:3e8770e8	serde_json's document 18
+Color::from_json	A	s:{"r":0.32263768,"g":0.12301278,"b":0.36194682,"a":0.1685499}	v:4 g:3ea530c4 g:3dfbee20 g:3eb95118 g:3e2c9858	serde_json's document 19
+Color::from_json	A	s:{"r":0.74724054,"g":0.22470617,"b":0.22401118,"a":0.44758594}	v:4 g:3f3f4b28 g:3e661960 g:3e656330 g:3ee529fc	serde_json's document 20
+Color::from_json	A	s:{"r":0.18690538,"g":0.50127864,"b":0.5971317,"a":0.73050666}	v:4 g:3e3f6420 g:3f0053cc g:3f18dda0 g:3f3b027c	serde_json's document 21
+Color::from_json	A	s:{"r":0.9576168,"g":0.12101483,"b":0.5255376,"a":0.45519376}	v:4 g:3f752660 g:3df7d6a0 g:3f0689a2 g:3ee90f28	serde_json's document 22
+Color::from_json	A	s:{"r":0.74054253,"g":0.9859557,"b":0.5621611,"a":0.9289069}	v:4 g:3f3d9432 g:3f7c6798 g:3f0fe9ca g:3f6dccd8	serde_json's document 23
+Color::from_json	A	s:{"r":0.14924121,"g":0.7613467,"b":0.6389086,"a":0.6912693}	v:4 g:3e18d2b0 g:3f42e79e g:3f238f84 g:3f30f706	serde_json's document 24
+Color::from_json	A	s:{"r":0.2833295,"g":0.26675558,"b":0.8622805,"a":0.20305431}	v:4 g:3e911090 g:3e889430 g:3f5cbe6a g:3e4fed78	serde_json's document 25
+Color::from_json	A	s:{"r":0.81776845,"g":0.21488011,"b":0.7820631,"a":0.19854212}	v:4 g:3f515946 g:3e5c0988 g:3f48354a g:3e4b4ea0	serde_json's document 26
+Color::from_json	A	s:{"r":0.86031985,"g":0.59202754,"b":0.7180505,"a":0.96262896}	v:4 g:3f5c3dec g:3f178f1e g:3f37d228 g:3f766eda	serde_json's document 27
+Color::from_json	A	s:{"r":0.071859956,"g":0.0065739155,"b":0.99762464,"a":0.76267624}	v:4 g:3d932b50 g:3bd76a00 g:3f7f6454 g:3f433ec0	serde_json's document 28
+Color::from_json	A	s:{"r":0.63779557,"g":0.16478801,"b":0.94757533,"a":0.12811601}	v:4 g:3f234692 g:3e28be30 g:3f72944c g:3e0330d8	serde_json's document 29
+Color::from_json	A	s:{"r":0.30759323,"g":0.3679613,"b":0.66245997,"a":0.81316936}	v:4 g:3e9d7cdc g:3ebc656c g:3f2996fa g:3f502bde	serde_json's document 30
+Color::from_json	A	s:{"r":0.6187912,"g":0.24080908,"b":0.990662,"a":0.23516035}	v:4 g:3f1e691a g:3e7696a8 g:3f7d9c06 g:3e70cde0	serde_json's document 31
+Color::from_json	A	s:{"r":0.2818054,"g":0.2878673,"b":0.2859578,"a":0.68083405}	v:4 g:3e9048cc g:3e936358 g:3e926910 g:3f2e4b24	serde_json's document 32
+Color::from_json	A	s:{"r":0.6071912,"g":0.59957314,"b":0.5275967,"a":0.3643782}	v:4 g:3f1b70e2 g:3f197da0 g:3f071094 g:3eba8fc8	serde_json's document 33
+Color::from_json	A	s:{"r":0.43916285,"g":0.12307978,"b":0.85050213,"a":0.728073}	v:4 g:3ee0d9f4 g:3dfc1140 g:3f59ba82 g:3f3a62fe	serde_json's document 34
+Color::from_json	A	s:{"r":0.07247615,"g":0.8823848,"b":0.9336283,"a":0.12834656}	v:4 g:3d946e60 g:3f61e3f8 g:3f6f0244 g:3e036d48	serde_json's document 35
+Color::from_json	A	s:{"r":0.843485,"g":0.5007454,"b":0.85398555,"a":0.6084677}	v:4 g:3f57eea2 g:3f0030da g:3f5a9ecc g:3f1bc48a	serde_json's document 36
+Color::from_json	A	s:{"r":0.92575955,"g":0.20042598,"b":0.2279278,"a":0.061379433}	v:4 g:3f6cfe94 g:3e4d3c78 g:3e6965e8 g:3d7b6900	serde_json's document 37
+Color::from_json	A	s:{"r":0.0750438,"g":0.59877753,"b":0.07247615,"a":0.33135796}	v:4 g:3d99b090 g:3f19497c g:3d946e60 g:3ea9a7c0	serde_json's document 38
+Color::from_json	A	s:{"r":0.56469357,"g":0.63938904,"b":0.92784786,"a":0.4027897}	v:4 g:3f108fc2 g:3f23af00 g:3f6d8770 g:3ece3a74	serde_json's document 39
+Color::from_json	A	s:{"r":0.70351994,"g":0.71474326,"b":0.40531993,"a":0.876878}	v:4 g:3f3419e2 g:3f36f96a g:3ecf8618 g:3f607b14	serde_json's document 40
+Color::from_json	A	s:{"r":0.055529594,"g":0.26858294,"b":0.5893525,"a":0.7945955}	v:4 g:3d637300 g:3e8983b4 g:3f16dfce g:3f4b6a9c	serde_json's document 41
+Color::from_json	A	s:{"r":0.94589853,"g":0.0038378239,"b":0.74866474,"a":0.37652636}	v:4 g:3f722668 g:3b7b8400 g:3f3fa87e g:3ec0c810	serde_json's document 42
+Color::from_json	A	s:{"r":0.78223693,"g":0.41036844,"b":0.21314287,"a":0.5152122}	v:4 g:3f4840ae g:3ed21bd0 g:3e5a4220 g:3f03e4f2	serde_json's document 43
+Color::from_json	A	s:{"r":0.79802275,"g":0.092894316,"b":0.0257051,"a":0.6644143}	v:4 g:3f4c4b38 g:3dbe3f60 g:3cd29380 g:3f2a170e	serde_json's document 44
+Color::from_json	A	s:{"r":0.047965884,"g":0.2585324,"b":0.6702492,"a":0.6416023}	v:4 g:3d4477e0 g:3e845e5c g:3f2b9574 g:3f24400c	serde_json's document 45
+Color::from_json	A	s:{"r":0.76132524,"g":0.87733734,"b":0.9937135,"a":0.8746747}	v:4 g:3f42e636 g:3f60992e g:3f7e6402 g:3f5feaae	serde_json's document 46
+Color::from_json	A	s:{"r":0.92757547,"g":0.25449002,"b":0.26181686,"a":0.17141342}	v:4 g:3f6d7596 g:3e824c84 g:3e860cdc g:3e2f8700	serde_json's document 47
+Color::from_json	A	s:{"r":0.75648415,"g":0.18940437,"b":0.7638539,"a":0.95956457}	v:4 g:3f41a8f2 g:3e41f338 g:3f438bee g:3f75a606	serde_json's document 48
+Color::from_json	A	s:{"r":0.79810023,"g":0.94406533,"b":0.5243521,"a":0.8695537}	v:4 g:3f4c504c g:3f71ae44 g:3f063bf0 g:3f5e9b12	serde_json's document 49
+Color::from_json	A	s:{"r":0.007879376,"g":0.96424675,"b":0.03437853,"a":0.1622988}	v:4 g:3c011880 g:3f76d8e0 g:3d0cd080 g:3e2631a8	serde_json's document 50
+Color::from_json	A	s:{"r":0.6623814,"g":0.3192165,"b":0.7217152,"a":0.31576502}	v:4 g:3f2991d4 g:3ea37058 g:3f38c254 g:3ea1abf4	serde_json's document 51
+Color::from_json	A	s:{"r":0.9288633,"g":0.5379499,"b":0.28587198,"a":0.63845754}	v:4 g:3f6dc9fc g:3f09b716 g:3e925dd0 g:3f2371f4	serde_json's document 52
+Color::from_json	A	s:{"r":0.6607102,"g":0.87443423,"b":0.60379267,"a":0.43973577}	v:4 g:3f29244e g:3f5fdaec g:3f1a9228 g:3ee1250c	serde_json's document 53
+Color::from_json	A	s:{"r":0.52644336,"g":0.81189287,"b":0.9329941,"a":0.83952045}	v:4 g:3f06c4fe g:3f4fd836 g:3f6ed8b4 g:3f56ead0	serde_json's document 54
+Color::from_json	A	s:{"r":0.65746486,"g":0.72661555,"b":0.63640213,"a":0.11832905}	v:4 g:3f284f9e g:3f3a037a g:3f22eb40 g:3df25680	serde_json's document 55
+Color::from_json	A	s:{"r":0.015662313,"g":0.24016988,"b":0.5267235,"a":0.9420048}	v:4 g:3c804e40 g:3e75ef18 g:3f06d75a g:3f71273a	serde_json's document 56
+Color::from_json	A	s:{"r":0.051881075,"g":0.85366964,"b":0.7620019,"a":0.23131561}	v:4 g:3d548140 g:3f5a8a18 g:3f43128e g:3e6cde00	serde_json's document 57
+Color::from_json	A	s:{"r":0.05532205,"g":0.97135735,"b":0.6200658,"a":0.3829298}	v:4 g:3d629960 g:3f78aae0 g:3f1ebca2 g:3ec40f60	serde_json's document 58
+Color::from_json	A	s:{"r":0.3794155,"g":0.67635906,"b":0.90924466,"a":0.67429304}	v:4 g:3ec242c0 g:3f2d25de g:3f68c442 g:3f2c9e78	serde_json's document 59
+Color::from_json	A	s:{"r":0.78658307,"g":0.6925818,"b":0.12876475,"a":0.8168781}	v:4 g:3f495d82 g:3f314d0a g:3e03dae8 g:3f511eec	serde_json's document 60
+Color::from_json	A	s:{"r":0.64269614,"g":0.4786508,"b":0.041499972,"a":0.78515387}	v:4 g:3f2487bc g:3ef511b8 g:3d29fbe0 g:3f48ffd8	serde_json's document 61
+Color::from_json	A	s:{"r":0.23151791,"g":0.9069519,"b":0.25054204,"a":0.19256806}	v:4 g:3e6d1308 g:3f682e00 g:3e80470c g:3e453090	serde_json's document 62
+Color::from_json	A	s:{"r":0.8040849,"g":0.8835014,"b":0.9990455,"a":0.67238486}	v:4 g:3f4dd882 g:3f622d26 g:3f7fc172 g:3f2c216a	serde_json's document 63
+Color::from_json	A	s:{"r":0.88095057,"g":0.11041391,"b":0.7903491,"a":0.7161813}	v:4 g:3f6185fa g:3de220b0 g:3f4a5452 g:3f3757a8	serde_json's document 64
+Color::from_json	A	s:{"r":0.65342915,"g":0.7682699,"b":0.81842864,"a":0.99873364}	v:4 g:3f274722 g:3f44ad56 g:3f51848a g:3f7fad02	serde_json's document 65
+Color::from_json	A	s:{"r":0.08168852,"g":0.77025914,"b":0.23562682,"a":0.8836429}	v:4 g:3da74c50 g:3f452fb4 g:3e714828 g:3f62366c	serde_json's document 66
+Color::from_json	A	s:{"r":0.8055403,"g":0.2874143,"b":0.3119284,"a":0.008428335}	v:4 g:3f4e37e4 g:3e9327f8 g:3e9fb514 g:3c0a1700	serde_json's document 67
+Color::from_json	A	s:{"r":0.9217963,"g":0.7583461,"b":0.7912797,"a":0.61407316}	v:4 g:3f6bfad8 g:3f4222f8 g:3f4a914e g:3f1d33e6	serde_json's document 68
+Color::from_json	A	s:{"r":0.6223564,"g":0.981035,"b":0.8142098,"a":0.055882096}	v:4 g:3f1f52c0 g:3f7b251c g:3f50700e g:3d64e4a0	serde_json's document 69
+Color::from_json	A	s:{"r":0.47516155,"g":0.1268698,"b":0.9346074,"a":0.5126163}	v:4 g:3ef34860 g:3e01ea28 g:3f6f426e g:3f033ad2	serde_json's document 70
+Color::from_json	A	s:{"r":0.389539,"g":0.46161687,"b":0.56712854,"a":0.008936644}	v:4 g:3ec771a8 g:3eec590c g:3f112f56 g:3c126b00	serde_json's document 71
+Color::from_json	A	s:{"r":0.40565693,"g":0.029884458,"b":0.7232728,"a":0.8470379}	v:4 g:3ecfb244 g:3cf4d040 g:3f392868 g:3f58d77a	serde_json's document 72
+Color::from_json	A	s:{"r":0.34788096,"g":0.55353296,"b":0.17952824,"a":0.44759965}	v:4 g:3eb21d74 g:3f0db456 g:3e37d640 g:3ee52bc8	serde_json's document 73
+Color::from_json	A	s:{"r":0.8341944,"g":0.48557687,"b":0.60873747,"a":0.530295}	v:4 g:3f558dc4 g:3ef89d88 g:3f1bd638 g:3f07c16a	serde_json's document 74
+Color::from_json	A	s:{"r":0.273404,"g":0.2492826,"b":0.06855357,"a":0.9956646}	v:4 g:3e8bfb9c g:3e7f43f0 g:3d8c65d0 g:3f7ee3e0	serde_json's document 75
+Color::from_json	A	s:{"r":0.43926144,"g":0.43776977,"b":0.32305646,"a":0.17921436}	v:4 g:3ee0e6e0 g:3ee0235c g:3ea567a8 g:3e3783f8	serde_json's document 76
+Color::from_json	A	s:{"r":0.65387666,"g":0.34856963,"b":0.123895526,"a":0.19987881}	v:4 g:3f276476 g:3eb277b8 g:3dfdbcf0 g:3e4cad08	serde_json's document 77
+Color::from_json	A	s:{"r":0.71471167,"g":0.96188927,"b":0.8070308,"a":0.2797829}	v:4 g:3f36f758 g:3f763e60 g:3f4e9992 g:3e8f3fb4	serde_json's document 78
+Color::from_json	A	s:{"r":0.6321796,"g":0.17023778,"b":0.37866855,"a":0.93042624}	v:4 g:3f21d686 g:3e2e52d0 g:3ec1e0d8 g:3f6e306a	serde_json's document 79
+Color::from_json	A	s:{"r":0.2566774,"g":0.41338384,"b":0.83343995,"a":0.46859527}	v:4 g:3e836b38 g:3ed3a70c g:3f555c52 g:3eefebb8	serde_json's document 80
+Color::from_json	A	s:{"r":0.85682905,"g":0.44067037,"b":0.54459345,"a":0.53167224}	v:4 g:3f5b5926 g:3ee19f8c g:3f0b6a7a g:3f081bac	serde_json's document 81
+Color::from_json	A	s:{"r":0.014424443,"g":0.80585194,"b":0.562109,"a":0.56815195}	v:4 g:3c6c5480 g:3f4e4c50 g:3f0fe660 g:3f117268	serde_json's document 82
+Color::from_json	A	s:{"r":0.86434484,"g":0.6708956,"b":0.67271626,"a":0.35414922}	v:4 g:3f5d45b4 g:3f2bbfd0 g:3f2c3722 g:3eb5530c	serde_json's document 83
+Color::from_json	A	s:{"r":0.6612326,"g":0.083128214,"b":0.43559444,"a":0.5159403}	v:4 g:3f29468a g:3daa3f20 g:3edf063c g:3f0414aa	serde_json's document 84
+Color::from_json	A	s:{"r":0.9431838,"g":0.6458888,"b":0.21629238,"a":0.8711283}	v:4 g:3f71747e g:3f2558f8 g:3e5d7bc0 g:3f5f0244	serde_json's document 85
+Color::from_json	A	s:{"r":0.8374834,"g":0.5152402,"b":0.56047213,"a":0.91783917}	v:4 g:3f566550 g:3f03e6c8 g:3f0f7b1a g:3f6af782	serde_json's document 86
+Color::from_json	A	s:{"r":0.025808692,"g":0.61315227,"b":0.21067429,"a":0.64548016}	v:4 g:3cd36cc0 g:3f1cf78c g:3e57bb00 g:3f253e30	serde_json's document 87
+Color::from_json	A	s:{"r":0.043596625,"g":0.7498596,"b":0.9960822,"a":0.059327006}	v:4 g:3d329260 g:3f3ff6cc g:3f7eff3e g:3d7300e0	serde_json's document 88
+Color::from_json	A	s:{"r":0.3055991,"g":0.8203286,"b":0.25243998,"a":0.14220953}	v:4 g:3e9c777c g:3f52010e g:3e813fd0 g:3e119f60	serde_json's document 89
+Color::from_json	A	s:{"r":0.72064066,"g":0.808288,"b":0.474172,"a":0.8990396}	v:4 g:3f387be8 g:3f4eebf6 g:3ef2c6ac g:3f662776	serde_json's document 90
+Color::from_json	A	s:{"r":0.35168886,"g":0.9857062,"b":0.2743621,"a":0.82557344}	v:4 g:3eb41090 g:3f7c573e g:3e8c7930 g:3f5358c8	serde_json's document 91
+Color::from_json	A	s:{"r":0.29655743,"g":0.3886075,"b":0.105722666,"a":0.25882053}	v:4 g:3e97d660 g:3ec6f790 g:3dd88520 g:3e848420	serde_json's document 92
+Color::from_json	A	s:{"r":0.09845948,"g":0.038802862,"b":0.04520178,"a":0.36495435}	v:4 g:3dc9a520 g:3d1eefc0 g:3d392580 g:3ebadb4c	serde_json's document 93
+Color::from_json	A	s:{"r":0.71381366,"g":0.93931985,"b":0.0061758757,"a":0.72766125}	v:4 g:3f36bc7e g:3f707744 g:3bca5f00 g:3f3a4802	serde_json's document 94
+Color::from_json	A	s:{"r":0.49784672,"g":0.9447099,"b":0.098562,"a":0.7133944}	v:4 g:3efee5c4 g:3f71d882 g:3dc9dae0 g:3f36a104	serde_json's document 95
+Color::from_json	A	s:{"r":0.8096936,"g":0.19467449,"b":0.8815906,"a":0.24882329}	v:4 g:3f4f4814 g:3e4758c0 g:3f61afec g:3e7ecb88	serde_json's document 96
+Color::from_json	A	s:{"r":0.84062064,"g":0.5280471,"b":0.58735144,"a":0.87599504}	v:4 g:3f5732ea g:3f072e18 g:3f165caa g:3f604136	serde_json's document 97
+Color::from_json	A	s:{"r":0.1934197,"g":0.5940819,"b":0.8045248,"a":0.91495585}	v:4 g:3e460fd0 g:3f1815c0 g:3f4df556 g:3f6a3a8c	serde_json's document 98
+Color::from_json	A	s:{"r":0.23476958,"g":0.5394788,"b":0.019981265,"a":0.8363581}	v:4 g:3e706770 g:3f0a1b48 g:3ca3afc0 g:3f561b90	serde_json's document 99
+Color::from_json	A	s:{"r":0.033474922,"g":0.89395773,"b":0.1736877,"a":0.0559994}	v:4 g:3d091d00 g:3f64da6a g:3e31db30 g:3d655fa0	serde_json's document 100
+Color::from_json	A	s:{"r":0.48705006,"g":0.4630108,"b":0.81168234,"a":0.71565294}	v:4 g:3ef95ea0 g:3eed0fc0 g:3f4fca6a g:3f373508	serde_json's document 101
+Color::from_json	A	s:{"r":0.8285799,"g":0.89703023,"b":0.4816321,"a":0.041585684}	v:4 g:3f541dd0 g:3f65a3c6 g:3ef6987c g:3d2a55c0	serde_json's document 102
+Color::from_json	A	s:{"r":0.82337964,"g":0.018778324,"b":0.8684846,"a":0.6942543}	v:4 g:3f52c902 g:3c99d500 g:3f5e5502 g:3f31baa6	serde_json's document 103
+Color::from_json	A	s:{"r":0.07802546,"g":0.32695377,"b":0.24283767,"a":0.38002515}	v:4 g:3d9fcbd0 g:3ea7667c g:3e78aa70 g:3ec292a8	serde_json's document 104
+Color::from_json	A	s:{"r":0.9684131,"g":0.24206424,"b":0.155339,"a":0.0467391}	v:4 g:3f77e9ec g:3e77dfb0 g:3e1f1130 g:3d3f7180	serde_json's document 105
+Color::from_json	A	s:{"r":0.27510285,"g":0.75250137,"b":0.4956807,"a":0.44259262}	v:4 g:3e8cda48 g:3f40a3ee g:3efdc9dc g:3ee29b80	serde_json's document 106
+Color::from_json	A	s:{"r":0.42436922,"g":0.17156732,"b":0.9262041,"a":0.66016734}	v:4 g:3ed946ec g:3e2faf58 g:3f6d1bb6 g:3f2900ba	serde_json's document 107
+Color::from_json	A	s:{"r":0.45709097,"g":0.37559783,"b":0.6379516,"a":0.7081411}	v:4 g:3eea07d4 g:3ec04e5c g:3f2350cc g:3f3548bc	serde_json's document 108
+Color::from_json	A	s:{"r":0.39180768,"g":0.60160875,"b":0.96992743,"a":0.16745865}	v:4 g:3ec89b04 g:3f1a0308 g:3f784d2a g:3e2b7a48	serde_json's document 109
+Color::from_json	A	s:{"r":0.1786567,"g":0.12724161,"b":0.113600254,"a":0.55987406}	v:4 g:3e36f1c8 g:3e024ba0 g:3de8a740 g:3f0f53e8	serde_json's document 110
+Color::from_json	A	s:{"r":0.9027064,"g":0.7133646,"b":0.82663405,"a":0.48239112}	v:4 g:3f6717c4 g:3f369f10 g:3f539e4a g:3ef6fbf8	serde_json's document 111
+Color::from_json	A	s:{"r":0.63168466,"g":0.90925133,"b":0.5772153,"a":0.26108527}	v:4 g:3f21b616 g:3f68c4b2 g:3f13c462 g:3e85acf8	serde_json's document 112
+Color::from_json	A	s:{"r":0.84480906,"g":0.3049581,"b":0.44136155,"a":0.888608}	v:4 g:3f584568 g:3e9c2378 g:3ee1fa24 g:3f637bd0	serde_json's document 113
+Color::from_json	A	s:{"r":0.5399754,"g":0.7839459,"b":0.64049006,"a":0.7537514}	v:4 g:3f0a3bd4 g:3f48b0ae g:3f23f728 g:3f40f5da	serde_json's document 114
+Color::from_json	A	s:{"r":0.6991856,"g":0.82629573,"b":0.33297265,"a":0.12699842}	v:4 g:3f32fdd4 g:3f53881e g:3eaa7b64 g:3e020be0	serde_json's document 115
+Color::from_json	A	s:{"r":0.9630028,"g":0.53867793,"b":0.6518384,"a":0.3395102}	v:4 g:3f76875a g:3f09e6cc g:3f26dee2 g:3eadd448	serde_json's document 116
+Color::from_json	A	s:{"r":0.34724712,"g":0.7686399,"b":0.17315829,"a":0.239097}	v:4 g:3eb1ca60 g:3f44c596 g:3e315068 g:3e74d5d8	serde_json's document 117
+Color::from_json	A	s:{"r":0.7646084,"g":0.49958694,"b":0.07496536,"a":0.06820905}	v:4 g:3f43bd60 g:3effc9dc g:3d998770 g:3d8bb130	serde_json's document 118
+Color::from_json	A	s:{"r":0.2363863,"g":0.18443894,"b":0.7335882,"a":0.23782861}	v:4 g:3e720f40 g:3e3cdd90 g:3f3bcc70 g:3e738958	serde_json's document 119
+Color::from_json	A	s:{"r":3.170435,"g":-1136679.6,"b":-0.0000060841035,"a":7.944575e-21}	v:4 g:404ae868 g:c98ac13d g:b6cc260d g:1e16119b	serde_json's document 120
+Color::from_json	A	s:{"r":5.9009447,"g":-2247224.8,"b":-0.000006235424,"a":4.110593e-17}	v:4 g:40bcd48a g:ca0928e3 g:b6d139e2 g:243d9151	serde_json's document 121
+Color::from_json	A	s:{"r":-7.887842,"g":-5961666.0,"b":-0.000006850627,"a":7.1226315e+22}	v:4 g:c0fc6934 g:cab5ef84 g:b6e5de70 g:657152fb	serde_json's document 122
+Color::from_json	A	s:{"r":4.969179,"g":6438063.5,"b":-0.000001725236,"a":2139.1538}	v:4 g:409f0384 g:4ac4795f g:b5e78ea8 g:4505b276	serde_json's document 123
+Color::from_json	A	s:{"r":-3.6957083,"g":384790.4,"b":0.0000057215652,"a":2.2263457e-27}	v:4 g:c06c867c g:48bbe2cd g:36bffbdf g:133063a8	serde_json's document 124
+Color::from_json	A	s:{"r":-2.977211,"g":4817785.5,"b":0.0000029187966,"a":4.8602128e-32}	v:4 g:c03e8aa0 g:4a9306f3 g:3643e08b g:0b7c5b4f	serde_json's document 125
+Color::from_json	A	s:{"r":1.5724974,"g":5982085.0,"b":-0.0000067857904,"a":8.926029e+14}	v:4 g:3fc94798 g:4ab68f0a g:b6e3b17f g:584af454	serde_json's document 126
+Color::from_json	A	s:{"r":7.6880045,"g":6254818.0,"b":0.000007652028,"a":3.6252782}	v:4 g:40f60422 g:4abee1c4 g:37006136 g:4068048f	serde_json's document 127
+Color::from_json	A	s:{"r":1.322751,"g":3000068.8,"b":-0.000006100377,"a":0.00004300169}	v:4 g:3fa94fe8 g:4a371c13 g:b6ccb1d7 g:38345cb7	serde_json's document 128
+Color::from_json	A	s:{"r":0.7248802,"g":5353130.5,"b":0.0000065328304,"a":1.6810771e-19}	v:4 g:3f3991c0 g:4aa35d55 g:36db3496 g:20467770	serde_json's document 129
+Color::from_json	A	s:{"r":-2.5921316,"g":-2811695.0,"b":-0.000005925564,"a":1.2450505e-26}	v:4 g:c025e57c g:ca2b9cbc g:b6c6d435 g:14769b8f	serde_json's document 130
+Color::from_json	A	s:{"r":3.9456558,"g":4260096.5,"b":-0.000007045764,"a":5.007502e-22}	v:4 g:407c85a0 g:4a820201 g:b6ec6aa7 g:1c1757ac	serde_json's document 131
+Color::from_json	A	s:{"r":-0.26533222,"g":7512247.0,"b":-0.0000016269979,"a":11.180697}	v:4 g:be87d9a0 g:4ae5416e g:b5da5f39 g:4132e423	serde_json's document 132
+Color::from_json	A	s:{"r":-7.81091,"g":412463.2,"b":-0.0000052909204,"a":0.000008150913}	v:4 g:c0f9f2fa g:48c965e6 g:b6b188a9 g:3708bfe8	serde_json's document 133
+Color::from_json	A	s:{"r":-6.7869062,"g":6627195.5,"b":0.000007061505,"a":2.4986317e-32}	v:4 g:c0d92e56 g:4aca3ef7 g:36ecf1de g:0b01bc83	serde_json's document 134
+Color::from_json	A	s:{"r":3.5150995,"g":7021173.5,"b":0.0000062040435,"a":3.7921004e+15}	v:4 g:4060f764 g:4ad644eb g:36d02c54 g:59578e53	serde_json's document 135
+Color::from_json	A	s:{"r":-3.0729809,"g":-2830573.0,"b":-0.0000023189898,"a":1.0835705e+24}	v:4 g:c044abb8 g:ca2cc3b4 g:b61b9ff1 g:67657479	serde_json's document 136
+Color::from_json	A	s:{"r":5.1742496,"g":7997634.0,"b":-1.0282135e-7,"a":6.4973826e+20}	v:4 g:40a59374 g:4af41184 g:b3dccea3 g:620ce3b8	serde_json's document 137
+Color::from_json	A	s:{"r":-6.417753,"g":2079038.6,"b":0.000003497013,"a":4.86408e-8}	v:4 g:c0cd5e3c g:49fdc9f5 g:366aae3a g:3350e920	serde_json's document 138
+Color::from_json	A	s:{"r":5.0953894,"g":3561377.5,"b":0.0000049733676,"a":2.254503e-15}	v:4 g:40a30d6e g:4a595e86 g:36a6e0e7 g:2722743d	serde_json's document 139
+Color::from_json	A	s:{"r":-1.4806366,"g":-5069124.0,"b":-0.0000012895813,"a":775710.6}	v:4 g:bfbd8580 g:ca9ab288 g:b5ad15ad g:493d61ea	serde_json's document 140
+Color::from_json	A	s:{"r":3.7823248,"g":736986.2,"b":-0.000007898993,"a":4.515342e-31}	v:4 g:4072119c g:4933eda3 g:b70485eb g:0d1287fe	serde_json's document 141
+Color::from_json	A	s:{"r":7.325344,"g":2016841.9,"b":-0.000005879071,"a":1.2211059e-25}	v:4 g:40ea6938 g:49f6324f g:b6c544d6 g:16172a64	serde_json's document 142
+Color::from_json	A	s:{"r":7.8144236,"g":-6031563.0,"b":0.0000021203957,"a":0.01526165}	v:4 g:40fa0fc2 g:cab81196 g:360e4c1f g:3c7a0c00	serde_json's document 143
+Color::from_json	A	s:{"r":-6.821394,"g":5343326.5,"b":-0.0000037888985,"a":2.2873141e-7}	v:4 g:c0da48dc g:4aa310bd g:b67e44c8 g:34759936	serde_json's document 144
+Color::from_json	A	s:{"r":-7.947053,"g":3996656.5,"b":-0.0000074346,"a":6.2405993e+34}	v:4 g:c0fe4e42 g:4a73efc2 g:b6f976ba g:79404da6	serde_json's document 145
+Color::from_json	A	s:{"r":-7.5748367,"g":-749082.56,"b":0.0000037530194,"a":3.6554456}	v:4 g:c0f26510 g:c936e1a9 g:367bdc62 g:4069f2d2	serde_json's document 146
+Color::from_json	A	s:{"r":-2.9186325,"g":2538001.0,"b":0.000007891667,"a":249791220000.0}	v:4 g:c03acae0 g:4a1ae844 g:37046674 g:5268a2de	serde_json's document 147
+Color::from_json	A	s:{"r":-6.6586094,"g":3120706.5,"b":0.0000026023026,"a":2.2185992e-21}	v:4 g:c0d51354 g:4a3e790a g:362ea338 g:1d27a1f3	serde_json's document 148
+Color::from_json	A	s:{"r":-1.2124605,"g":1605573.6,"b":0.0000019705228,"a":2.0693023e+32}	v:4 g:bf9b31e8 g:49c3fe2d g:36043d53 g:75233d3a	serde_json's document 149
+Color::from_json	A	s:{"r":0.1,"g":0.2,"b":0.3,"a":0.9}	v:4 g:3dcccccd g:3e4ccccd g:3e99999a g:3f666666	serde_json's document 150
+Color::from_json	A	s:{"r":0.0,"g":-0.0,"b":1.0,"a":1.1754944e-38}	v:4 g:00000000 g:80000000 g:3f800000 g:00800000	serde_json's document 151
+Color::from_json	A	s:{"r":1e-45,"g":3.4028235e+38,"b":-3.4028235e+38,"a":1e-38}	v:4 g:00000001 g:7f7fffff g:ff7fffff g:006ce3ee	serde_json's document 152
+Color::from_json	A	s:{"r":0.392,"g":0.584,"b":0.929,"a":1.0}	v:4 g:3ec8b439 g:3f158106 g:3f6dd2f2 g:3f800000	serde_json's document 153
+Color::from_json	A	s:{"a":1,"b":0.5,"g":0.25,"r":0.125}	v:4 g:3e000000 g:3e800000 g:3f000000 g:3f800000	hand-written document 0
+Color::from_json	A	s:[0.1,0.2,0.3,0.4]	v:4 g:3dcccccd g:3e4ccccd g:3e99999a g:3ecccccd	hand-written document 1
+Color::from_json	A	s:[0.1,0.2,0.3]	E:Deserialize	hand-written document 2
+Color::from_json	A	s:[0.1,0.2,0.3,0.4,0.5]	E:Deserialize	hand-written document 3
+Color::from_json	A	s:{"r":0.1,"g":0.2,"b":0.3}	E:Deserialize	hand-written document 4
+Color::from_json	A	s:{"r":0.1,"g":0.2,"b":0.3,"a":0.4,"extra":[1,{"x":null}]}	v:4 g:3dcccccd g:3e4ccccd g:3e99999a g:3ecccccd	hand-written document 5
+Color::from_json	A	s:{"r":0.1,"r":0.2,"g":0,"b":0,"a":0}	E:Deserialize	hand-written document 6
+Color::from_json	A	s:{"r":null,"g":0,"b":0,"a":0}	E:Deserialize	hand-written document 7
+Color::from_json	A	s:{"r":"0.1","g":0,"b":0,"a":0}	E:Deserialize	hand-written document 8
+Color::from_json	A	s:{"r":true,"g":0,"b":0,"a":0}	E:Deserialize	hand-written document 9
+Color::from_json	A	s:%20{%20"r"%20:%201e-3%20,%20"g":-0.0,"b":0,"a":1E2%20}%20%0A	v:4 g:3a83126f g:80000000 g:00000000 g:42c80000	hand-written document 10
+Color::from_json	A	s:{"r":1e39,"g":-1e39,"b":3.4028235e38,"a":3.4028236e38}	v:4 g:7f800000 g:ff800000 g:7f7fffff g:7f800000	hand-written document 11
+Color::from_json	A	s:{"r":1e309,"g":0,"b":0,"a":0}	E:Deserialize	hand-written document 12
+Color::from_json	A	s:{"r":16777217,"g":-16777217,"b":16777219,"a":9007199254740993}	v:4 g:4b800000 g:cb800000 g:4b800002 g:5a000000	hand-written document 13
+Color::from_json	A	s:{"r":0.1,"g":0.2,"b":0.3,"a":0.4}%20x	E:Deserialize	hand-written document 14
+Color::from_json	A	s:	E:Deserialize	hand-written document 15
+Color::from_json	A	s:null	E:Deserialize	hand-written document 16
+Color::from_json	A	s:{"r":1.401298464324817e-45,"g":7e-46,"b":7.1e-46,"a":-2.1e-45}	v:4 g:00000001 g:00000000 g:00000001 g:80000001	hand-written document 17
+Color::from_json	A	s:{"r":0.30000001192092896,"g":0.1000000015,"b":1.00000000000000000000000000001,"a":0}	v:4 g:3e99999a g:3dcccccd g:3f800000 g:00000000	hand-written document 18
+Color::from_json	A	s:{"r":-9223372036854775808,"g":9223372036854775807,"b":0,"a":0}	v:4 g:df000000 g:5f000000 g:00000000 g:00000000	hand-written document 19
+Color::from_json	A	s:{"r":1,"g":2,"b":3,"a":4,"R":5}	v:4 g:3f800000 g:40000000 g:40400000 g:40800000	hand-written document 20
+Color::from_json	A	s:[]	E:Deserialize	hand-written document 21
+Color::from_json	A	s:{}	E:Deserialize	hand-written document 22
+Color::from_json_bayan_neg_zero	A	s:{"r":0,"g":0,"b":-0,"a":0}	v:4 g:00000000 g:00000000 g:80000000 g:00000000	the integer -0 (serde_json: -0.0)
+Color::from_json_bayan_above_i64	A	s:{"r":18446744073709551615,"g":0,"b":0,"a":0}	v:4 g:5f800000 g:00000000 g:00000000 g:00000000	an integer above i64::MAX
+Color::from_json_bayan_duplicate_unknown	A	s:{"r":0.1,"g":0.2,"b":0.3,"a":0.4,"x":1,"x":2}	v:4 g:3dcccccd g:3e4ccccd g:3e99999a g:3ecccccd	a duplicated unknown field

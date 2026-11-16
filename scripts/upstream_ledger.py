@@ -37,9 +37,11 @@ SOURCES = (".cyr", ".tcyr", ".bcyr", ".fcyr")
 
 # Row -> (the milestone that writes its stand-in, the stand-in). Its marker is due once that milestone is done.
 STANDINS = {
-    "L1": ("M1", "the vendored correctly rounded crmath/crlog (impetus, kimiya): src/crmath.cyr (§3.1)"),
+    # crmath moved to M5 at M1 part d: its only caller is acoustic_render's log10 / ln / exp.
+    "L1": ("M5", "the vendored correctly rounded crmath/crlog (impetus, kimiya): src/crmath.cyr (§3.1)"),
     "L8": ("M1", "f32 results returned as i64 bits, `var` constants and local f16 code: src/mathx.cyr (§3.1)"),
     "L9": ("M8", "selah's private PNG/JPEG/BMP encoders, vendored for screenshot (D8)"),
+    "L21": ("M1", "Color's from_temperature / from_wavelength call prakash's allocating forms: src/color_optics.cyr"),
     "L10": ("M9", "the reduced drm subset (D8, ADR 0002 #11): where connector, mode and render-node queries are missing"),
 }
 # Row -> why no marker is due.

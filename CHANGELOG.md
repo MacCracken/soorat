@@ -54,6 +54,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - sRGB is identical except on the 3 rows where glibc's `powf` misrounds, where the port gives the correctly rounded
     value (`tests/golden/tables.cr.tsv`);
   - the 256-entry decode table is Rust's own.
+- **M1 part b2: colour's `optics` half and serde, both opt-in.** M1 is complete: every M1 public item and every M1
+  Rust test is ported.
+  - **`optics`** (`src/color_optics.cyr`) — `SrColor_from_prakash`, `to_prakash`, `from_temperature` and
+    `from_wavelength` over an optional prakash 2.15.2 (`[features] optics`), bundled by the new `[lib.optics]`
+    profile as `dist/soorat-optics.cyr` (ADR 0002 #18). All 1,704 golden rows match Rust's, replayed by their own
+    harness (`tests/parity_optics.tcyr`) so the core replay compiles without prakash. `to_prakash` writes into the
+    caller's `Rgb` and allocates nothing; `from_temperature` and `from_wavelength` leave prakash's 24-byte `Rgb` on
+    the bump heap per call (filed at prakash, ledger L21).
+  - **serde** (`src/json.cyr`) — `SrColor_to_json` and `SrColor_from_json` on bayan, bundled by the new
+    `[lib.serde]` profile as `dist/soorat-serde.cyr` (ADR 0002 #19). Every one of serde_json's documents reads back
+    to Rust's bits (177 rows); three documents bayan's tree can't read yet are pending rows (bayan's open issues).
+    Opt-in because including bayan grows a binary by ~372 KB (49 KB → 421 KB measured).
+  - Cyrius-only `SR_ERR_DESERIALIZE` (12). 5 Rust tests ported (`tests/color.tcyr`, `tests/color_optics.tcyr`);
+    `json/*` and `color_optics/*` benches.
+  - CI resolves `cyrius deps --locked --features optics` and checks all three bundles.
 
 ### Performance
 - color: one typed f32 helper per formula instead of a ganita call per operation. `color/lerp` 75 → 37 ns (−51 %),

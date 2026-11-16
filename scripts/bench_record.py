@@ -94,6 +94,12 @@ EXTRA = {
     "tables/srgb_to_linear": "M1: sRGB decode, f32 with a correctly rounded pow; no Rust bench (environment, M4)",
     "tables/linear_to_srgb": "M1: sRGB encode, f32 with a correctly rounded pow; no Rust bench (environment, M4)",
     "tables/srgb8_decode": "M1: a decode-table lookup (the generated table); no Rust bench (environment, M4)",
+    # Color's serde and optics halves (M1 part b2) have no Rust bench.
+    "json/color_to_json": "M1: Color's serde document, written (bayan's round-trip digits); no Rust bench",
+    "json/color_from_json": "M1: a serde_json Color document, read (bayan's value tree); no Rust bench",
+    "color_optics/from_prakash": "M1 (`optics`): a prakash Rgb clamped and narrowed to a Color; no Rust bench",
+    "color_optics/from_temperature": "M1 (`optics`): a blackbody colour through prakash's fit; no Rust bench",
+    "color_optics/from_wavelength": "M1 (`optics`): a spectral colour through prakash; no Rust bench",
 }
 
 
