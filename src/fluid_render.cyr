@@ -1,0 +1,215 @@
+# fluid_render.cyr — the pravash half of Rust 1.2.0's src/fluid_render.rs (M5 part d): SPH particles as XZ quads or
+# camera-facing billboards, and a shallow-water surface as a height-field mesh.
+#
+# **OPTIONAL**, as Rust gates it behind `fluids`: bundled by the `[lib.fluids]` profile. It includes pravash 2.0.1
+# itself.
+#
+# **Inputs are pravash's Cyrius types** (plan §2.5, ADR 0002 #31): particles are `n` PvFluidParticle records at a
+# pointer (Rust's slice), each with an f64 position, velocity, density and pressure; a PvShallowWater holds nx, ny, dx
+# and its free-surface `height` column (f64). Rust pravash 1.3's types are f64 too.
+#
+# **Precision (D4 rule b, class E).** Rust narrowed pravash's positions to f32 and built the quads in f32. Here every
+# position and normal is computed in f64 from pravash's values and rounded once (a water surface's spacing and origin
+# are viz's f32 HeightField fields, as Rust's are). A particle's colour value (speed over max_velocity, density over
+# max_density, pressure over max_pressure) is computed in f64 and narrowed once, and the heat map is Rust's f32
+# sequence; f32 constants (0.001) are widened exactly. Each mesh is an SrMeshData from the caller's allocator.
+
+include "lib/pravash.cyr"
+
+var _SR_FL_0_001: f64 = f32_to(0x3A83126F);   # 0.001f32
+var _SR_FL_0_001D = 0x3F50624DD2F1A9FC;       # 0.001 (f64)
+
+# pravash's structs, as typed pointers (the casts).
+fn _sr_pv_water(p): *PvShallowWater { return p; }
+
+# The heat-map value of particle p under params (an SrParticleColorParams) into out: the base colour for Solid, or the
+# heat map of speed / max(max_velocity, 0.001), density / max(max_density, 0.001) or pressure / max(max_pressure,
+# 0.001), each in f64 and narrowed once. Mirrors `particle_color`.
+fn _sr_particle_color(p, params, out) {
+    var mode = load64(params);
+    if (mode == SR_FLUID_COLOR_MODE_SOLID) {
+        memcpy(out, params + 8, 16);
+        return out;
+    }
+    var q: *PvFluidParticle = _pv_as_particles(p);
+    var t: f64 = 0.0;
+    if (mode == SR_FLUID_COLOR_MODE_VELOCITY) {
+        var sp: f64 = PvFluidParticle_speed(q);
+        var mv: f64 = _sr_max64(f32_to(load32(params + 24)), _SR_FL_0_001);
+        t = sp / mv;
+    } elif (mode == SR_FLUID_COLOR_MODE_DENSITY) {
+        var md: f64 = _sr_max64(load64(params + 32), _SR_FL_0_001D);
+        var dn: f64 = q.density;
+        t = dn / md;
+    } else {
+        var mp: f64 = _sr_max64(load64(params + 40), _SR_FL_0_001D);
+        var pr: f64 = q.pressure;
+        t = pr / mp;
+    }
+    return sr_visualization_heat_map(f32_from(t), out);
+}
+
+# Writes vertex v (an SrVertex3D): position (x, y, z) and normal (nx, ny, nz) in f64, rounded once, UV (u, w) (f32
+# bits) and the colour at col.
+fn _sr_fl_vertex(v, x: f64, y: f64, z: f64, nx: f64, ny: f64, nz: f64, u, w, col) {
+    _sr_put3(v, x, y, z);
+    _sr_put3(v + 12, nx, ny, nz);
+    store32(v + 24, u);
+    store32(v + 28, w);
+    memcpy(v + 32, col, 16);
+    return v;
+}
+
+# The quads of the n particles at particles into out (an SrMeshData) from the allocator a: a +Y quad particle_size
+# (f32 bits) across, centred on each particle on the XZ plane at its height, coloured by color_mode with base_color and
+# the three maxima (max_velocity f32 bits, max_density and max_pressure f64 bits). At most SR_MAX_QUADS particles. out,
+# or 0 when an allocation fails. Mirrors `particles_to_quads`.
+fn sr_particles_to_quads(particles, n, particle_size, color_mode, base_color, max_velocity, max_density,
+    max_pressure, a, out) {
+    var prm[48];
+    store64(&prm, color_mode);
+    memcpy(&prm + 8, base_color, 16);
+    store32(&prm + 24, max_velocity & 0xFFFFFFFF);
+    store32(&prm + 28, 0);
+    store64(&prm + 32, max_density);
+    store64(&prm + 40, max_pressure);
+    var count = n;
+    if (count < 0) { count = 0; }
+    if (count > SR_MAX_QUADS) { count = SR_MAX_QUADS; }
+    _sr_debug("soorat::fluid_render: building particle quads");
+    if (_sr_mesh_alloc(a, out, count * 4, count * 6) == 0) { return 0; }
+    var vb = load64(out);
+    var ib = load64(out + 16);
+    var half: f64 = 0.5;
+    var hs: f64 = f32_to(particle_size) * half;
+    var zero: f64 = 0.0;
+    var one: f64 = 1.0;
+    var col[16];
+    var k = 0;
+    while (k < count) {
+        var q: *PvFluidParticle = _pv_as_particles(particles + k * sizeof(PvFluidParticle));
+        var x: f64 = q.position.x;
+        var y: f64 = q.position.y;
+        var z: f64 = q.position.z;
+        _sr_particle_color(q, &prm, &col);
+        var v = vb + k * 192;
+        _sr_fl_vertex(v, x - hs, y, z - hs, zero, one, zero, 0, 0, &col);
+        _sr_fl_vertex(v + 48, x + hs, y, z - hs, zero, one, zero, 0x3F800000, 0, &col);
+        _sr_fl_vertex(v + 96, x + hs, y, z + hs, zero, one, zero, 0x3F800000, 0x3F800000, &col);
+        _sr_fl_vertex(v + 144, x - hs, y, z + hs, zero, one, zero, 0, 0x3F800000, &col);
+        var m = 0;
+        while (m < 6) {
+            store32(ib + (k * 6 + m) * 4, k * 4 + load32(SR_XZ_QUAD_INDICES + m * 4));
+            m = m + 1;
+        }
+        k = k + 1;
+    }
+    return out;
+}
+
+# The camera-facing billboards of the n particles at particles into out from the allocator a: a quad particle_size
+# (f32 bits) across in the plane of camera_right and camera_up (3 f32 each), centred on each particle, its normal
+# right × up, coloured by params (an SrParticleColorParams). At most SR_MAX_QUADS particles. out, or 0 when an
+# allocation fails. Mirrors `particles_to_billboards`.
+fn sr_particles_to_billboards(particles, n, particle_size, camera_right, camera_up, params, a, out) {
+    var count = n;
+    if (count < 0) { count = 0; }
+    if (count > SR_MAX_QUADS) { count = SR_MAX_QUADS; }
+    _sr_debug("soorat::fluid_render: building particle billboards");
+    if (_sr_mesh_alloc(a, out, count * 4, count * 6) == 0) { return 0; }
+    var vb = load64(out);
+    var ib = load64(out + 16);
+    var half: f64 = 0.5;
+    var hs: f64 = f32_to(particle_size) * half;
+    var cr0: f64 = f32_to(load32(camera_right));
+    var cr1: f64 = f32_to(load32(camera_right + 4));
+    var cr2: f64 = f32_to(load32(camera_right + 8));
+    var cu0: f64 = f32_to(load32(camera_up));
+    var cu1: f64 = f32_to(load32(camera_up + 4));
+    var cu2: f64 = f32_to(load32(camera_up + 8));
+    var r0: f64 = cr0 * hs;
+    var r1: f64 = cr1 * hs;
+    var r2: f64 = cr2 * hs;
+    var u0: f64 = cu0 * hs;
+    var u1: f64 = cu1 * hs;
+    var u2: f64 = cu2 * hs;
+    var n0: f64 = (cr1 * cu2) - (cr2 * cu1);
+    var n1: f64 = (cr2 * cu0) - (cr0 * cu2);
+    var n2: f64 = (cr0 * cu1) - (cr1 * cu0);
+    var col[16];
+    var k = 0;
+    while (k < count) {
+        var q: *PvFluidParticle = _pv_as_particles(particles + k * sizeof(PvFluidParticle));
+        var x: f64 = q.position.x;
+        var y: f64 = q.position.y;
+        var z: f64 = q.position.z;
+        _sr_particle_color(q, params, &col);
+        var v = vb + k * 192;
+        _sr_fl_vertex(v, (x - r0) - u0, (y - r1) - u1, (z - r2) - u2, n0, n1, n2, 0, 0, &col);
+        _sr_fl_vertex(v + 48, (x + r0) - u0, (y + r1) - u1, (z + r2) - u2, n0, n1, n2, 0x3F800000, 0, &col);
+        _sr_fl_vertex(v + 96, (x + r0) + u0, (y + r1) + u1, (z + r2) + u2, n0, n1, n2, 0x3F800000, 0x3F800000, &col);
+        _sr_fl_vertex(v + 144, (x - r0) + u0, (y - r1) + u1, (z - r2) + u2, n0, n1, n2, 0, 0x3F800000, &col);
+        var base = k * 4;
+        store32(ib + k * 24, base);
+        store32(ib + k * 24 + 4, base + 1);
+        store32(ib + k * 24 + 8, base + 2);
+        store32(ib + k * 24 + 12, base + 2);
+        store32(ib + k * 24 + 16, base + 3);
+        store32(ib + k * 24 + 20, base);
+        k = k + 1;
+    }
+    return out;
+}
+
+# A water surface's height (f32 bits) at (ix, iz): ctx holds the height column's data, cols and the y scale (f32
+# bits); the f64 height times the scale, rounded once.
+#must_use
+fn _sr_sw_height(ctx, ix, iz): i64 {
+    var h: f64 = load64(load64(ctx) + (iz * load64(ctx + 8) + ix) * 8);
+    var ys: f64 = f32_to(load32(ctx + 16));
+    return f32_from(h * ys);
+}
+
+# A water surface's colour: the constant at ctx + 24.
+fn _sr_sw_color(ctx, ix, iz, y, out) {
+    memcpy(out, ctx + 24, 16);
+    return out;
+}
+
+# The surface of water (a pravash PvShallowWater) into out from the allocator a: a height-field mesh over its
+# nx × ny samples at spacing dx, centred on the origin, y = height · y_scale (f32 bits), in color. Empty when nx or ny
+# is below 2, dx (as f32) isn't positive and finite, or the heights don't cover nx · ny (warning). A non-finite height
+# renders as 0. out, or 0 when an allocation fails. Mirrors `shallow_water_to_mesh`.
+fn sr_shallow_water_to_mesh(water, y_scale, color, a, out) {
+    var w: *PvShallowWater = _sr_pv_water(water);
+    var cols = w.nx;
+    var rows = w.ny;
+    var dxw: f64 = w.dx;
+    var dx = f32_from(dxw);
+    var dims[16];
+    store64(&dims, cols);
+    store64(&dims + 8, rows);
+    if (cols < 2 || rows < 2) { return _sr_mesh_empty(out); }
+    var dxf: f64 = f32_to(dx);
+    var zero: f64 = 0.0;
+    if ((dx & 0x7F800000) == 0x7F800000 || dxf <= zero) { return _sr_mesh_empty(out); }
+    if (sr_grid_is_backed(&dims, 2, w.height.len, "shallow_water_to_mesh") == 0) { return _sr_mesh_empty(out); }
+    _sr_debug("soorat::fluid_render: building shallow water mesh");
+    var mhalf: f64 = -0.5;
+    var fc: f64 = f64_from(cols - 1);
+    var fr: f64 = f64_from(rows - 1);
+    var hf: SrHeightField;
+    var hp = &hf;
+    store64(hp, cols);
+    store64(hp + 8, rows);
+    store32(hp + 16, f32_from((fc * dxf) * mhalf));
+    store32(hp + 20, f32_from((fr * dxf) * mhalf));
+    store32(hp + 24, dx);
+    store32(hp + 28, dx);
+    var ctx[48];
+    store64(&ctx, w.height.data);
+    store64(&ctx + 8, cols);
+    store64(&ctx + 16, y_scale & 0xFFFFFFFF);
+    memcpy(&ctx + 24, color, 16);
+    return sr_heightfield_mesh(hp, &_sr_sw_height, &ctx, &_sr_sw_color, &ctx, a, out);
+}

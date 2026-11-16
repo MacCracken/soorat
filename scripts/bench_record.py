@@ -95,6 +95,10 @@ EXTRA = {
     "thermo/flux_32x32": "M5 (`thermo`): a 32 × 32 ushma heat-flux field as arrows (3 lines each); no Rust bench",
     "thermo/network_32": "M5 (`thermo`): a 32-node ring network (correctly rounded cos and sin); no Rust bench",
     "thermo/profile_100": "M5 (`thermo`): a 100-sample temperature profile as 99 lines; no Rust bench",
+    # The fluid renderers (M5 part d, the `fluids` profile) have no Rust bench.
+    "fluid/particles_quads_1000": "M5 (`fluids`): 1,000 pravash particles as velocity-coloured XZ quads; no Rust bench",
+    "fluid/particles_billboards_1000": "M5 (`fluids`): 1,000 pravash particles as camera-facing billboards; no Rust bench",
+    "fluid/shallow_water_64x64": "M5 (`fluids`): a 64 × 64 pravash shallow-water surface as a height-field mesh; no Rust bench",
     # The render graph (M4 part c) has no Rust bench; a renderer orders its passes each frame.
     "render_graph/build_forward_with_effects": "M4: `forward_with_effects` built (7 passes, 8 dependencies) and dropped; no Rust bench",
     "render_graph/order_forward_with_effects": "M4: `execution_order` of `forward_with_effects` (7 passes); no Rust bench",

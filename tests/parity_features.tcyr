@@ -5,8 +5,8 @@
 #
 # Their code includes optional dependencies (cyrius.cyml `[features]`), so they have this harness of their own:
 # tests/parity.tcyr replays every other module without them in the compile, as a consumer without the features
-# builds. CI resolves `cyrius deps --features optics,physics-debug,acoustics,thermo` so all compile. Format and rules:
-# scripts/oracle/README.md; the machinery: tests/parity_core.cyr.
+# builds. CI resolves `cyrius deps --features optics,physics-debug,acoustics,thermo,fluids` so all compile. Format
+# and rules: scripts/oracle/README.md; the machinery: tests/parity_core.cyr.
 
 include "tests/lib.cyr"
 include "src/color_optics.cyr"

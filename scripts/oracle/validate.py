@@ -3185,6 +3185,126 @@ def check_thermo():
     return bad, erows, gains
 
 
+# ── fluid (M5 part d): the core rows exact (A); the renderers in f64 once (E) ─────────────────────────────────
+
+def particle_color(p, mode, base, mv, md, mp, f32):
+    """`particle_color`: the base colour, or the heat map of speed, density or pressure over its floored maximum.
+    Rust divides the narrowed speed in f32 (f32 true); otherwise the ratio is f64, narrowed once."""
+    _pos, vel, d, pr = p
+    if mode == 0:
+        return list(base)
+    if mode == 1:
+        sp = math.sqrt((vel[0] * vel[0] + vel[1] * vel[1]) + vel[2] * vel[2])
+        mvf = fmax(mv, F32_0_001)
+        t = r32(r32(sp) / mvf) if f32 else r32(sp / mvf)
+    elif mode == 2:
+        t = r32(d / fmax(md, 0.001))
+    else:
+        t = r32(pr / fmax(mp, 0.001))
+    return heat_map(t)
+
+
+def quads_ref(parts, size, mode, base, mv, md, mp, f32):
+    q = _q(f32)
+    hs = r32(size * 0.5)
+    vs, idx = [], []
+    for k, p in enumerate(parts):
+        x, y, z = [r32(c) for c in p[0]] if f32 else p[0]
+        col = particle_color(p, mode, base, mv, md, mp, f32)
+        for (px, pz), uv in (((q(x - hs), q(z - hs)), (0.0, 0.0)), ((q(x + hs), q(z - hs)), (1.0, 0.0)),
+                             ((q(x + hs), q(z + hs)), (1.0, 1.0)), ((q(x - hs), q(z + hs)), (0.0, 1.0))):
+            vs.append(vtx((px, y, pz), (0.0, 1.0, 0.0), uv, col))
+        idx += [4 * k + i for i in (0, 3, 2, 0, 2, 1)]
+    return vs, idx
+
+
+def boards_ref(parts, size, rv, uv, mode, base, mv, md, mp, f32):
+    q = _q(f32)
+    hs = r32(size * 0.5)
+    rr, uu = [q(c * hs) for c in rv], [q(c * hs) for c in uv]
+    n = [q(q(rv[1] * uv[2]) - q(rv[2] * uv[1])), q(q(rv[2] * uv[0]) - q(rv[0] * uv[2])),
+         q(q(rv[0] * uv[1]) - q(rv[1] * uv[0]))]
+    vs, idx = [], []
+    for k, p in enumerate(parts):
+        pos = [r32(c) for c in p[0]] if f32 else p[0]
+        col = particle_color(p, mode, base, mv, md, mp, f32)
+        for (a, b), tc in (((-1, -1), (0.0, 0.0)), ((1, -1), (1.0, 0.0)), ((1, 1), (1.0, 1.0)), ((-1, 1), (0.0, 1.0))):
+            vs.append(vtx([q(q(pos[i] + a * rr[i]) + b * uu[i]) for i in range(3)], n, tc, col))
+        idx += [4 * k + i for i in (0, 1, 2, 2, 3, 0)]
+    return vs, idx
+
+
+def water_ref(nx, ny, dx, hs, ys, color, f32):
+    d32 = r32(dx)
+    if nx < 2 or ny < 2 or not (math.isfinite(d32) and d32 > 0.0) or nx * ny > len(hs):
+        return [], []
+    if f32:
+        ox, oz = r32(r32(-(nx - 1) * d32) * 0.5), r32(r32(-(ny - 1) * d32) * 0.5)
+    else:
+        ox, oz = r32(((nx - 1) * d32) * -0.5), r32(((ny - 1) * d32) * -0.5)
+
+    def height(ix, iz):
+        h = hs[iz * nx + ix]
+        return r32(r32(h) * ys) if f32 else r32(h * ys)
+    return hf_mesh(nx, ny, ox, oz, d32, d32, height, lambda ix, iz, y: list(color), f32)
+
+
+def read_parts(rd):
+    return [(rd.fs(), rd.fs(), rd.f(), rd.f()) for _ in range(rd.i())]
+
+
+def check_fluid():
+    """Re-derives every `fluid` and `fluid_render` row; returns (rows that differ, the fluid_render.e.tsv rows,
+    {fn: (rows, differing)})."""
+    bad, erows, gains = 0, [], {}
+    path = os.path.join(GOLDEN, "fluid.tsv")
+    if os.path.exists(path):
+        _, body = rows(path)
+        for fn, _cls, ins, outs, note in body:
+            want = g_values(outs)
+            if fn == "fluid_heat_map":
+                ok = same(heat_map(g_values(ins)[0]), want)
+            elif fn == "ParticleColorParams::default":
+                ok = (outs.startswith("e:FluidColorMode.Solid ") and same(want, [1.0, 1.0, 1.0, 1.0, 10.0])
+                      and outs.endswith("f:408f400000000000 f:408f400000000000"))
+            else:
+                ok = False
+            if not ok:
+                bad += 1
+                print(f"fluid: {fn} {note}: re-derived outputs differ from the corpus")
+    path = os.path.join(GOLDEN, "fluid_render.tsv")
+    if not os.path.exists(path):
+        return bad, erows, gains
+    _, body = rows(path)
+    for fn, _cls, ins, outs, note in body:
+        rd, want = Rd(ins), g_values(outs)
+        if fn == "particles_to_quads":
+            a = (read_parts(rd), rd.g(), rd.i(), rd.gs(), rd.g(), rd.f(), rd.f())
+            ref = quads_ref
+        elif fn == "particles_to_billboards":
+            a = (read_parts(rd), rd.g(), rd.gs(), rd.gs(), rd.i(), rd.gs(), rd.g(), rd.f(), rd.f())
+            ref = boards_ref
+        elif fn == "shallow_water_to_mesh":
+            a = (rd.i(), rd.i(), rd.f(), rd.fs(), rd.g(), rd.gs())
+            ref = water_ref
+        else:
+            print(f"fluid_render: {fn}: no re-derivation in validate.py")
+            bad += 1
+            continue
+        vs, idx = ref(*a, True)
+        if not (same(flat(vs), want) and idx == i_values(outs)):
+            bad += 1
+            print(f"fluid_render: {fn} {note}: re-derived f32 outputs differ from the corpus")
+            continue
+        vs_e, idx_e = ref(*a, False)
+        n, d = gains.get(fn, (0, 0))
+        if not same(flat(vs_e), want) or idx_e != i_values(outs):
+            erows.append(f"{fn}\t{ins}\t{seq_tokens(flat(vs_e), idx_e)}\t{note}: f64 once vs Rust f32")
+            d += 1
+        gains[fn] = (n + 1, d)
+    return bad, erows, gains
+
+
 RG_TYPES = ["Shadow", "Geometry", "Ssao", "Bloom", "PostProcess", "Debug", "Ui", "Compute", "Custom"]
 
 
@@ -3436,6 +3556,10 @@ def main():
     failures += acbad
     thbad, therows, thgain = check_thermo()
     failures += thbad
+    flbad, flerows, flgain = check_fluid()
+    failures += flbad
+    sides_e.append(("fluid_render.e.tsv", "class-E rows (ADR 0002 #4, #31, D4 rule b): Rust's formula in f64 from "
+                    "pravash's f64 inputs, rounded once to f32, where that differs from Rust's f32 outputs", flerows))
     sides_e.append(("thermo_render.e.tsv", "class-E rows (ADR 0002 #4, #30, D4 rule b): Rust's formula in f64 from "
                     "ushma's f64 inputs (cos and sin correctly rounded), rounded once to f32, where that differs from "
                     "Rust's f32 outputs", therows))
@@ -3501,6 +3625,8 @@ def main():
     print("gltf: " + ", ".join(f"{v} {k}" for k, v in sorted(gltally.items())) + " (refusals and panics are the oracle's)")
     for fn, (n, d) in sorted(shgain.items()):
         print(f"shadow {fn:<30} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
+    for fn, (n, d) in sorted(flgain.items()):
+        print(f"fluid_render {fn:<30} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
     for fn, (n, d) in sorted(thgain.items()):
         print(f"thermo_render {fn:<29} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
     for fn, (n, d) in sorted(acgain.items()):

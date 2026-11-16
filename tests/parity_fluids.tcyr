@@ -1,0 +1,171 @@
+# parity_fluids.tcyr — replays the `fluids` feature's golden module, `fluid_render` (src/fluid_render.cyr, pravash
+# 2.0.1; M5 part d).
+#
+# It compiles what a consumer of dist/soorat-fluids.cyr compiles: the library and the renderers on pravash. It is a
+# harness of its own, as the other features' are: pravash brings 81 KB of static data to a test compile, and this one
+# holds 127,848 bytes, 3.2 KB under the compiler's 128 KiB advisory (port-parity §6.7; ledger L25). CI resolves
+# `cyrius deps --features optics,physics-debug,acoustics,thermo,fluids`. Format and rules: scripts/oracle/README.md;
+# the machinery: tests/parity_core.cyr.
+#
+# A row's pravash inputs are f64 (`f:`), as pravash's types are on both sides (plan §2.5, ADR 0002 #31).
+
+include "tests/lib.cyr"
+include "src/fluid_render.cyr"
+include "tests/ulp.cyr"
+
+alloc_init();
+
+include "tests/parity_core.cyr"
+
+var _par_fl_arena = 0;
+var _par_fl_mesh = alloc(48);
+
+# ── hooks ────────────────────────────────────────────────────────────────────────────
+
+# The Rust variant name of an `SR_ERR_*` code.
+#must_use
+fn _par_error_name(code): i64 {
+    return sr_error_name(code);
+}
+
+# Reads the particles at input token 0 into fresh PvFluidParticle records (m_fluid.rs's layout): the records, their
+# count in *nw and the next token's index in *kw.
+fn _par_parts(nw, kw): i64 {
+    var n = _par_in(0);
+    var ps = alloc(n * sizeof(PvFluidParticle) + 8);
+    memset(ps, 0, n * sizeof(PvFluidParticle) + 8);
+    var k = 1;
+    var i = 0;
+    while (i < n) {
+        var q: *PvFluidParticle = _pv_as_particles(ps + i * sizeof(PvFluidParticle));
+        var px: f64 = _par_in(k + 1);
+        var py: f64 = _par_in(k + 2);
+        var pz: f64 = _par_in(k + 3);
+        var vx: f64 = _par_in(k + 5);
+        var vy: f64 = _par_in(k + 6);
+        var vz: f64 = _par_in(k + 7);
+        var dn: f64 = _par_in(k + 8);
+        var pr: f64 = _par_in(k + 9);
+        q.position.x = px;
+        q.position.y = py;
+        q.position.z = pz;
+        q.velocity.x = vx;
+        q.velocity.y = vy;
+        q.velocity.z = vz;
+        q.density = dn;
+        q.pressure = pr;
+        k = k + 10;
+        i = i + 1;
+    }
+    store64(nw, n);
+    store64(kw, k);
+    return ps;
+}
+
+# Appends a mesh (an SrMeshData): its vertices as v:12n f32, then its indices as v:m u32.
+fn _par_got_mesh(m) {
+    _par_got_g32s(load64(m), load64(m + 8) * 12);
+    var n = load64(m + 24);
+    _par_got_seq(n);
+    var i = 0;
+    while (i < n) {
+        _par_got_i(load32(load64(m + 16) + i * 4) & 0xFFFFFFFF);
+        i = i + 1;
+    }
+    return 0;
+}
+
+# Fills the got list for one `fluid_render` row.
+fn _par_fluid(fp, fl): i64 {
+    if (_par_fl_arena == 0) { _par_fl_arena = arena_allocator_growable(1 << 20); }
+    reset_via(_par_fl_arena);
+    var a = _par_fl_arena;
+    var nw[8];
+    var kw[8];
+    var r = 0;
+    if (_par_eq(fp, fl, "particles_to_quads") == 1) {
+        var ps = _par_parts(&nw, &kw);
+        var k = load64(&kw);
+        var kc = _par_in_g32s(k + 2, _par_ga);
+        r = sr_particles_to_quads(ps, load64(&nw), _par_in(k), _par_in(k + 1), _par_ga, _par_in(kc), _par_in(kc + 1),
+            _par_in(kc + 2), a, _par_fl_mesh);
+    } elif (_par_eq(fp, fl, "particles_to_billboards") == 1) {
+        var bs = _par_parts(&nw, &kw);
+        var kb = load64(&kw);
+        var ku = _par_in_g32s(_par_in_g32s(kb + 1, _par_ga), _par_gb);
+        var prm[48];
+        store64(&prm, _par_in(ku));
+        var kp = _par_in_g32s(ku + 1, &prm + 8);
+        store32(&prm + 24, _par_in(kp));
+        store32(&prm + 28, 0);
+        store64(&prm + 32, _par_in(kp + 1));
+        store64(&prm + 40, _par_in(kp + 2));
+        r = sr_particles_to_billboards(bs, load64(&nw), _par_in(kb), _par_ga, _par_gb, &prm, a, _par_fl_mesh);
+    } elif (_par_eq(fp, fl, "shallow_water_to_mesh") == 1) {
+        var wm = alloc(sizeof(PvShallowWater));
+        memset(wm, 0, sizeof(PvShallowWater));
+        var w: *PvShallowWater = _sr_pv_water(wm);
+        w.nx = _par_in(0);
+        w.ny = _par_in(1);
+        var dx: f64 = _par_in(2);
+        w.dx = dx;
+        var n = _par_in(3) & 0xFFFFFFFF;
+        var hd = alloc(n * 8 + 8);
+        var i = 0;
+        while (i < n) {
+            store64(hd + i * 8, _par_in(4 + i));
+            i = i + 1;
+        }
+        w.height.data = hd;
+        w.height.len = n;
+        w.height.cap = n;
+        var kc2 = _par_in_g32s(4 + n + 1, _par_ga);
+        r = sr_shallow_water_to_mesh(wm, _par_in(4 + n), _par_ga, a, _par_fl_mesh);
+        if (kc2 < 0) { r = 0; }
+    } else {
+        return 0;
+    }
+    if (r == 0) { return 0 - 1; }
+    _par_got_mesh(_par_fl_mesh);
+    return 1;
+}
+
+fn _par_dispatch(mp, ml, fp, fl): i64 {
+    _par_got_n = 0;
+    if (_par_eq(mp, ml, "fluid_render") == 1) { return _par_fluid(fp, fl); }
+    return 0;
+}
+
+# No class-C rows here.
+#must_use
+fn _par_c_bound(fp, fl): i64 {
+    return 0 - 1;
+}
+
+#must_use
+fn _par_accepted(fp, fl, ip, il): i64 {
+    return 0;
+}
+
+#must_use
+fn _par_accepted_quiet(adr): i64 {
+    return 0;
+}
+
+fn _par_shadows(mp, ml, fp, fl, cls) {
+    return 0;
+}
+
+fn _par_module_done(mp, ml) {
+    return 0;
+}
+
+# Only the `fluids` module: the other harnesses replay the rest.
+#must_use
+fn _par_skip(mp, ml): i64 {
+    if (_par_eq(mp, ml, "fluid_render") == 1) { return 0; }
+    return 1;
+}
+
+var exit_code = _par_main();
+sys_exit_group(exit_code);

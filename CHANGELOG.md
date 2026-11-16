@@ -201,6 +201,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - ushma, with hisab and bayan, costs a binary ~712 KB; CI resolves
     `--features optics,physics-debug,acoustics,thermo`.
 
+- **M5 part d: the fluid renderers** (`src/fluid.cyr`; the new `fluids` profile, `src/fluid_render.cyr` on pravash
+  2.0.1; ADR 0002 #31).
+  - `SrFluidColorMode`, `SrParticleColorParams`, its default and `sr_fluid_heat_map`, in `[lib]`.
+  - `sr_particles_to_quads`, `sr_particles_to_billboards` and `sr_shallow_water_to_mesh` on pravash's Cyrius types;
+    positions and normals in f64, rounded once; a particle's colour value in f64, narrowed once.
+  - 151 golden rows: `fluid` 8 (A) and `fluid_render` 143 (E, 117 accepted), all passing, with their own replay
+    (`tests/parity_fluids.tcyr`). All 15 `fluid_render.rs` tests ported. Extras `fluid/particles_quads_1000`,
+    `fluid/particles_billboards_1000` and `fluid/shallow_water_64x64`.
+  - pravash, with the bayan and thread leaves it uses, costs a binary ~457 KB; CI resolves
+    `--features optics,physics-debug,acoustics,thermo,fluids`. Its 81.5 KB of static data per including compile is
+    filed with pravash (L25).
+
 - **M5 part b: the acoustic meshes**, completing `acoustic_render` (ADR 0002 #29).
   - `sr_pressure_map_slice`, `sr_mode_pattern_to_mesh` and `sr_directivity_balloon_to_mesh`, into an `SrMeshData` from
     the caller's allocator through viz's builders; vertices in f64, rounded once.
@@ -224,6 +236,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `validate.py` wrote class-E rows into Rust's row's token structure, so an output whose length the f64 formula
   changes (a heat flux of 1e30, which Rust's f32 skips as non-finite) kept Rust's length. It writes a fresh token list
   now; the existing side tables were byte-identical.
+- The replay harness's three file-name buffers (`tests/parity_core.cyr`) were bare `var g[128]`, 1 KB each; they
+  are `u8[128]`, which keeps the fluids replay under the 128 KiB advisory.
 
 ### Performance (M4)
 - `_sr_debug` checks sakshi's level before measuring its message, where it ran `strlen` on every call. DEBUG is off by

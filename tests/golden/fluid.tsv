@@ -1,0 +1,13 @@
+# soorat golden corpus, format 1: fluid
+# recorded: soorat 1.2.0 (rust-old/, oracle feature); libm: glibc 2.44 x86_64 fma
+# regenerate: cargo run --release --locked --manifest-path scripts/oracle/Cargo.toml (never patch a row)
+# columns: fn<TAB>class<TAB>inputs<TAB>outputs<TAB>note (tokens: scripts/oracle/README.md)
+# rows: 8
+fluid_heat_map	A	g:00000000	v:4 g:00000000 g:00000000 g:3f800000 g:3f800000	t 0
+fluid_heat_map	A	g:3f000000	v:4 g:00000000 g:3f800000 g:00000000 g:3f800000	t 0.5
+fluid_heat_map	A	g:3f800000	v:4 g:3f800000 g:00000000 g:00000000 g:3f800000	t 1
+fluid_heat_map	A	g:bf800000	v:4 g:00000000 g:00000000 g:3f800000 g:3f800000	t -1
+fluid_heat_map	A	g:40000000	v:4 g:3f800000 g:00000000 g:00000000 g:3f800000	t 2
+fluid_heat_map	A	g:7fc00000	v:4 g:00000000 g:00000000 g:3f800000 g:3f800000	t NaN
+fluid_heat_map	A	g:3e99999a	v:4 g:00000000 g:3f800000 g:3f4ccccc g:3f800000	t 0.3
+ParticleColorParams::default	A	-	e:FluidColorMode.Solid v:4 g:3f800000 g:3f800000 g:3f800000 g:3f800000 g:41200000 f:408f400000000000 f:408f400000000000	ParticleColorParams::default()

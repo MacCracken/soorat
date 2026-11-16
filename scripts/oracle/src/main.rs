@@ -26,6 +26,7 @@ mod m_color_optics;
 mod m_constants;
 mod m_debug;
 mod m_env;
+mod m_fluid;
 mod m_geom;
 mod m_gltf;
 mod m_json;
@@ -253,6 +254,8 @@ fn main() {
         m_acoustic::render_module(),
         m_thermo::module(),
         m_thermo::render_module(),
+        m_fluid::module(),
+        m_fluid::render_module(),
         m_json::module(),
     ];
 

@@ -37,7 +37,8 @@ Decisions: [ADR 0001](../adr/0001-cyrius-port-with-rust-oracle.md),
 | M5 part a: acoustic types and line renderers (`acoustics`, goonj) | ✅ 2026-11-15 (below) |
 | M5 part b: acoustic meshes (`acoustic_render` complete) | ✅ 2026-11-15 (below) |
 | M5 part c: thermal renderers (`thermo`, ushma) | ✅ 2026-11-15 (below) |
-| M5 part d–; M6–M10 | ☐ |
+| M5 part d: fluid renderers (`fluids`, pravash) | ✅ 2026-11-15 (below) |
+| M5 `em` (D7: bijli 2.0), M5 close; M6–M10 | ☐ |
 
 **M1.** 13,793 golden rows over nine modules pass:
 - 1,149 class-E rows are bit-identical to Rust's formula in f64 rounded once;
@@ -124,13 +125,20 @@ with their own replay: ushma brings 60 KB of static data to a test compile. `val
 fresh token lists, since an f32 overflow (a flux of 1e30) can change an output's length. ushma costs a binary
 ~712 KB. All 24 `thermo_render.rs` tests are ported. Measurements: `port-parity.md` §6.5–6.6.
 
+**M5 part d.** `src/fluid.cyr` (in `[lib]`) and the new `fluids` profile's `src/fluid_render.cyr` on pravash 2.0.1
+(ADR 0002 #31): particles as XZ quads or camera-facing billboards, and a shallow-water surface as a height-field
+mesh. pravash's types are f64 on both sides. 151 golden rows pass, `fluid_render`'s 143 class E (117 accepted), with
+their own replay: pravash brings 81.5 KB of static data, leaving that replay 3.2 KB under the 128 KiB advisory (L25,
+filed with pravash). pravash costs a binary ~457 KB. All 15 `fluid_render.rs` tests are ported. Measurements:
+`port-parity.md` §6.7–6.8.
+
 **Optional features.**
 - `optics` (prakash), `physics-debug` (impetus), `serde` (JSON on bayan) and `gltf` (the glTF loader, on bayan) are
   opt-in profiles: `dist/soorat-optics.cyr`, `dist/soorat-physics-debug.cyr`, `dist/soorat-serde.cyr` and
   `dist/soorat-gltf.cyr`. The core bundle is `dist/soorat.cyr`.
 - serde and gltf are opt-in because including bayan costs a binary ~372 KB.
 - The repository's tests use them all, so resolve with
-  `cyrius deps --locked --features optics,physics-debug,acoustics,thermo`.
+  `cyrius deps --locked --features optics,physics-debug,acoustics,thermo,fluids`.
 
 **Step 2's repairs.** `cyrius port` overwrote CLAUDE.md, the roadmap and both workflows, pinned
 `version = "0.1.0"`, left `bench` out of `[test] stdlib`, and wrote undocumented stubs, all as cyrius issue
@@ -152,15 +160,15 @@ fresh token lists, since an f32 overflow (a flux of 1e30) can change an output's
 - **Rust reference:** `rust-old/`. 7,649 code lines in 44 modules, plus 9 WGSL shaders, 15,767 lines in all.
 - **Cyrius:** the library is `[lib]` in `cyrius.cyml`, bundled as `dist/soorat.cyr` (`cyrius distlib --all`):
   `src/{error,log,mathx,crmath,tables_data,tables,math,layout,color,lights,lod,sprite,batch,text,ui,debug_geom}.cyr`
-  and `src/{viz,primitives,terrain,animation,shadow_math,env_cpu,pbr_material,render_graph,acoustic,thermo}.cyr`.
+  and `src/{viz,primitives,terrain,animation,shadow_math,env_cpu,pbr_material,render_graph,acoustic,thermo,fluid}.cyr`.
   The profiles add `src/color_optics.cyr` and `src/pbr_optics.cyr` (`[lib.optics]`), `src/crmath_ext.cyr` and
-  `src/acoustic_render.cyr` (`[lib.acoustics]`), `src/thermo_render.cyr` (`[lib.thermo]`), `src/debug_collider.cyr` (`[lib.physics-debug]`), `src/json.cyr`
-  (`[lib.serde]`), and `src/json.cyr` with `src/gltf.cyr` (`[lib.gltf]`). `src/layout.cyr` and
+  `src/acoustic_render.cyr` (`[lib.acoustics]`), `src/thermo_render.cyr` (`[lib.thermo]`), `src/fluid_render.cyr`
+  (`[lib.fluids]`), `src/debug_collider.cyr` (`[lib.physics-debug]`), `src/json.cyr` (`[lib.serde]`), and `src/json.cyr` with `src/gltf.cyr` (`[lib.gltf]`). `src/layout.cyr` and
   `src/tables_data.cyr` are generated (`scripts/oracle/gen_layout.py`, `gen_tables.py`), and `src/crmath.cyr` and
   `src/crmath_ext.cyr` are vendored (`scripts/vendor_crmath.py`). `src/main.cyr` is still the scaffold's smoke program.
 - **Port machinery (M0):**
   - `scripts/oracle/`: the golden generator, `validate.py`, `gen_layout.py` and `gen_tables.py`. `tests/golden/` holds
-    27 modules, 26,824 rows, and 4,080 side-table rows: 3,997 class E (`*.e.tsv`), 34 correctly rounded (`*.cr.tsv`)
+    29 modules, 26,975 rows, and 4,197 side-table rows: 4,114 class E (`*.e.tsv`), 34 correctly rounded (`*.cr.tsv`)
     and 49 adopted (`pbr_optics.r.tsv`), with the glTF fixtures in `tests/golden/gltf/`;
   - `tests/parity.tcyr` with `parity_core.cyr`, `ulp.cyr` and the generated `layout_probe.cyr`: the replay;
   - `scripts/render_ref/`: the class-G corpus (`tests/golden/render/`, 12 scenes, adapter-pinned);
@@ -171,26 +179,27 @@ fresh token lists, since an f32 overflow (a flux of 1e30) can change an output's
 - **Rust oracle:** 501 tests pass with all features (460 unit, 12 integration, 9 GPU smoke, 18 oracle-hook,
   2 shader-validation). CI runs them under `rust-old/`.
 - **Cyrius:**
-  - `cyrius test` and `cyrius test --bounds` pass with zero warnings: 30 test files, among them 25 of ported tests
-    (301 Rust tests), the smoke test, and the four parity replays (core, features, acoustics, thermo). Of the 26,824
-    rows, 26,817 pass (4,105 of them accepted: E 3,997, cr 34, R 49, ADR #14 25); 7 are pending (3 constants of later
-    milestones, 4 bayan rows);
+  - `cyrius test` and `cyrius test --bounds` pass with zero warnings: 32 test files, among them 26 of ported tests
+    (316 Rust tests), the smoke test, and the five parity replays (core, features, acoustics, thermo, fluids). Of the
+    26,975 rows, 26,968 pass (4,222 of them accepted: E 4,114, cr 34, R 49, ADR #14 25); 7 are pending (3 constants of
+    later milestones, 4 bayan rows);
   - `cyrius audit` exits 0; `cyrius distlib --check` is current; `cyrius vet` is clean;
   - at M4's close, both parity harnesses gave the same outcome for every row on x86_64 ELF, aarch64 (qemu) and x86_64
     PE (wine) (port-parity §5.7).
 - **Ledgers:**
-  - surface: 912 public items, 481 ported, every M1–M4 item, `acoustic_render` and `thermo_render`
+  - surface: 912 public items, 499 ported, every M1–M4 item, `acoustic_render`, `thermo_render` and `fluid_render`
     (`scripts/surface_parity.py`);
-  - Rust tests: 502, 301 ported, every M1–M4 test and all of `acoustic_render` and `thermo_render`
+  - Rust tests: 502, 316 ported, every M1–M4 test and all of `acoustic_render`, `thermo_render` and `fluid_render`
     (`docs/development/rust-test-ledger.md`);
-  - benches: 34 of 35 Rust benches twinned, plus 33 extras (`docs/benchmarks-rust-v-cyrius.md`).
+  - benches: 34 of 35 Rust benches twinned, plus 36 extras (`docs/benchmarks-rust-v-cyrius.md`).
 
 ## Dependencies
 
 Declared in `cyrius.cyml` today: the stdlib (`string`, `fmt`, `alloc`, `vec`, `str`, `syscalls`, `io`, `args`,
 `math`, `ganita`, `tagged`, `result`, `freelist`, `sakshi`, `fnptr`; test: `assert`, `bench`, `overflow`, `bayan`),
 prakash 2.15.2 (optional, `optics`), impetus 2.0.0 (optional, `physics-debug`), goonj 2.3.2 (optional, `acoustics`)
-and ushma 2.0.0 (optional, `thermo`), both with hisab 3.5.0 (goonj declared first, D9). The `serde` and `gltf` bundles need
+and ushma 2.0.0 (optional, `thermo`), both with hisab 3.5.0 (goonj declared first, D9), and pravash 2.0.1
+(optional, `fluids`). The `serde` and `gltf` bundles need
 bayan, which their consumers add to their own stdlib leaves. mabda arrives at M6. Each bundle's sidecar (`dist/*.deps`) names the stdlib leaves it needs. Each milestone adds its own; the full list and its order
 are in the plan's §4 step 3.
 
@@ -201,6 +210,7 @@ are in the plan's §4 step 3.
 - selah: raw-RGBA encoders (L9);
 - agnodrm: display queries (L10);
 - ushma: the hisab pin (L11);
+- pravash: the static data every including compile carries (L25);
 - prakash: allocation-free `Rgb` results (L21);
 - ganita: an fmod (L22); bayan: glTF verdicts that differ from serde_json's (L23);
 - soorat's numbers added to the open ganita and cyrius issues (L1, L13).
@@ -212,8 +222,9 @@ kiran (rendering), salai (editor viewport), joshua (visualization): all still Ru
 
 ## Next
 
-**M5 part d**: the fluid renderers on pravash 2.0.1 (`fluid_render`); em per D7. The `ranga` feature cannot be
-combined with `acoustics` or `thermo` until L18 lands.
+**M5's `em` part** follows D7: bijli 2.0.0 (its M7) has not shipped (bijli's port is at its M5), so 2.0.0 goes
+without the `em` feature and `em_render` follows in 2.1.0. Then **M5 closes** with the three-target gate. The `ranga` feature cannot be combined
+with `acoustics` or `thermo` until L18 lands, and `acoustics` with `fluids` warns on `logging_init` until L20 does.
 
 **Performance items carried forward:** `mul_mat4` at about 120 ns (M4's shadow matrices call it). The correctly
 rounded sRGB `pow` (200–285 ns a call) no longer runs per texel: M4 part b encodes faces by threshold search.

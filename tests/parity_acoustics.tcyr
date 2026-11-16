@@ -5,7 +5,7 @@
 # on goonj and hisab. It is not part of tests/parity_features.tcyr because a test compile with prakash, impetus and
 # goonj together holds 136,208 bytes of static data (with `cyrius test`'s own leaves and the harness), over the
 # compiler's 128 KiB advisory, which is a warning and fails the gate (port-parity §6.1). CI resolves
-# `cyrius deps --features optics,physics-debug,acoustics,thermo`. Format and rules: scripts/oracle/README.md; the
+# `cyrius deps --features optics,physics-debug,acoustics,thermo,fluids`. Format and rules: scripts/oracle/README.md; the
 # machinery: tests/parity_core.cyr.
 #
 # A row's inputs are f32 (`g:`); goonj's types hold f64, so each value is widened exactly (plan §2.5, ADR 0002 #29).

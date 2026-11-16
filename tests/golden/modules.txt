@@ -25,4 +25,6 @@ acoustic
 acoustic_render
 thermo
 thermo_render
+fluid
+fluid_render
 json

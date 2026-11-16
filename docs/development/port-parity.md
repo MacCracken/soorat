@@ -1039,7 +1039,7 @@ production stdlib leaves. So the PE binaries were built from a wrapper that incl
 `lib/overflow.cyr` and `lib/bayan.cyr` before the test file. `cyrius vet` is clean (8 dependencies, none untrusted or
 missing).
 
-## 6. M5: science visualization (parts a–c, 2026-11-15)
+## 6. M5: science visualization (parts a–d, 2026-11-15)
 
 ### 6.1 Part a: the acoustic types and line renderers, the `acoustics` profile
 
@@ -1162,4 +1162,38 @@ a ported test (vertex count), not a row: its row alone would have been 665 KB.
 | `thermo/flux_32x32` | 204 µs | 1,024 arrows (3,072 lines), about 200 ns each |
 | `thermo/network_32` | 15.0 µs | 32 nodes: 32 correctly rounded cos/sin pairs, 32 edges, 96 cross lines |
 | `thermo/profile_100` | 9.5 µs | 99 lines |
+
+### 6.7 Part d: the fluid renderers, the `fluids` profile
+
+| Function | Rows | f64-once differs from Rust's f32 |
+|---|---|---|
+| `particles_to_quads` | 52 | 41 (78.8 %): each corner position ± size/2 in f64; the colours are Rust's |
+| `particles_to_billboards` | 49 | 45 (91.8 %): (position ± right · size/2) ± up · size/2 and right × up in f64 |
+| `shallow_water_to_mesh` | 42 | 31 (73.8 %): viz's f64 height-field builder over height · y_scale |
+
+`fluid` (8 rows: the heat map, `ParticleColorParams::default`) is class A, replayed by `tests/parity.tcyr`. All 151
+rows pass; `fluid_render` has its own replay, `tests/parity_fluids.tcyr`, 26 identical and 117 accepted E.
+
+- **pravash's types are f64 on both sides**, as ushma's are: Rust pravash 1.3.0's `FluidParticle` and `ShallowWater`
+  hold f64, so the oracle feeds any f64. The harness and tests build `PvFluidParticle` records and a `PvShallowWater`
+  (its `height` column) through pravash's typed pointers.
+- **A particle's colour value is computed in f64 and narrowed once** (speed over max(max_velocity, 0.001), density or
+  pressure over its maximum), then the heat map is Rust's f32 sequence. `max_velocity` stays f32, as Rust's field is;
+  its 0.001 floor is the f32 constant widened.
+- **The water surface keeps Rust's guards**: fewer than 2 samples a side, a spacing that is not positive and finite
+  as f32 (a dx of 1e300 narrows to infinity), or heights that don't cover nx · ny give an empty mesh. The origin is
+  viz's f32 field, −(n − 1) · dx / 2 rounded once.
+- **pravash's cost.** With the bayan and thread leaves it uses, pravash adds ~457 KB to a minimal consumer's binary.
+- **Static data.** `dist/pravash.cyr` adds 81.5 KB to a test compile: 126,904 bytes with the bare library, and
+  127,848 with the fluid renderers and their replay, 3.2 KB under the 128 KiB advisory. Of pravash's share, an 8 KB
+  trace buffer and the 14.5 KB `{:?}` escape table that only its `ai.cyr` reads are carried unused; filed as L25. The
+  harness's three file-name buffers were bare `var g[128]` (1 KB each); they are `u8[128]` now.
+
+### 6.8 Part d speed (`taskset -c 10 cyrius bench`; two runs agreed)
+
+| Bench (extra: no Rust twin) | Cyrius | Notes |
+|---|---|---|
+| `fluid/particles_quads_1000` | 303 µs | 1,000 velocity-coloured quads (4,000 vertices), about 300 ns each |
+| `fluid/particles_billboards_1000` | 278 µs | 1,000 billboards, the default solid colour |
+| `fluid/shallow_water_64x64` | 476 µs | 4,096 vertices through viz's height-field builder, 3,969 quads |
 

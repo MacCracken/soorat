@@ -632,7 +632,7 @@ var _par_cr_n = 0;
 var _par_cr_t = 0;
 var _par_cr_idx = 0;
 var _par_cr_mask = 0;
-var _par_cr_file[128];
+var _par_cr_file: u8[128];
 
 # FNV-1a over the key: fn, a TAB, inputs. (The offset basis is FNV's with the top bit cleared, which only changes
 # where keys land.)
@@ -656,8 +656,8 @@ fn _par_cr_key_is(r, fp, fl, ip, il): i64 {
     return memeq(load64(at + 16), ip, il);
 }
 
-var _par_d3_file[128];
-var _par_r_file[128];
+var _par_d3_file: u8[128];
+var _par_r_file: u8[128];
 var _par_cr_n4 = 0;   # the table's rows from <module>.cr.tsv (cr)
 var _par_cr_n2 = 0;   # ... from <module>.e.tsv (class E, ADR 0002 #4)
 var _par_cr_n3 = 0;   # ... and from <module>.r.tsv (class R, adopted)

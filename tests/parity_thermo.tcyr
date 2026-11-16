@@ -5,7 +5,7 @@
 # It is a harness of its own, as the acoustics one is: a test compile with ushma and the renderers holds 105,352
 # bytes of static data before the harness, and goonj with src/crmath_ext.cyr (47 KB), or prakash and impetus (40 KB),
 # on top would pass the compiler's 128 KiB advisory, a warning that fails the gate (port-parity §6.1, §6.5).
-# CI resolves `cyrius deps --features optics,physics-debug,acoustics,thermo`. Format and rules:
+# CI resolves `cyrius deps --features optics,physics-debug,acoustics,thermo,fluids`. Format and rules:
 # scripts/oracle/README.md; the machinery: tests/parity_core.cyr.
 #
 # A row's ushma inputs are f64 (`f:`), as ushma's types are on both sides (plan §2.5, ADR 0002 #30).

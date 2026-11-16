@@ -61,6 +61,7 @@ NO_STANDIN = {
     "L17": "none: a launcher change in mabda, landing with L2–L6",
     "L23": "bayan's JSON verdicts where serde_json's differ: the glTF rows are named (ADR 0002 #14), no stand-in code",
     "L24": "none before M6: soorat's profiler arrives with mabda there (moved from M4), and M6 decides one if needed",
+    "L25": "none: pravash's static data only shapes soorat's test layout (the fluids replay is its own harness)",
     "L18": "none possible (a dependency's names): the `ranga` feature excludes `acoustics` and `thermo` until it lands",
     "L19": "a manifest arrangement (agnodrm only behind the `drm` feature, cyrius.cyml), not code",
     "L20": "none: a duplicate-definition warning, last definition wins",

@@ -1,0 +1,239 @@
+# fluid_render.tcyr — the ported tests of Rust 1.2.0's src/fluid_render.rs (M5 part d), all 15: the 4 heat-map tests
+# without the `fluids` feature and the 11 for particle quads, billboards and shallow-water surfaces. Cyrius-only tests
+# check the colour parameters' layout, a billboard corner against its f64 formula, and a spacing past f32's range,
+# which is rejected as Rust's is. The golden rows (tests/golden/fluid.tsv, fluid_render.tsv) are replayed by
+# tests/parity.tcyr and tests/parity_fluids.tcyr.
+
+include "tests/lib.cyr"
+include "src/fluid_render.cyr"
+include "tests/support.cyr"
+
+# A pravash water surface nx × ny at spacing dx and uniform height h (f64 bits), into a fresh record (pravash's own
+# constructor, which asks for at least 3 × 3; tests narrow nx and ny after).
+fn water(nx, ny, dx, h): i64 {
+    var w = alloc(sizeof(PvShallowWater));
+    var dxf: f64 = dx;
+    var hf: f64 = h;
+    var t, e = PvShallowWater_new(nx, ny, dxf, hf, w);
+    return w;
+}
+
+# Sets height k of water w to the f64 bits h.
+fn set_h(w, k, h) {
+    var p: *PvShallowWater = _sr_pv_water(w);
+    store64(p.height.data + k * 8, h);
+    return 0;
+}
+
+# The f64 bits of num / den.
+fn fr(num, den): i64 {
+    var a: f64 = f64_from(num);
+    var b: f64 = f64_from(den);
+    var r: f64 = a / b;
+    return r;
+}
+
+# Runs the ported fluid_render tests and the Cyrius-only ones.
+fn main() {
+    alloc_init();
+    var c = alloc(16);
+    var A = arena_allocator_growable(1 << 20);
+    var M = alloc(48);
+    var one: f64 = 1.0;
+    var p123: PvFluidParticle = PvFluidParticle_new(PvVec3_new(1.0, 2.0, 3.0), one);
+
+    test_group("particle_quads_face_up");
+    reset_via(A);
+    sr_particles_to_quads(&p123, 1, 0x3F000000, SR_FLUID_COLOR_MODE_SOLID, SR_COLOR_BLUE, 0x3F800000, fr(1, 1),
+        fr(1, 1), A, M);
+    assert(t_winding_ok(M) == 1, "upward");
+
+    test_group("shallow_water_centred_and_upward");
+    var w = water(4, 3, fr(1, 2), fr(1, 1));
+    var k = 0;
+    while (k < 12) {
+        var fk: f64 = f64_from(k);
+        var tenth: f64 = 0.1;
+        var hk: f64 = one + (tenth * f64_sin(fk));
+        set_h(w, k, hk);
+        k = k + 1;
+    }
+    reset_via(A);
+    sr_shallow_water_to_mesh(w, 0x3F800000, SR_COLOR_BLUE, A, M);
+    var tol: f64 = 0.000001;
+    var x0: f64 = f32_to(load32(load64(M)));
+    var x3: f64 = f32_to(load32(load64(M) + 3 * 48));
+    var mx: f64 = -0.75;
+    var px: f64 = 0.75;
+    assert(load64(M + 8) == 12 && t_winding_ok(M) == 1, "12 vertices, upward");
+    assert(t_near(x0, mx, tol) == 1 && t_near(x3, px, tol) == 1, "x from -0.75 to 0.75");
+
+    test_group("shallow_water_renders_the_free_surface_over_bathymetry");
+    var wb = water(3, 3, fr(1, 1), fr(1, 1));
+    k = 0;
+    while (k < 9) {
+        var gk: f64 = f64_from(k);
+        var quarter: f64 = 0.25;
+        var halfw: f64 = 0.5;
+        var hk2: f64 = (quarter * gk) + halfw;
+        set_h(wb, k, hk2);
+        k = k + 1;
+    }
+    reset_via(A);
+    sr_shallow_water_to_mesh(wb, 0x40000000, SR_COLOR_BLUE, A, M);
+    var surf = 1;
+    k = 0;
+    while (k < 9) {
+        var gk2: f64 = f64_from(k);
+        var q4: f64 = 0.25;
+        var h5: f64 = 0.5;
+        var two: f64 = 2.0;
+        var want: f64 = ((q4 * gk2) + h5) * two;
+        var got: f64 = f32_to(load32(load64(M) + k * 48 + 4));
+        if (t_near(got, want, tol) == 0) { surf = 0; }
+        k = k + 1;
+    }
+    assert(surf == 1, "y = height · scale, ground not added");
+
+    test_group("shallow_water_rejects_inconsistent_fields");
+    var wd = water(3, 3, fr(1, 1), fr(1, 1));
+    var pd: *PvShallowWater = _sr_pv_water(wd);
+    var zero: f64 = 0.0;
+    pd.dx = zero;
+    reset_via(A);
+    sr_shallow_water_to_mesh(wd, 0x3F800000, SR_COLOR_BLUE, A, M);
+    var e1 = load64(M + 8);
+    var wh = water(3, 3, fr(1, 1), fr(1, 1));
+    var ph: *PvShallowWater = _sr_pv_water(wh);
+    ph.height.len = 4;
+    reset_via(A);
+    sr_shallow_water_to_mesh(wh, 0x3F800000, SR_COLOR_BLUE, A, M);
+    var e2 = load64(M + 8);
+    var wn = water(3, 3, fr(1, 1), fr(1, 1));
+    var pn: *PvShallowWater = _sr_pv_water(wn);
+    pn.nx = 0;
+    reset_via(A);
+    sr_shallow_water_to_mesh(wn, 0x3F800000, SR_COLOR_BLUE, A, M);
+    assert(e1 == 0 && e2 == 0 && load64(M + 8) == 0, "dx 0, short heights, nx 0: empty");
+
+    test_group("heat_map_endpoints");
+    sr_visualization_heat_map(0, c);
+    assert_eq(load32(c + 8), 0x3F800000, "cold is blue");
+    sr_visualization_heat_map(0x3F800000, c);
+    assert(load32(c) == 0x3F800000 && load32(c + 4) == 0, "hot is red");
+
+    test_group("heat_map_midpoint");
+    sr_visualization_heat_map(0x3F000000, c);
+    assert_eq(load32(c + 4), 0x3F800000, "0.5 → green 1");
+
+    test_group("heat_map_clamps");
+    sr_visualization_heat_map(0xBF800000, c);
+    assert_eq(load32(c + 8), 0x3F800000, "under → blue");
+    sr_visualization_heat_map(0x40000000, c);
+    assert_eq(load32(c), 0x3F800000, "over → red");
+
+    test_group("heat_map_gradient_smooth");
+    var inr = 1;
+    var i = 0;
+    while (i <= 100) {
+        sr_visualization_heat_map(f32_from(fr(i, 100)), c);
+        var j = 0;
+        while (j < 3) {
+            var ch: f64 = t_f(c, j);
+            if (ch < 0.0 || ch > 1.0) { inr = 0; }
+            j = j + 1;
+        }
+        if (load32(c + 12) != 0x3F800000) { inr = 0; }
+        i = i + 1;
+    }
+    assert(inr == 1, "every channel in [0, 1], alpha 1");
+
+    test_group("particles_to_quads_empty");
+    reset_via(A);
+    sr_particles_to_quads(0, 0, 0x3DCCCCCD, SR_FLUID_COLOR_MODE_SOLID, SR_COLOR_BLUE, 0x3F800000, fr(1, 1), fr(1, 1),
+        A, M);
+    assert(load64(M + 8) == 0 && load64(M + 24) == 0, "empty");
+
+    test_group("particles_to_quads_single");
+    reset_via(A);
+    sr_particles_to_quads(&p123, 1, 0x3F000000, SR_FLUID_COLOR_MODE_SOLID, SR_COLOR_BLUE, 0x3F800000, fr(1000, 1),
+        fr(1, 1), A, M);
+    assert(load64(M + 8) == 4 && load64(M + 24) == 6, "4 vertices, 6 indices");
+
+    test_group("particles_velocity_color");
+    var fast: PvFluidParticle = PvFluidParticle_new(PvVec3_zero(), one);
+    var ten: f64 = 10.0;
+    fast.velocity.x = ten;
+    reset_via(A);
+    sr_particles_to_quads(&fast, 1, 0x3DCCCCCD, SR_FLUID_COLOR_MODE_VELOCITY, SR_COLOR_WHITE, 0x41200000, fr(1, 1),
+        fr(1, 1), A, M);
+    assert_eq(load32(load64(M) + 32), 0x3F800000, "at max velocity: red");
+
+    test_group("shallow_water_mesh");
+    reset_via(A);
+    sr_shallow_water_to_mesh(water(4, 4, fr(1, 1), fr(1, 1)), 0x3F800000, SR_COLOR_BLUE, A, M);
+    assert(load64(M + 8) == 16 && load64(M + 24) == 54, "16 vertices, 9 quads");
+
+    var rv[16];
+    var uv[16];
+    t_set3(&rv, 0x3F800000, 0, 0);
+    t_set3(&uv, 0, 0x3F800000, 0);
+    var prm[48];
+    SrParticleColorParams_default(&prm);
+    var p010: PvFluidParticle = PvFluidParticle_new(PvVec3_new(0.0, 1.0, 0.0), one);
+
+    test_group("billboard_single_particle");
+    reset_via(A);
+    sr_particles_to_billboards(&p010, 1, 0x3F800000, &rv, &uv, &prm, A, M);
+    var nz: f64 = f32_to(load32(load64(M) + 20));
+    var cent: f64 = 0.01;
+    assert(load64(M + 8) == 4 && load64(M + 24) == 6 && t_near(nz, one, cent) == 1, "facing +Z");
+
+    test_group("billboard_empty");
+    reset_via(A);
+    sr_particles_to_billboards(0, 0, 0x3F800000, &rv, &uv, &prm, A, M);
+    assert(load64(M + 8) == 0 && load64(M + 24) == 0, "empty");
+
+    test_group("shallow_water_normals_flat");
+    reset_via(A);
+    sr_shallow_water_to_mesh(water(3, 3, fr(1, 1), fr(5, 1)), 0x3F800000, SR_COLOR_BLUE, A, M);
+    var flat = 1;
+    i = 0;
+    while (i < load64(M + 8)) {
+        var ny: f64 = f32_to(load32(load64(M) + i * 48 + 16));
+        if (t_near(ny, one, cent) == 0) { flat = 0; }
+        i = i + 1;
+    }
+    assert(flat == 1, "normals up");
+
+    # Cyrius-only: the colour parameters' layout (src/fluid.cyr's header).
+    test_group("particle_color_params_layout");
+    assert(sizeof(SrParticleColorParams) == 48, "48 bytes");
+    assert(load32(&prm + 24) == 0x41200000 && load64(&prm + 32) == 0x408F400000000000, "10 at 24, 1000 at 32");
+
+    # Cyrius-only: a billboard corner is (position − right·hs) − up·hs in f64, rounded once.
+    test_group("a_billboard_corner_is_the_f64_formula");
+    t_set3(&rv, 0x3F19999A, 0, 0x3F4CCCCD);
+    t_set3(&uv, 0x3DCCCCCD, 0x3F666666, 0x3E4CCCCD);
+    reset_via(A);
+    sr_particles_to_billboards(&p123, 1, 0x3E99999A, &rv, &uv, &prm, A, M);
+    var hs: f64 = f32_to(0x3E99999A) * 0.5;
+    var wx: f64 = (one - (f32_to(0x3F19999A) * hs)) - (f32_to(0x3DCCCCCD) * hs);
+    assert_eq(load32(load64(M)), f32_from(wx), "x rounded once");
+
+    # Cyrius-only: a spacing that narrows to f32 infinity is rejected, as Rust's `dx as f32` is.
+    test_group("a_spacing_past_f32_is_rejected");
+    var wf = water(3, 3, fr(1, 1), fr(1, 1));
+    var pf: *PvShallowWater = _sr_pv_water(wf);
+    var huge = 0x7E37E43C8800759C;   # 1e300
+    pf.dx = huge;
+    reset_via(A);
+    sr_shallow_water_to_mesh(wf, 0x3F800000, SR_COLOR_BLUE, A, M);
+    assert_eq(load64(M + 8), 0, "empty");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

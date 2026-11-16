@@ -1324,6 +1324,28 @@ fn _par_thermo(fp, fl): i64 {
     return 0;
 }
 
+# ── fluid (src/fluid.cyr: the core half of fluid_render) ─────────────────────────────
+
+# Fills the got list for one `fluid` row: the heat map and the particle colour parameters' defaults.
+fn _par_fluid(fp, fl): i64 {
+    if (_par_eq(fp, fl, "fluid_heat_map") == 1) {
+        _par_got_g32s(sr_fluid_heat_map(_par_in(0), _par_gr), 4);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "ParticleColorParams::default") == 1) {
+        var u[48];
+        SrParticleColorParams_default(&u);
+        if (load64(&u) == SR_FLUID_COLOR_MODE_SOLID) { _par_got_e("FluidColorMode.Solid"); }
+        else { _par_got_e("FluidColorMode.Other"); }
+        _par_got_g32s(&u + 8, 4);
+        _par_got_g(load32(&u + 24));
+        _par_got_f(load64(&u + 32));
+        _par_got_f(load64(&u + 40));
+        return 1;
+    }
+    return 0;
+}
+
 # ── render_graph (src/render_graph.cyr) ──────────────────────────────────────────────
 
 # The golden name of an SR_PASS_TYPE_* code's `PassType` variant.
@@ -1630,6 +1652,7 @@ fn _par_dispatch(mp, ml, fp, fl): i64 {
     if (_par_eq(mp, ml, "render_graph") == 1) { return _par_rg(fp, fl); }
     if (_par_eq(mp, ml, "acoustic") == 1) { return _par_acoustic(fp, fl); }
     if (_par_eq(mp, ml, "thermo") == 1) { return _par_thermo(fp, fl); }
+    if (_par_eq(mp, ml, "fluid") == 1) { return _par_fluid(fp, fl); }
     return 0;
 }
 
@@ -1677,7 +1700,7 @@ fn _par_module_done(mp, ml) {
 fn _par_skip(mp, ml): i64 {
     if (_par_eq(mp, ml, "color_optics") == 1 || _par_eq(mp, ml, "debug_collider") == 1) { return 1; }
     if (_par_eq(mp, ml, "pbr_optics") == 1 || _par_eq(mp, ml, "acoustic_render") == 1) { return 1; }
-    if (_par_eq(mp, ml, "thermo_render") == 1) { return 1; }
+    if (_par_eq(mp, ml, "thermo_render") == 1 || _par_eq(mp, ml, "fluid_render") == 1) { return 1; }
     return 0;
 }
 

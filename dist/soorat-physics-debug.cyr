@@ -7381,6 +7381,42 @@ fn sr_thermal_heat_map(t, out) {
     return sr_visualization_heat_map(t, out);
 }
 
+# --- fluid.cyr ---
+
+# fluid.cyr — the producer-free half of Rust 1.2.0's src/fluid_render.rs (M5 part d): its colour mode, the particle
+# colour parameters and their defaults, and `fluid_heat_map`. Rust compiles these without the `fluids` feature, so they
+# are in `[lib]`. The renderers, which read pravash's types, are src/fluid_render.cyr in the `[lib.fluids]` profile.
+#
+# **Layout.** `SrParticleColorParams` (48 bytes): color_mode (an SR_FLUID_COLOR_MODE_*) at 0, base_color (an SrColor) at
+# 8, max_velocity (f32) at 24, max_density and max_pressure (f64) at 32 and 40.
+
+enum SrFluidColorMode {
+    SR_FLUID_COLOR_MODE_SOLID = 0;
+    SR_FLUID_COLOR_MODE_VELOCITY = 1;
+    SR_FLUID_COLOR_MODE_DENSITY = 2;
+    SR_FLUID_COLOR_MODE_PRESSURE = 3;
+}
+
+struct SrParticleColorParams { color_mode; base_color: SrColor; max_velocity: f32; _pad0: f32; max_density: f64;
+    max_pressure: f64; }
+
+# The default parameters into out: Solid, white, max_velocity 10, max_density and max_pressure 1000. Mirrors
+# `impl Default for ParticleColorParams`.
+fn SrParticleColorParams_default(out) {
+    store64(out, SR_FLUID_COLOR_MODE_SOLID);
+    memcpy(out + 8, SR_COLOR_WHITE, 16);
+    store32(out + 24, 0x41200000);
+    store32(out + 28, 0);
+    store64(out + 32, 0x408F400000000000);
+    store64(out + 40, 0x408F400000000000);
+    return out;
+}
+
+# The heat-map colour of t (f32 bits) into out: `visualization_heat_map`'s. Mirrors `fluid_heat_map`.
+fn sr_fluid_heat_map(t, out) {
+    return sr_visualization_heat_map(t, out);
+}
+
 # --- debug_collider.cyr ---
 
 # debug_collider.cyr — `LineBatch::collider`, Rust 1.2.0's `physics-debug` half of src/debug_draw.rs (M2 part b).

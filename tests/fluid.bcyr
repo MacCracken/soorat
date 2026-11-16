@@ -1,0 +1,100 @@
+# fluid.bcyr — the fluid renderers of M5 part d (the `fluids` profile, pravash). Rust 1.2.0 has no bench for them, so
+# these are extras: 1,000 particles as velocity-coloured quads and as default billboards, and a 64 × 64 shallow-water
+# surface.
+
+include "tests/lib.cyr"
+include "src/fluid_render.cyr"
+
+var _sink = 0;
+
+# The f64 bits of num / den.
+fn fr(num, den): i64 {
+    var a: f64 = f64_from(num);
+    var b: f64 = f64_from(den);
+    var r: f64 = a / b;
+    return r;
+}
+
+# Runs the fluid benches.
+fn main(): i64 {
+    alloc_init();
+    var A = arena_allocator_growable(1 << 20);
+    var M = alloc(48);
+    var n = 1000;
+    var ps = alloc(n * sizeof(PvFluidParticle));
+    memset(ps, 0, n * sizeof(PvFluidParticle));
+    var q = 0;
+    while (q < n) {
+        var p: *PvFluidParticle = _pv_as_particles(ps + q * sizeof(PvFluidParticle));
+        var px: f64 = fr(q % 32, 4);
+        var py: f64 = fr(q % 7, 8);
+        var pz: f64 = fr(q / 32, 4);
+        var vx: f64 = fr((q * 13) % 41 - 20, 4);
+        var vz: f64 = fr((q * 7) % 29 - 14, 4);
+        var dn: f64 = fr(990 + q % 21, 1);
+        p.position.x = px;
+        p.position.y = py;
+        p.position.z = pz;
+        p.velocity.x = vx;
+        p.velocity.z = vz;
+        p.density = dn;
+        q = q + 1;
+    }
+    var b1 = bench_new("fluid/particles_quads_1000");
+    bench_batch_start(b1);
+    var i = 0;
+    while (i < 200) {
+        reset_via(A);
+        _sink = sr_particles_to_quads(ps, n, 0x3DCCCCCD, SR_FLUID_COLOR_MODE_VELOCITY, SR_COLOR_WHITE, 0x41200000,
+            fr(1000, 1), fr(1000, 1), A, M);
+        i = i + 1;
+    }
+    bench_batch_stop(b1, 200);
+    bench_report(b1);
+
+    var rv[16];
+    var uv[16];
+    store32(&rv, 0x3F800000);
+    store32(&rv + 4, 0);
+    store32(&rv + 8, 0);
+    store32(&uv, 0);
+    store32(&uv + 4, 0x3F800000);
+    store32(&uv + 8, 0);
+    var prm[48];
+    SrParticleColorParams_default(&prm);
+    var b2 = bench_new("fluid/particles_billboards_1000");
+    bench_batch_start(b2);
+    i = 0;
+    while (i < 200) {
+        reset_via(A);
+        _sink = sr_particles_to_billboards(ps, n, 0x3DCCCCCD, &rv, &uv, &prm, A, M);
+        i = i + 1;
+    }
+    bench_batch_stop(b2, 200);
+    bench_report(b2);
+
+    var w = alloc(sizeof(PvShallowWater));
+    var dx: f64 = fr(1, 4);
+    var h0: f64 = fr(1, 1);
+    var t, e = PvShallowWater_new(64, 64, dx, h0, w);
+    var sw: *PvShallowWater = _sr_pv_water(w);
+    q = 0;
+    while (q < 4096) {
+        store64(sw.height.data + q * 8, fr(1000 + (q * 37) % 101, 1000));
+        q = q + 1;
+    }
+    var b3 = bench_new("fluid/shallow_water_64x64");
+    bench_batch_start(b3);
+    i = 0;
+    while (i < 200) {
+        reset_via(A);
+        _sink = sr_shallow_water_to_mesh(w, 0x3F800000, SR_COLOR_BLUE, A, M);
+        i = i + 1;
+    }
+    bench_batch_stop(b3, 200);
+    bench_report(b3);
+    return 0;
+}
+
+var r = main();
+sys_exit_group(r);
