@@ -1,8 +1,10 @@
 # pbr_material.tcyr — the ported tests of Rust 1.2.0's src/pbr_material.rs (M4 part b), all 8: five of the core, and
-# the `optics` half's three through src/pbr_optics.cyr. The golden rows (tests/golden/pbr_material.tsv and
-# pbr_optics.tsv) are replayed by tests/parity.tcyr and tests/parity_features.tcyr.
+# the `optics` half's three through src/pbr_optics.cyr; and one Cyrius-only test of the adopted LUT (ADR 0002 #27).
+# The golden rows (tests/golden/pbr_material.tsv and pbr_optics.tsv) are replayed by tests/parity.tcyr and
+# tests/parity_features.tcyr.
 
 include "tests/lib.cyr"
+include "src/color_optics.cyr"
 include "src/pbr_optics.cyr"
 include "tests/support.cyr"
 
@@ -53,6 +55,23 @@ fn main() {
         i = i + 1;
     }
     assert(opaque == 1, "alpha 255, blue 0");
+
+    # Cyrius-only (ADR 0002 #27): at roughness → 0 the half-vector is the normal and G → 1, so the split sum's
+    # scale + bias → 1 at every n·v. prakash 2.15.2's image-based-lighting k keeps red + green at 247–255 along the
+    # lowest-roughness row; 1.2.0's direct-lighting k (Rust's) falls to 9 at the grazing texel.
+    test_group("brdf_lut_split_sum_is_one_at_low_roughness");
+    reset_via(a);
+    px = sr_generate_brdf_lut(16, 64, a);
+    var lo = 1000;
+    var hi = 0;
+    i = 0;
+    while (i < 16) {
+        var sum = load8(px + i * 4) + load8(px + i * 4 + 1);
+        if (sum < lo) { lo = sum; }
+        if (sum > hi) { hi = sum; }
+        i = i + 1;
+    }
+    assert(lo >= 240 && hi <= 256, "red + green within [240, 256] at roughness 1/32");
 
     return assert_summary();
 }

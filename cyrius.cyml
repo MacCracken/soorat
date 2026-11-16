@@ -35,8 +35,8 @@ default = []
 optics = ["prakash"]
 physics-debug = ["impetus"]
 
-# prakash 2.15.2 (`optics`): Color's spectral conversions (src/color_optics.cyr). Its bundle is 1.19 MB, which is
-# why it is optional.
+# prakash 2.15.2 (`optics`): Color's spectral conversions (src/color_optics.cyr), and the BRDF LUT's split-sum
+# integration (src/pbr_optics.cyr). Its bundle is 1.19 MB, which is why it is optional.
 [deps.prakash]
 git = "https://github.com/MacCracken/prakash.git"
 tag = "2.15.2"
@@ -90,7 +90,8 @@ modules = [
     "src/pbr_material.cyr",
 ]
 
-# The `optics` feature's bundle, dist/soorat-optics.cyr: the library plus Color's prakash conversions.
+# The `optics` feature's bundle, dist/soorat-optics.cyr: the library plus Color's prakash conversions, and
+# MaterialUniforms::from_ior and the BRDF LUT.
 [lib.optics]
 modules = [
     "src/error.cyr",

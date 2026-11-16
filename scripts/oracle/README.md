@@ -10,7 +10,7 @@ and writes the class-E rows.
 cargo run --release --locked --manifest-path scripts/oracle/Cargo.toml             # write tests/golden/*.tsv + modules.txt
 cargo run --release --locked --manifest-path scripts/oracle/Cargo.toml -- --check  # verify; exit 1 on any difference, 2 on another platform
 python3 -I -B scripts/oracle/validate.py .                                         # re-derive every row; check the .e.tsv
-python3 -I -B scripts/oracle/validate.py . --write                                 # (re)write the .e.tsv and .cr.tsv side tables
+python3 -I -B scripts/oracle/validate.py . --write                                 # (re)write the .e.tsv, .cr.tsv and .r.tsv side tables
 python3 -I -B scripts/oracle/gen_layout.py . [--check]                              # (re)write src/layout.cyr, tests/layout_probe.cyr
 python3 -I -B scripts/oracle/gen_tables.py . [--check]                              # (re)write src/tables_data.cyr
 cyrius test --bounds tests/parity.tcyr                                             # replay the corpus against the port
@@ -52,7 +52,7 @@ Every port's harness reads the same files. This README records what is specific 
 | `shadow` | M4 | 6,972 | `src/m_shadow.rs` | `directional_light_matrix(_at)` (directions across the 0.99 up switch, every guard on both sides), `compute_practical_splits` (sanitized and overflowing inputs), `PointShadowMap::new` (E); the atlas tile math at its zero and saturation edges, the uniforms' defaults (A). `shadow.e.tsv`: 1,539 rows |
 | `env` | M4 | 197 | `src/m_env.rs` | environment's CPU half through the oracle hooks: `decode_face` (every byte, f16 specials; A), `encode_face` (linear values at every sRGB byte boundary ± 3 ulps, specials; C, `env.cr.tsv`), `downsample` (sizes 0 … 64, short input; B), `face_mip_chain` (both encodings, sizes 1 … 64; C/B), mabda's `mip_level_count` (A) |
 | `pbr_material` | M4 | 69 | `src/m_env.rs` | `MaterialUniforms::default`, `dielectric`, `metal` (A) |
-| `pbr_optics` | M4 | 114 | `src/m_env.rs` | the `optics` half: `MaterialUniforms::from_ior` over every IOR edge, and `generate_brdf_lut` at sizes 0 … 32 and 0 … 128 samples (A, prakash 1.2.0). Replayed by tests/parity_features.tcyr |
+| `pbr_optics` | M4 | 114 | `src/m_env.rs` | the `optics` half: `MaterialUniforms::from_ior` over every IOR edge (A), and `generate_brdf_lut` at sizes 0 … 32 and 0 … 128 samples (prakash 1.2.0's, in the corpus). The port adopts prakash 2.15.2's LUT: `pbr_optics.r.tsv` holds the 49 LUTs whose bytes change (class R, ADR 0002 #27). Replayed by tests/parity_features.tcyr |
 | `gltf` | M3 | 292 | `src/m_gltf.rs` | `load_gltf_meshes` and `load_gltf_animations` on 146 fixtures written to `tests/golden/gltf/` (a row's input names its file): probe P9's 51, and variants for the schema, sparse accessors, matrix joints and the reader's rules. `E:Model` for an error, `s:panic` where Rust panics (ADR 0002 #14). `gltf.cr.tsv`: 1 row (correctly rounded decimals). `validate.py` re-derives the accepted documents |
 | `animation` | M3 | 1,777 | `src/m_anim.rs` | `Joint` and `JointUniforms` defaults, `set_joints` (A); slerp across the 0.9995 switch (each side ± 3 ulp), random and near-switch pairs, degenerate quaternions (E); brackets, linear and rotation interpolation on 14 tracks (duplicate, unsorted, NaN and infinite times, keys an ulp apart) at every key, midpoint and edge (A, rotation E); sampler pairing for every mode (A); local and world transforms and joint matrices of chains of 1–130 joints, leaf-first, cyclic and random (E); clip sampling with wrapped, non-finite and huge times, odd durations, STEP rotations and the bench clip (E). `animation.e.tsv`: 520 rows |
 | `tables` | M1 | 5,215 | `src/m_tables.rs` | `environment`'s f16 and sRGB conversions, through the oracle hooks. f16 ⇄ f32 (A, 64 values a row): every subnormal half, every exponent's mantissa edges, every rounding midpoint ± 1 ulp, NaN payloads. sRGB (C): dense grids, each knee ± 2 ulp; `tables.cr.tsv` holds the 3 rows where glibc's `powf` misrounds. The 256-entry decode table (A), which `gen_tables.py` turns into `src/tables_data.cyr` |
@@ -89,7 +89,10 @@ fn <TAB> class <TAB> inputs <TAB> outputs <TAB> note
 | **E** | *improved* (D4 rule b, ADR 0002 #4). The port evaluates Rust's formula in f64 and rounds once. Where that differs from Rust's f32 outputs, the expectation is the row in `<module>.e.tsv` (`validate.py --write`), compared **bit for bit**, and a pass is *accepted (E)*. Elsewhere it equals Rust's outputs, bit for bit |
 | **S** | a solver step from a state: per field, its path's class |
 
-Reference (R) checks are ported tests' own tolerances, not golden rows. Image parity (class G) uses its own
+Reference (R) checks are mostly ported tests' own tolerances, not golden rows. The exception is an **adopted**
+formula: where the port takes a dependency's corrected formula in place of Rust 1.2.0's (ADR 0002 #27, prakash 2.15.2's
+BRDF LUT), `validate.py` evaluates it independently and writes `<module>.r.tsv` for the rows whose outputs change. The
+harness compares those rows against it bit for bit, and a pass is *accepted (R)*. Image parity (class G) uses its own
 corpus, `tests/golden/render/` (M0 step 6).
 
 The **note** is a human rendering of the call, for review only; the harness ignores it.

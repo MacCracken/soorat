@@ -2435,6 +2435,57 @@ def brdf_integrate(ndv0, rough, n):
     return scale * inv, bias * inv
 
 
+def f64_max(a, b):
+    """ganita's f64_max: a when a > b, else b (so NaN and -0.0 give b)."""
+    return a if a > b else b
+
+
+def f64_clamp(x, lo, hi):
+    """ganita's f64_clamp: lo below it, hi above it, x otherwise (NaN passes through)."""
+    return lo if x < lo else hi if x > hi else x
+
+
+def ggx_g1_ibl(ndv, rough):
+    """Cyrius prakash 2.15.2's pbr_geometry_schlick_ggx_ibl: the image-based-lighting remap k = α/2, α = r²."""
+    a = rough * rough
+    k = a / 2.0
+    nd = f64_clamp(ndv, 0.0, 1.0)
+    return nd / ((nd * (1.0 - k) + k) + 1e-15)
+
+
+def brdf_integrate_ibl(ndv0, rough, n):
+    """Cyrius prakash 2.15.2's pbr_integrate_brdf_lut, in Python's (glibc's) f64, operation for operation: the GGX
+    half-vector from xi1 = i/n and the radical inverse of i, Smith with the image-based-lighting k for n·v and n·l
+    each sample, and (1 − v·h)⁵ as x·((x·x)·(x·x)). n <= 0 gives (0, 0) (2.15.2 reports instead of returning NaN)."""
+    if n <= 0:
+        return 0.0, 0.0
+    ndv = f64_clamp(ndv0, 1.0 / 1000.0, 1.0)
+    v = [math.sqrt(1.0 - ndv * ndv), 0.0, ndv]
+    scale = bias = 0.0
+    inv = 1.0 / float(n)
+    a = rough * rough
+    a2 = a * a
+    for i in range(n):
+        xi1 = float(i) * inv
+        xi2 = float(int(f"{i:032b}"[::-1], 2)) * 2.3283064365386963e-10
+        ct = math.sqrt((1.0 - xi1) / (1.0 + (a2 - 1.0) * xi1))
+        st2 = 1.0 - ct * ct
+        st = f64_max(math.sqrt(st2), 0.0) if st2 >= 0.0 else 0.0
+        phi = math.tau * xi2
+        h = [st * math.cos(phi), st * math.sin(phi), ct]
+        vdh = f64_max((v[0] * h[0] + v[1] * h[1]) + v[2] * h[2], 0.0)
+        ndl = f64_max((2.0 * vdh) * h[2] - v[2], 0.0)
+        ndh = f64_max(h[2], 0.0)
+        if ndl > 0.0:
+            g = ggx_g1_ibl(ndv, rough) * ggx_g1_ibl(ndl, rough)
+            gvis = (g * vdh) / (ndh * ndv + 1e-15)
+            x = 1.0 - vdh
+            fc = x * ((x * x) * (x * x))
+            scale = scale + gvis * (1.0 - fc)
+            bias = bias + gvis * fc
+    return scale * inv, bias * inv
+
+
 def lut_q8(v):
     """`(v.clamp(0, 1) * 255.0).round() as u8` for an f64: halves away from zero, the fraction exact."""
     if math.isnan(v):
@@ -2445,8 +2496,10 @@ def lut_q8(v):
 
 
 def check_pbr():
-    """Re-derives every `pbr_material` and `pbr_optics` row; returns the rows that differ."""
+    """Re-derives every `pbr_material` and `pbr_optics` row; returns (rows that differ, the pbr_optics.r.tsv rows:
+    the LUT under Cyrius prakash 2.15.2, where its bytes differ from Rust 1.2.0's)."""
     bad = 0
+    r_rows = []
     for name in ("pbr_material", "pbr_optics"):
         path = os.path.join(GOLDEN, name + ".tsv")
         if not os.path.exists(path):
@@ -2474,13 +2527,22 @@ def check_pbr():
                         sc, bi = brdf_integrate((x + 0.5) / size, rough, n)
                         want += [lut_q8(sc), lut_q8(bi), 0, 255]
                 ok = i_values(outs) == want
+                adopted = []
+                for y in range(size):
+                    rough = (y + 0.5) / size
+                    for x in range(size):
+                        sc, bi = brdf_integrate_ibl((x + 0.5) / size, rough, n)
+                        adopted += [lut_q8(sc), lut_q8(bi), 0, 255]
+                if adopted != want:
+                    toks = " ".join([f"v:{len(adopted)}"] + [f"i:{b}" for b in adopted])
+                    r_rows.append(f"{fn}\t{ins}\t{toks}\t{note}: prakash 2.15.2 (IBL k) vs 1.2.0 (direct k)")
             else:
                 ok = False
                 print(f"{name}: {fn}: no re-derivation in validate.py")
             if not ok:
                 bad += 1
                 print(f"{name}: {fn} {note}: re-derived outputs differ from the corpus")
-    return bad
+    return bad, r_rows
 
 
 def cube_ref():
@@ -2540,7 +2602,8 @@ def main():
         sides_e.append((gname + ".e.tsv", "class-E rows (ADR 0002 #4, D4 rule b): Rust's formula in f64, rounded once to "
                         "f32, where that differs from Rust's f32 outputs", gerows))
     envbad, envcr = check_env()
-    failures += envbad + check_pbr()
+    pbad, prrows = check_pbr()
+    failures += envbad + pbad
     shbad, sherows, shgain = check_shadow()
     failures += shbad
     sides_e.append(("shadow.e.tsv", "class-E rows (ADR 0002 #4, D4 rule b): Rust's formula in f64 (pow correctly "
@@ -2566,6 +2629,8 @@ def main():
          "rounded (glibc's f64 pow, rounded once), where glibc's is 1 ulp off and a byte changes", envcr),
         ("gltf.cr.tsv", "correctly rounded rows (ADR 0002 #14): Rust 1.2.0's glTF animations with each JSON decimal read "
          "correctly rounded (the decimal's f64, narrowed), where serde_json misrounds", glcr),
+        ("pbr_optics.r.tsv", "adopted rows (ADR 0002 #27, class R): the BRDF LUT under Cyrius prakash 2.15.2's "
+         "integrate_brdf_lut (the image-based-lighting k = α/2), where its bytes differ from Rust 1.2.0's", prrows),
     ]
     for name, what, side_rows in sides:
         side_path = os.path.join(GOLDEN, name)

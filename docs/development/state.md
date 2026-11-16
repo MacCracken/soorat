@@ -79,9 +79,10 @@ ganita's `pow` agreed with a correctly rounded one on every split. All 23 `shado
 5.1–5.9× Rust; the splits run 16.8×, held back by `pow` at 200 ns. Measurements: `port-parity.md` §5.
 
 **M4 part b.** `src/env_cpu.cyr`, `src/pbr_material.cyr` and the `optics` profile's `src/pbr_optics.cyr` (ADR 0002 #27):
-- **Corpus:** 380 golden rows pass. Every BRDF LUT matches Rust's byte for byte.
-- **LUT and F0:** soorat transcribes prakash 1.2.0's formulas, because Cyrius prakash 2.15.2 changed both. Adopting
-  2.15.2's corrected LUT is an open decision.
+- **Corpus:** 380 golden rows pass.
+- **The LUT is prakash 2.15.2's** (adopted after part b): its image-based-lighting remap changes 76 % of the bytes.
+  The 49 LUTs that differ from Rust's are class R, against an independent evaluation (`pbr_optics.r.tsv`, read by
+  the harness's new `.r.tsv` side table); all match. F0 stays prakash 1.2.0's formula. About 5 % slower.
 - **sRGB encoding** uses encode thresholds in place of a `pow` per channel (identical bytes; a 128² mip chain 5.0 →
   1.4 ms).
 - **Tests:** all 10 M4 tests of these modules are ported.
@@ -164,8 +165,7 @@ kiran (rendering), salai (editor viewport), joshua (visualization): all still Ru
 
 ## Next
 
-**M4 part c**: the render graph, profiler and capabilities over mabda (`rg_*`, `profiler_*`, `gpu_caps_*`). Open
-from part b: whether to adopt Cyrius prakash 2.15.2's corrected BRDF LUT (ADR 0002 #27).
+**M4 part c**: the render graph, profiler and capabilities over mabda (`rg_*`, `profiler_*`, `gpu_caps_*`).
 
 **Performance items carried forward:** `mul_mat4` at about 120 ns (M4's shadow matrices call it); the correctly
 rounded sRGB `pow` at 200–285 ns a call (M4's face encoding calls it three times a texel). port-parity §2.2 has the

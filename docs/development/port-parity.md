@@ -928,7 +928,7 @@ How far Rust's f32 sits from the f64-once value:
 |---|---|---|---|
 | `env` | 197 | A, B, C | all identical. Decoding every byte and f16 special; the box filter on every size to 9, then 16, 33, 64, a short input, overflow and NaN; sRGB encoding at every byte's rounding boundary ± 3 ulps, where no glibc misround changed a byte (`env.cr.tsv` is empty); mip chains for both encodings and sizes 1 … 64 |
 | `pbr_material` | 69 | A | identical |
-| `pbr_optics` | 114 | A | identical, including all 64 BRDF LUTs (sizes 0 … 32, 0 … 128 samples), replayed by the features harness |
+| `pbr_optics` | 114 | A, R | `from_ior` identical. The BRDF LUTs (sizes 0 … 32, 0 … 128 samples) are prakash 2.15.2's: the 49 whose bytes differ from Rust's are class R (`pbr_optics.r.tsv`), all bit-identical to the independent evaluation; the other 15 (size 0, or 0 samples) are Rust's bytes. Replayed by the features harness |
 
 - **prakash 1.2.0 against 2.15.2.** Rust calls prakash 1.2.0's `ior_to_f0` and `integrate_brdf_lut`, and Cyrius
   prakash 2.15.2 changed both:
@@ -938,12 +938,21 @@ How far Rust's f32 sits from the f64-once value:
     k = (r + 1)²/8. prakash's own notes call that a split-sum correctness fix. It also returns zeros for 0 samples,
     where 1.2.0 produces NaN, which quantizes to 0.
 
-  On a 32² LUT at 256 samples, the two differ on 1,557 of 2,048 channel bytes, by up to 229. To keep Rust 1.2.0's
-  values, `src/pbr_optics.cyr` transcribes 1.2.0's formulas, which `validate.py` also reproduces bit for bit in
-  Python. Whether to adopt the corrected LUT is a maintainer decision (ADR 0002 #27).
+  On a 32² LUT at 256 samples, the two differ on 1,557 of 2,048 channel bytes, by up to 229.
+- **The LUT is 2.15.2's (adopted 2026-11-15).** Part b first transcribed 1.2.0's formula, to keep Rust's bytes; the
+  maintainer then adopted 2.15.2's, and `sr_generate_brdf_lut` now calls `pbr_integrate_brdf_lut`. F0 stays 1.2.0's
+  formula, which agrees with 2.15.2's wherever 2.15.2 gives a number.
+  - **Why it is better.** As roughness → 0, the half-vector is the normal and G → 1, so the split sum's
+    scale + bias → 1. At roughness 1/32 (a 16² LUT, 64 samples) red + green is 247–255 of 255 across n·v with
+    2.15.2's k. With 1.2.0's k it is 9 at the grazing texel, rising to 253 (`tests/pbr_material.tcyr` pins the
+    band).
+  - **How it is checked (class R).** `validate.py` evaluates 2.15.2's formula independently, operation for operation
+    in Python's f64 with glibc's `sin`/`cos`, and writes `pbr_optics.r.tsv`: the 49 LUTs whose bytes differ from
+    Rust's. The harness has a third side table for it (`.r.tsv`, beside `.e.tsv` and `.cr.tsv`), and a pass is
+    *accepted (R)*. All 49 match bit for bit.
 - **The LUT's trigonometry.** The port uses ganita's f64 `sin`/`cos`, which differ from glibc's on about 2.6 % of
-  inputs. All 64 LUTs still quantize to Rust's bytes: a 1-ulp difference in a sum of hundreds of samples moves a
-  channel by about 1e-16, nowhere near a byte boundary.
+  inputs. Both evaluations still quantize to the same bytes, as 1.2.0's did against Rust: a 1-ulp difference in a sum
+  of hundreds of samples moves a channel by about 1e-16, nowhere near a byte boundary.
 - **Rounding a LUT channel.** Rust's `round` is half away from zero. `floor(v + 0.5)` rounds k + 0.49999999999999994 up,
   so the port takes the fraction exactly, and so does the Python reference.
 
@@ -952,7 +961,13 @@ How far Rust's f32 sits from the f64-once value:
 | Bench (extra: no Rust twin) | Cyrius | Notes |
 |---|---|---|
 | `env/face_mip_chain_128_srgb` | 1.40 ms | decode 16,384 texels, then 7 box filters and encodes |
-| `pbr/brdf_lut_32x32_256` | 60.8 ms | 262,144 samples, about 232 ns each (`sqrt`, `sin`, `cos`, divisions) |
+| `pbr/brdf_lut_32x32_256` | 66.0 ms | 262,144 samples, about 252 ns each (`sqrt`, `sin`, `cos`, divisions); prakash 2.15.2's integration. 1.2.0's transcription recorded 60.8 ms |
+
+- **Adopting 2.15.2's LUT costs about 5 %.** The recorded run is slower on untouched benches too (2–6 %), so the two
+  were also timed interleaved in one binary, three rounds each on one core: 1.2.0's transcription 61.7–63.3 ms, the
+  prakash call 64.4–67.3 ms (means 62.5 and 65.5). prakash evaluates G1(n·v) and α² every sample where the
+  transcription hoisted them, calls `f64_max`, `f64_clamp` and its range-guarded `sin`/`cos` as functions, and passes
+  the half-vector through a 24-byte buffer. A 32² LUT is built once at load, so the 3 ms stays as it is.
 
 - **sRGB encoding, first cut against final.** M1 left this to M4 (§2.2): a correctly rounded `pow` costs about 270 ns,
   and encoding calls it three times a texel. M4 chose the threshold search. Each byte is the count of 255 thresholds
