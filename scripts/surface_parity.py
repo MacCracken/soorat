@@ -63,7 +63,10 @@ MILESTONES = [f"M{n}" for n in range(0, 11)]  # M0 (prepare and initialize) port
 MODULE_MILESTONE = {
     # M1 Foundation
     "error": "M1", "math_util": "M1", "color": "M1", "vertex": "M1", "instancing": "M1",
-    "lights": "M1", "lod": "M1", "material": "M1",
+    "lights": "M1", "lod": "M1",
+    # material: a Material owns a GPU texture and bind group (texture.rs, M6), so it ports with them, not in M1
+    # as §3.1 first placed it (moved at M1 part c).
+    "material": "M6",
     # M2 2D (debug_draw's line pipeline is M6: SPLITS)
     "sprite": "M2", "batch": "M2", "text": "M2", "ui": "M2", "debug_draw": "M2",
     # M3 Geometry and animation
@@ -105,6 +108,10 @@ SPLITS = {
     # shadow: matrices, splits, atlas tiling, point-light faces and the uniforms' defaults are CPU (M4); the depth
     # maps, the atlas texture and the pass are GPU (M7, MB2). CascadedShadowMap owns its maps, so it is M7 whole.
     "shadow": {"ShadowMap": "M7", "ShadowPipeline": "M7", "CascadedShadowMap": "M7", "ShadowAtlas": "M7"},
+    # error: `From<mabda::GpuError>` arrives with mabda, a dependency from M6 (`sr_error_from_gpu`).
+    "error": {"RenderError::impl From<mabda::GpuError> for RenderError": "M6"},
+    # instancing: InstanceBuffer is mabda's GPU buffer object (M6, with mabda); InstanceData is a layout (M1).
+    "instancing": {"InstanceBuffer": "M6"},
 }
 # Every `#[repr(C)]` struct and its fields: §3.1's M1 row ("the 15 `#[repr(C)]` types", src/layout.cyr, probe P1).
 # Its methods and trait impls stay with its module.
@@ -142,9 +149,19 @@ TYPE_RENAMES = {}
 # Rust fn (`f` or `Type::m`) -> its Cyrius name, where it isn't sr_f / SrType_m.
 FN_RENAMES = {}
 # (Rust type, field) -> the Cyrius fields that carry it.
-FIELD_RENAMES = {}
+FIELD_RENAMES = {
+    # Cyrius has no array fields: `f: [T; n]` is the indexed fields f_0 … f_<n−1> (src/layout.cyr, generated).
+    ("JointUniforms", "joints"): [f"joints_{k}" for k in range(128)],
+    ("LightArrayUniforms", "lights"): [f"lights_{k}" for k in range(8)],
+    ("CascadeUniforms", "matrices"): [f"matrices_{k}" for k in range(4)],
+}
 # A trait impl's header as printed (`impl From<[f32; 4]> for Color`) -> the Cyrius function that provides it.
-TRAIT_RENAMES = {}
+TRAIT_RENAMES = {
+    "impl From<[f32; 4]> for Color": "SrColor_from_array4",
+    "impl From<[f32; 3]> for Color": "SrColor_from_array3",
+    "impl From<Color> for [f32; 4]": "SrColor_to_array",
+    "impl From<mabda::GpuError> for RenderError": "sr_error_from_gpu",
+}
 
 
 def snake(camel):

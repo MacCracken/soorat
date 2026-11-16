@@ -1,0 +1,13 @@
+# lib.cyr — the library's module list, in cyrius.cyml [lib] order, for test compiles.
+#
+# `cyrius test` never prepends [lib] (only `cyrius distlib` reads it), so every test that exercises the library
+# includes this file. Keep it in step with [lib] (pravash and impetus found the same).
+
+include "src/error.cyr"
+include "src/log.cyr"
+include "src/mathx.cyr"
+include "src/math.cyr"
+include "src/layout.cyr"
+include "src/color.cyr"
+include "src/lights.cyr"
+include "src/lod.cyr"

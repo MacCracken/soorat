@@ -36,23 +36,56 @@ macro_rules! layout {
 pub fn module() -> Module {
     let mut m = Module::new("layout");
     layout!(m, GpuParticle, [position, velocity, color]);
-    layout!(m, SimParams, [delta_time, gravity_y, damping, particle_count]);
+    layout!(
+        m,
+        SimParams,
+        [delta_time, gravity_y, damping, particle_count]
+    );
     layout!(m, PostProcessUniforms, [params]);
     layout!(m, JointUniforms, [joint_count, joints]);
     layout!(m, BloomUniforms, [params, texel_size]);
     layout!(m, LineVertex, [position, color]);
-    layout!(m, GpuLight, [position_type, direction_range, color_intensity, spot_params]);
+    layout!(
+        m,
+        GpuLight,
+        [position_type, direction_range, color_intensity, spot_params]
+    );
     layout!(m, LightArrayUniforms, [ambient, light_count, lights]);
-    layout!(m, MaterialUniforms, [base_color_factor, metallic, roughness, _pad0, _pad1]);
+    layout!(
+        m,
+        MaterialUniforms,
+        [base_color_factor, metallic, roughness, _pad0, _pad1]
+    );
     layout!(m, SsaoUniforms, [params, projection, inv_projection]);
-    layout!(m, CameraUniforms, [view_proj, model, camera_pos, normal_matrix_0, normal_matrix_1, normal_matrix_2]);
-    layout!(m, LightUniforms, [ambient_color, light_direction, light_color, light_view_proj]);
+    layout!(
+        m,
+        CameraUniforms,
+        [
+            view_proj,
+            model,
+            camera_pos,
+            normal_matrix_0,
+            normal_matrix_1,
+            normal_matrix_2
+        ]
+    );
+    layout!(
+        m,
+        LightUniforms,
+        [ambient_color, light_direction, light_color, light_view_proj]
+    );
     layout!(m, ShadowPassUniforms, [light_view_proj, shadow_map_size]);
     layout!(m, ShadowUniforms, [light_view_proj, model]);
     layout!(m, CascadeUniforms, [splits, matrices]);
     layout!(m, Vertex2D, [position, tex_coords, color]);
     layout!(m, Vertex3D, [position, normal, tex_coords, color]);
-    layout!(m, SkinnedVertex3D, [position, normal, tex_coords, color, tangent, joints, weights]);
+    layout!(
+        m,
+        SkinnedVertex3D,
+        [
+            position, normal, tex_coords, color, tangent, joints, weights
+        ]
+    );
     layout!(m, InstanceData, [model, color]);
     m
 }

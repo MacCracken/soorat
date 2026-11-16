@@ -1,0 +1,220 @@
+# color.cyr — Rust 1.2.0's src/color.rs (M1 part b): RGBA colours and the visualization colour maps.
+#
+# **Layout.** `SrColor` is 4 f32 (r, g, b, a; 16 bytes), passed by pointer; a result is written through an out
+# pointer the caller owns, which may be an input. Its fields are read and written with load32 / store32 at 0, 4, 8
+# and 12 (an f32 field assignment from bits is a type warning under --bounds). The constants are pointers to static
+# colours (`SR_COLOR_WHITE`, …): read them, copy them, never write through them.
+#
+# **Precision (D4 rule a).** Colours are quantized outputs, so every function follows Rust's f32 sequence exactly,
+# one native f32 rounding per operation (helpers with `: f32` parameters, as ganita's tier; one helper per formula,
+# so lerp makes 4 calls rather than 12), with Rust's `clamp`, `round` and `as u8` (src/mathx.cyr): class A and B
+# rows at 0 ulp (tests/golden/color.tsv).
+#
+# The `optics` functions (`from_prakash`, `to_prakash`, `from_temperature`, `from_wavelength`) arrive with
+# prakash in M1 part b2; the serde round trip with bayan.
+
+struct SrColor { r: f32; g: f32; b: f32; a: f32; }
+
+# f32 bits used here: 0, 0.25, 0.5, 0.75, 1, −1, 255 and the Rec. 709 luma weights, from rustc.
+var _SR_C0 = 0;
+var _SR_C025 = 0x3E800000;
+var _SR_C05 = 0x3F000000;
+var _SR_C075 = 0x3F400000;
+var _SR_C1 = 0x3F800000;
+var _SR_CM1 = 0xBF800000;
+var _SR_C255 = 0x437F0000;
+var _SR_LUMA_R = 0x3E59B3D0;   # 0.2126f32
+var _SR_LUMA_G = 0x3F371759;   # 0.7152f32
+var _SR_LUMA_B = 0x3D93DD98;   # 0.0722f32
+
+# One lerp component, x + (y − x)·t: native f32 (typed parameters), one rounding per operation, Rust's sequence.
+#must_use
+fn _sr_f32_lerp(x: f32, y: f32, t: f32): i64 {
+    var r: f32 = x + ((y - x) * t);
+    return r;
+}
+
+# (wr·r + wg·g) + wb·b in native f32, Rust's luminance sequence (the weights passed as f32 bits).
+#must_use
+fn _sr_f32_luma(wr: f32, r: f32, wg: f32, g: f32, wb: f32, b: f32): i64 {
+    var s: f32 = ((wr * r) + (wg * g)) + (wb * b);
+    return s;
+}
+
+# (r, g, b, a) / k in native f32, stored at out.
+fn _sr_f32_div4(out, r: f32, g: f32, b: f32, a: f32, k: f32) {
+    var qr: f32 = r / k;
+    var qg: f32 = g / k;
+    var qb: f32 = b / k;
+    var qa: f32 = a / k;
+    store32(out, qr);
+    store32(out + 4, qg);
+    store32(out + 8, qb);
+    store32(out + 12, qa);
+    return out;
+}
+
+# Writes the four component bits (r, g, b, a) to out.
+fn _sr_color_set(out, r, g, b, a) {
+    store32(out, r);
+    store32(out + 4, g);
+    store32(out + 8, b);
+    store32(out + 12, a);
+    return out;
+}
+
+# ── constants ────────────────────────────────────────────────────────────────────────
+# Seven static colours, 16 bytes each, filled once at load. Mirror `Color::WHITE` … `Color::CORNFLOWER_BLUE`.
+
+var _sr_color_consts[112];
+var SR_COLOR_WHITE = &_sr_color_consts;
+var SR_COLOR_BLACK = &_sr_color_consts + 16;
+var SR_COLOR_RED = &_sr_color_consts + 32;
+var SR_COLOR_GREEN = &_sr_color_consts + 48;
+var SR_COLOR_BLUE = &_sr_color_consts + 64;
+var SR_COLOR_TRANSPARENT = &_sr_color_consts + 80;
+var SR_COLOR_CORNFLOWER_BLUE = &_sr_color_consts + 96;
+
+# Fills the static colours. Runs once, at load.
+fn _sr_color_consts_init(): i64 {
+    _sr_color_set(SR_COLOR_WHITE, _SR_C1, _SR_C1, _SR_C1, _SR_C1);
+    _sr_color_set(SR_COLOR_BLACK, _SR_C0, _SR_C0, _SR_C0, _SR_C1);
+    _sr_color_set(SR_COLOR_RED, _SR_C1, _SR_C0, _SR_C0, _SR_C1);
+    _sr_color_set(SR_COLOR_GREEN, _SR_C0, _SR_C1, _SR_C0, _SR_C1);
+    _sr_color_set(SR_COLOR_BLUE, _SR_C0, _SR_C0, _SR_C1, _SR_C1);
+    _sr_color_set(SR_COLOR_TRANSPARENT, _SR_C0, _SR_C0, _SR_C0, _SR_C0);
+    # 0.392f32, 0.584f32, 0.929f32
+    _sr_color_set(SR_COLOR_CORNFLOWER_BLUE, 0x3EC8B439, 0x3F158106, 0x3F6DD2F2, _SR_C1);
+    return 1;
+}
+var _sr_color_consts_ready = _sr_color_consts_init();
+
+# ── Color ────────────────────────────────────────────────────────────────────────────
+
+# The colour (r, g, b, a), from f32 bits, into out. Mirrors `Color::new` (whose finiteness check is a debug_assert,
+# so a release build stores any value, as this does).
+fn SrColor_new(r, g, b, a, out) {
+    return _sr_color_set(out, r, g, b, a);
+}
+
+# (r, g, b) at full opacity, into out. Mirrors `Color::rgb`.
+fn SrColor_rgb(r, g, b, out) {
+    return _sr_color_set(out, r, g, b, _SR_C1);
+}
+
+# The colour of four bytes (0–255), each `x as f32 / 255.0` in f32, into out. Mirrors `Color::from_rgba8`.
+fn SrColor_from_rgba8(r, g, b, a, out) {
+    var fr = f32_from(f64_from(r & 0xFF));
+    var fg = f32_from(f64_from(g & 0xFF));
+    var fb = f32_from(f64_from(b & 0xFF));
+    var fa = f32_from(f64_from(a & 0xFF));
+    return _sr_f32_div4(out, fr, fg, fb, fa, _SR_C255);
+}
+
+# The colour of 0xRRGGBBAA, into out. Mirrors `Color::from_hex`.
+fn SrColor_from_hex(hex, out) {
+    return SrColor_from_rgba8((hex >> 24) & 0xFF, (hex >> 16) & 0xFF, (hex >> 8) & 0xFF, hex & 0xFF, out);
+}
+
+# Copies c's (r, g, b, a) to the f32 array out. Mirrors `Color::to_array` and `From<Color> for [f32; 4]`.
+fn SrColor_to_array(c, out) {
+    store64(out, load64(c));
+    store64(out + 8, load64(c + 8));
+    return out;
+}
+
+# One component as a byte: NaN → 0, else round(clamp(x, 0, 1) · 255) (the product rounded to f32 first).
+#must_use
+fn _sr_color_q8(x): i64 {
+    if (_sr_f32_is_nan(x) == 1) { return 0; }
+    return _sr_f32_to_u8(_sr_round32(ganita_f32_mul(_sr_clamp32(x, _SR_C0, _SR_C1), _SR_C255)));
+}
+
+# c as four bytes (r, g, b, a) at out: each component clamped to [0, 1], scaled by 255 and rounded half away from
+# zero; NaN → 0. No colour-space conversion. Mirrors `Color::to_rgba8`.
+fn SrColor_to_rgba8(c, out) {
+    store8(out, _sr_color_q8(load32(c)));
+    store8(out + 1, _sr_color_q8(load32(c + 4)));
+    store8(out + 2, _sr_color_q8(load32(c + 8)));
+    store8(out + 3, _sr_color_q8(load32(c + 12)));
+    return out;
+}
+
+# c widened exactly to four f64 (r, g, b, a; 32 bytes) at out: a GPU clear colour. Mirrors `Color::to_wgpu`
+# (wgpu::Color is four f64).
+fn SrColor_to_wgpu(c, out) {
+    var i = 0;
+    while (i < 4) {
+        var x: f64 = f32_to(load32(c + i * 4));
+        store64(out + i * 8, x);
+        i = i + 1;
+    }
+    return out;
+}
+
+# Rec. 709 luminance, (0.2126·r + 0.7152·g) + 0.0722·b in f32, as f32 bits. Mirrors `Color::luminance`.
+#must_use
+fn SrColor_luminance(c): i64 {
+    return _sr_f32_luma(_SR_LUMA_R, load32(c), _SR_LUMA_G, load32(c + 4), _SR_LUMA_B, load32(c + 8));
+}
+
+# The colour a + (b − a)·t per component, with t (f32 bits) clamped to [0, 1] first (a NaN t gives NaN
+# components, as Rust's does), into out. Mirrors `Color::lerp`.
+fn SrColor_lerp(a, b, t, out) {
+    var tc = _sr_clamp32(t, _SR_C0, _SR_C1);
+    var r = _sr_f32_lerp(load32(a), load32(b), tc);
+    var g = _sr_f32_lerp(load32(a + 4), load32(b + 4), tc);
+    var bl = _sr_f32_lerp(load32(a + 8), load32(b + 8), tc);
+    var al = _sr_f32_lerp(load32(a + 12), load32(b + 12), tc);
+    return _sr_color_set(out, r, g, bl, al);
+}
+
+# White, into out. Mirrors `impl Default for Color`.
+fn SrColor_default(out) {
+    return SrColor_to_array(SR_COLOR_WHITE, out);
+}
+
+# The colour of an [f32; 4] (r, g, b, a), into out. Mirrors `From<[f32; 4]> for Color`.
+fn SrColor_from_array4(arr, out) {
+    return SrColor_new(load32(arr), load32(arr + 4), load32(arr + 8), load32(arr + 12), out);
+}
+
+# The opaque colour of an [f32; 3] (r, g, b), into out. Mirrors `From<[f32; 3]> for Color`.
+fn SrColor_from_array3(arr, out) {
+    return SrColor_rgb(load32(arr), load32(arr + 4), load32(arr + 8), out);
+}
+
+# ── colour maps ──────────────────────────────────────────────────────────────────────
+
+# The 5-stop blue → cyan → green → yellow → red gradient at t (f32 bits), into out: t clamped to [0, 1], NaN → 0
+# (blue). Each quarter interpolates one channel by s = (t − start) / 0.25 in f32. Mirrors
+# `visualization_heat_map`.
+fn sr_visualization_heat_map(t, out) {
+    var v = _SR_C0;
+    if (_sr_f32_is_nan(t) == 0) { v = _sr_clamp32(t, _SR_C0, _SR_C1); }
+    if (_sr_f32_lt(v, _SR_C025) == 1) {
+        var s0 = ganita_f32_div(v, _SR_C025);
+        return _sr_color_set(out, _SR_C0, s0, _SR_C1, _SR_C1);
+    }
+    if (_sr_f32_lt(v, _SR_C05) == 1) {
+        var s1 = ganita_f32_div(ganita_f32_sub(v, _SR_C025), _SR_C025);
+        return _sr_color_set(out, _SR_C0, _SR_C1, ganita_f32_sub(_SR_C1, s1), _SR_C1);
+    }
+    if (_sr_f32_lt(v, _SR_C075) == 1) {
+        var s2 = ganita_f32_div(ganita_f32_sub(v, _SR_C05), _SR_C025);
+        return _sr_color_set(out, s2, _SR_C1, _SR_C0, _SR_C1);
+    }
+    var s3 = ganita_f32_div(ganita_f32_sub(v, _SR_C075), _SR_C025);
+    return _sr_color_set(out, _SR_C1, ganita_f32_sub(_SR_C1, s3), _SR_C0, _SR_C1);
+}
+
+# The diverging map at v (f32 bits), into out: v clamped to [−1, 1], NaN → 0; red (v, 0, 0) for v ≥ 0 (−0
+# included), blue (0, 0, −v) below. Mirrors `signed_value_color`.
+fn sr_signed_value_color(v, out) {
+    var c = _SR_C0;
+    if (_sr_f32_is_nan(v) == 0) { c = _sr_clamp32(v, _SR_CM1, _SR_C1); }
+    if (_sr_f32_lt(c, _SR_C0) == 0) {
+        return _sr_color_set(out, c, _SR_C0, _SR_C0, _SR_C1);
+    }
+    return _sr_color_set(out, _SR_C0, _SR_C0, ganita_f32_neg(c), _SR_C1);
+}

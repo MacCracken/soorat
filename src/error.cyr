@@ -1,0 +1,73 @@
+# error.cyr — soorat's error codes (port of Rust 1.2.0's src/error.rs, M1 part a).
+#
+# A fallible soorat function returns a value-form Result whose Err payload is one of these codes:
+# `var t, v = f(..); if (is_err_result(t) == 1) { .. v is the code .. }`. The golden token `E:Shader` is
+# SR_ERR_SHADER: SR_ERR_ + snake(variant). The values follow the Rust variant order and are append-only (the
+# Cyrius form of #[non_exhaustive]).
+#
+# The Rust variants carry a detail string (`Shader(String)`), and `Other` boxes a foreign error; a code carries
+# neither (ADR 0002 #1). `sr_error_message(code)` gives thiserror's message up to its `{0}`, the part that
+# doesn't depend on the payload.
+#
+# `From<mabda::GpuError>` (Rust's `impl From`) arrives with mabda at M6, as `sr_error_from_gpu`; its five tests
+# move there with it (docs/development/rust-test-ledger.md).
+
+enum SrRenderError {
+    SR_ERR_NONE = 0;
+    SR_ERR_ADAPTER_NOT_FOUND = 1;
+    SR_ERR_DEVICE_REQUEST = 2;
+    SR_ERR_SURFACE_CONFIG = 3;
+    SR_ERR_SURFACE_TEXTURE = 4;
+    SR_ERR_SHADER = 5;
+    SR_ERR_PIPELINE = 6;
+    SR_ERR_TEXTURE = 7;
+    SR_ERR_MODEL = 8;
+    SR_ERR_WINDOW = 9;
+    SR_ERR_SCREENSHOT = 10;
+    SR_ERR_OTHER = 11;
+}
+
+# The Rust variant name of an error code (`"Shader"`), "None" for SR_ERR_NONE, or "Unknown" for a value that is
+# no code.
+#must_use
+fn sr_error_name(code): i64 {
+    match code {
+        SR_ERR_NONE => { return "None"; }
+        SR_ERR_ADAPTER_NOT_FOUND => { return "AdapterNotFound"; }
+        SR_ERR_DEVICE_REQUEST => { return "DeviceRequest"; }
+        SR_ERR_SURFACE_CONFIG => { return "SurfaceConfig"; }
+        SR_ERR_SURFACE_TEXTURE => { return "SurfaceTexture"; }
+        SR_ERR_SHADER => { return "Shader"; }
+        SR_ERR_PIPELINE => { return "Pipeline"; }
+        SR_ERR_TEXTURE => { return "Texture"; }
+        SR_ERR_MODEL => { return "Model"; }
+        SR_ERR_WINDOW => { return "Window"; }
+        SR_ERR_SCREENSHOT => { return "Screenshot"; }
+        SR_ERR_OTHER => { return "Other"; }
+        _ => { return "Unknown"; }
+    }
+    return "Unknown";
+}
+
+# The Rust error's Display text up to its `{0}` (`"shader compilation failed"` for `shader compilation failed:
+# {0}`). "no error" for SR_ERR_NONE, "other error" for SR_ERR_OTHER (Rust shows the boxed error's own text) and
+# "unknown error" for a value that is no code.
+#must_use
+fn sr_error_message(code): i64 {
+    match code {
+        SR_ERR_NONE => { return "no error"; }
+        SR_ERR_ADAPTER_NOT_FOUND => { return "GPU adapter not found"; }
+        SR_ERR_DEVICE_REQUEST => { return "GPU device request failed"; }
+        SR_ERR_SURFACE_CONFIG => { return "surface configuration failed"; }
+        SR_ERR_SURFACE_TEXTURE => { return "surface texture acquisition failed"; }
+        SR_ERR_SHADER => { return "shader compilation failed"; }
+        SR_ERR_PIPELINE => { return "pipeline creation failed"; }
+        SR_ERR_TEXTURE => { return "texture load failed"; }
+        SR_ERR_MODEL => { return "model load failed"; }
+        SR_ERR_WINDOW => { return "window creation failed"; }
+        SR_ERR_SCREENSHOT => { return "screenshot failed"; }
+        SR_ERR_OTHER => { return "other error"; }
+        _ => { return "unknown error"; }
+    }
+    return "unknown error";
+}

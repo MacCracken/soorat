@@ -1,0 +1,775 @@
+# soorat golden corpus, format 1: lod
+# recorded: soorat 1.2.0 (rust-old/, oracle feature); libm: glibc 2.44 x86_64 fma
+# regenerate: cargo run --release --locked --manifest-path scripts/oracle/Cargo.toml (never patch a row)
+# columns: fn<TAB>class<TAB>inputs<TAB>outputs<TAB>note (tokens: scripts/oracle/README.md)
+# rows: 770
+LodChain::new	A	v:0	v:0 v:0	chain 0
+LodChain::level_count	A	v:0	i:0	chain 0
+LodChain::new	A	v:1 g:42c80000	v:1 i:0 v:1 g:461c4000	chain 1
+LodChain::level_count	A	v:1 g:42c80000	i:1	chain 1
+LodChain::new	A	v:3 g:41200000 g:41f00000 g:42c80000	v:3 i:0 i:1 i:2 v:3 g:42c80000 g:44610000 g:461c4000	chain 2
+LodChain::level_count	A	v:3 g:41200000 g:41f00000 g:42c80000	i:3	chain 2
+LodChain::new	A	v:2 g:7fc00000 g:40a00000	v:2 i:0 i:1 v:2 g:7fc00000 g:41c80000	chain 3
+LodChain::level_count	A	v:2 g:7fc00000 g:40a00000	i:2	chain 3
+LodChain::new	A	v:3 g:60ad78ec g:c0400000 g:7f800000	v:3 i:0 i:1 i:2 v:3 g:7f800000 g:41100000 g:7f800000	chain 4
+LodChain::level_count	A	v:3 g:60ad78ec g:c0400000 g:7f800000	i:3	chain 4
+LodChain::new	A	v:2 g:42717a3e g:42a1e273	v:2 i:0 i:1 v:2 g:4563c763 g:45ccbd3a	chain 5
+LodChain::level_count	A	v:2 g:42717a3e g:42a1e273	i:2	chain 5
+LodChain::new	A	v:3 g:42bee759 g:423228c2 g:42dc69bd	v:3 i:0 i:1 i:2 v:3 g:460e5c39 g:44f7f969 g:463dc5e9	chain 6
+LodChain::level_count	A	v:3 g:42bee759 g:423228c2 g:42dc69bd	i:3	chain 6
+LodChain::new	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e	v:6 i:0 i:1 i:2 i:3 i:4 i:5 v:6 g:45c868e8 g:45654a0f g:44e63336 g:44c7622c g:43a6cfa4 g:449d2b67	chain 7
+LodChain::level_count	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e	i:6	chain 7
+LodChain::new	A	v:2 g:42f45407 g:42905321	v:2 i:0 i:1 v:2 g:46693049 g:45a2bb40	chain 8
+LodChain::level_count	A	v:2 g:42f45407 g:42905321	i:2	chain 8
+LodChain::new	A	v:1 g:42a7007d	v:1 i:0 v:1 g:45d9e346	chain 9
+LodChain::level_count	A	v:1 g:42a7007d	i:1	chain 9
+LodChain::new	A	v:3 g:42ea9865 g:42496166 g:410b0128	v:3 i:0 i:1 i:2 v:3 g:4656faf3 g:451e6a17 g:4296f483	chain 10
+LodChain::level_count	A	v:3 g:42ea9865 g:42496166 g:410b0128	i:3	chain 10
+LodChain::new	A	v:1 g:4239354e	v:1 i:0 v:1 g:4505fe16	chain 11
+LodChain::level_count	A	v:1 g:4239354e	i:1	chain 11
+LodChain::new	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54	v:6 i:0 i:1 i:2 i:3 i:4 i:5 v:6 g:46232fc2 g:466438a8 g:4622f1fe g:4567fcc2 g:4561f78c g:444d2db5	chain 12
+LodChain::level_count	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54	i:6	chain 12
+LodChain::new	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3	v:5 i:0 i:1 i:2 i:3 i:4 v:5 g:4437f653 g:45d519d9 g:447eaaaa g:45820063 g:4640d6a8	chain 13
+LodChain::level_count	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3	i:5	chain 13
+LodChain::new	A	v:1 g:42f3eaff	v:1 i:0 v:1 g:466867f8	chain 14
+LodChain::level_count	A	v:1 g:42f3eaff	i:1	chain 14
+LodChain::new	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2	v:6 i:0 i:1 i:2 i:3 i:4 i:5 v:6 g:453fd16d g:4521926c g:460c3440 g:42d34515 g:452ce85b g:450e07f7	chain 15
+LodChain::level_count	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2	i:6	chain 15
+LodChain::new	A	v:2 g:42d866d5 g:42613c1e	v:2 i:0 i:1 v:2 g:4636edb1 g:45462abb	chain 16
+LodChain::level_count	A	v:2 g:42d866d5 g:42613c1e	i:2	chain 16
+LodChain::new	A	v:1 g:419b23cc	v:1 i:0 v:1 g:43bc08bc	chain 17
+LodChain::level_count	A	v:1 g:419b23cc	i:1	chain 17
+LodChain::new	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234	v:4 i:0 i:1 i:2 i:3 v:4 g:435638df g:4512a24b g:45e20a3a g:4400dec4	chain 18
+LodChain::level_count	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234	i:4	chain 18
+LodChain::new	A	v:1 g:42a633fd	v:1 i:0 v:1 g:45d7ceed	chain 19
+LodChain::level_count	A	v:1 g:42a633fd	i:1	chain 19
+LodChain::new	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3	v:5 i:0 i:1 i:2 i:3 i:4 v:5 g:45e8485d g:4422df1a g:4488840e g:45191bd8 g:4667a3c3	chain 20
+LodChain::level_count	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3	i:5	chain 20
+LodChain::new	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1	v:5 i:0 i:1 i:2 i:3 i:4 v:5 g:42cbf553 g:4676a95f g:4511165d g:4456269b g:464a180b	chain 21
+LodChain::level_count	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1	i:5	chain 21
+LodChain::new	A	v:3 g:429a2169 g:4221bc2e g:42ece359	v:3 i:0 i:1 i:2 v:3 g:45b9986d g:44cc5c78 g:465b33f6	chain 22
+LodChain::level_count	A	v:3 g:429a2169 g:4221bc2e g:42ece359	i:3	chain 22
+LodChain::new	A	v:2 g:42f365f7 g:422a8bea	v:2 i:0 i:1 v:2 g:46676abc g:44e33c3e	chain 23
+LodChain::level_count	A	v:2 g:42f365f7 g:422a8bea	i:2	chain 23
+LodChain::new	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397	v:5 i:0 i:1 i:2 i:3 i:4 v:5 g:4637724a g:43e2c26a g:465edc4b g:460e883f g:45ee713f	chain 24
+LodChain::level_count	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397	i:5	chain 24
+LodChain::select	A	v:0 g:00000000	i:0	chain 0 at 0.0
+LodChain::select	A	v:0 g:80000000	i:0	chain 0 at -0.0
+LodChain::select	A	v:0 g:bf800000	i:0	chain 0 at -1.0
+LodChain::select	A	v:0 g:7fc00000	i:0	chain 0 at NaN
+LodChain::select	A	v:0 g:7f800000	i:0	chain 0 at inf
+LodChain::select	A	v:0 g:7f7fffff	i:0	chain 0 at 3.4028235e38
+LodChain::select	A	v:1 g:42c80000 g:00000000	i:0	chain 1 at 0.0
+LodChain::select	A	v:1 g:42c80000 g:80000000	i:0	chain 1 at -0.0
+LodChain::select	A	v:1 g:42c80000 g:bf800000	i:0	chain 1 at -1.0
+LodChain::select	A	v:1 g:42c80000 g:7fc00000	i:0	chain 1 at NaN
+LodChain::select	A	v:1 g:42c80000 g:7f800000	i:0	chain 1 at inf
+LodChain::select	A	v:1 g:42c80000 g:7f7fffff	i:0	chain 1 at 3.4028235e38
+LodChain::select	A	v:1 g:42c80000 g:461c3fff	i:0	chain 1 at 9999.999
+LodChain::select	A	v:1 g:42c80000 g:461c4000	i:0	chain 1 at 10000.0
+LodChain::select	A	v:1 g:42c80000 g:461c4001	i:0	chain 1 at 10000.001
+LodChain::select	A	v:3 g:41200000 g:41f00000 g:42c80000 g:00000000	i:0	chain 2 at 0.0
+LodChain::select	A	v:3 g:41200000 g:41f00000 g:42c80000 g:80000000	i:0	chain 2 at -0.0
+LodChain::select	A	v:3 g:41200000 g:41f00000 g:42c80000 g:bf800000	i:0	chain 2 at -1.0
+LodChain::select	A	v:3 g:41200000 g:41f00000 g:42c80000 g:7fc00000	i:2	chain 2 at NaN
+LodChain::select	A	v:3 g:41200000 g:41f00000 g:42c80000 g:7f800000	i:2	chain 2 at inf
+LodChain::select	A	v:3 g:41200000 g:41f00000 g:42c80000 g:7f7fffff	i:2	chain 2 at 3.4028235e38
+LodChain::select	A	v:3 g:41200000 g:41f00000 g:42c80000 g:42c7ffff	i:0	chain 2 at 99.99999
+LodChain::select	A	v:3 g:41200000 g:41f00000 g:42c80000 g:42c80000	i:0	chain 2 at 100.0
+LodChain::select	A	v:3 g:41200000 g:41f00000 g:42c80000 g:42c80001	i:1	chain 2 at 100.00001
+LodChain::select	A	v:3 g:41200000 g:41f00000 g:42c80000 g:4460ffff	i:1	chain 2 at 899.99994
+LodChain::select	A	v:3 g:41200000 g:41f00000 g:42c80000 g:44610000	i:1	chain 2 at 900.0
+LodChain::select	A	v:3 g:41200000 g:41f00000 g:42c80000 g:44610001	i:2	chain 2 at 900.00006
+LodChain::select	A	v:3 g:41200000 g:41f00000 g:42c80000 g:461c3fff	i:2	chain 2 at 9999.999
+LodChain::select	A	v:3 g:41200000 g:41f00000 g:42c80000 g:461c4000	i:2	chain 2 at 10000.0
+LodChain::select	A	v:3 g:41200000 g:41f00000 g:42c80000 g:461c4001	i:2	chain 2 at 10000.001
+LodChain::select	A	v:2 g:7fc00000 g:40a00000 g:00000000	i:1	chain 3 at 0.0
+LodChain::select	A	v:2 g:7fc00000 g:40a00000 g:80000000	i:1	chain 3 at -0.0
+LodChain::select	A	v:2 g:7fc00000 g:40a00000 g:bf800000	i:1	chain 3 at -1.0
+LodChain::select	A	v:2 g:7fc00000 g:40a00000 g:7fc00000	i:1	chain 3 at NaN
+LodChain::select	A	v:2 g:7fc00000 g:40a00000 g:7f800000	i:1	chain 3 at inf
+LodChain::select	A	v:2 g:7fc00000 g:40a00000 g:7f7fffff	i:1	chain 3 at 3.4028235e38
+LodChain::select	A	v:2 g:7fc00000 g:40a00000 g:41c7ffff	i:1	chain 3 at 24.999998
+LodChain::select	A	v:2 g:7fc00000 g:40a00000 g:41c80000	i:1	chain 3 at 25.0
+LodChain::select	A	v:2 g:7fc00000 g:40a00000 g:41c80001	i:1	chain 3 at 25.000002
+LodChain::select	A	v:3 g:60ad78ec g:c0400000 g:7f800000 g:00000000	i:0	chain 4 at 0.0
+LodChain::select	A	v:3 g:60ad78ec g:c0400000 g:7f800000 g:80000000	i:0	chain 4 at -0.0
+LodChain::select	A	v:3 g:60ad78ec g:c0400000 g:7f800000 g:bf800000	i:0	chain 4 at -1.0
+LodChain::select	A	v:3 g:60ad78ec g:c0400000 g:7f800000 g:7fc00000	i:2	chain 4 at NaN
+LodChain::select	A	v:3 g:60ad78ec g:c0400000 g:7f800000 g:7f800000	i:0	chain 4 at inf
+LodChain::select	A	v:3 g:60ad78ec g:c0400000 g:7f800000 g:7f7fffff	i:0	chain 4 at 3.4028235e38
+LodChain::select	A	v:3 g:60ad78ec g:c0400000 g:7f800000 g:410fffff	i:0	chain 4 at 8.999999
+LodChain::select	A	v:3 g:60ad78ec g:c0400000 g:7f800000 g:41100000	i:0	chain 4 at 9.0
+LodChain::select	A	v:3 g:60ad78ec g:c0400000 g:7f800000 g:41100001	i:0	chain 4 at 9.000001
+LodChain::select	A	v:2 g:42717a3e g:42a1e273 g:00000000	i:0	chain 5 at 0.0
+LodChain::select	A	v:2 g:42717a3e g:42a1e273 g:80000000	i:0	chain 5 at -0.0
+LodChain::select	A	v:2 g:42717a3e g:42a1e273 g:bf800000	i:0	chain 5 at -1.0
+LodChain::select	A	v:2 g:42717a3e g:42a1e273 g:7fc00000	i:1	chain 5 at NaN
+LodChain::select	A	v:2 g:42717a3e g:42a1e273 g:7f800000	i:1	chain 5 at inf
+LodChain::select	A	v:2 g:42717a3e g:42a1e273 g:7f7fffff	i:1	chain 5 at 3.4028235e38
+LodChain::select	A	v:2 g:42717a3e g:42a1e273 g:4563c762	i:0	chain 5 at 3644.4614
+LodChain::select	A	v:2 g:42717a3e g:42a1e273 g:4563c763	i:0	chain 5 at 3644.4617
+LodChain::select	A	v:2 g:42717a3e g:42a1e273 g:4563c764	i:1	chain 5 at 3644.462
+LodChain::select	A	v:2 g:42717a3e g:42a1e273 g:45ccbd39	i:1	chain 5 at 6551.653
+LodChain::select	A	v:2 g:42717a3e g:42a1e273 g:45ccbd3a	i:1	chain 5 at 6551.6533
+LodChain::select	A	v:2 g:42717a3e g:42a1e273 g:45ccbd3b	i:1	chain 5 at 6551.654
+LodChain::select	A	v:3 g:42bee759 g:423228c2 g:42dc69bd g:00000000	i:0	chain 6 at 0.0
+LodChain::select	A	v:3 g:42bee759 g:423228c2 g:42dc69bd g:80000000	i:0	chain 6 at -0.0
+LodChain::select	A	v:3 g:42bee759 g:423228c2 g:42dc69bd g:bf800000	i:0	chain 6 at -1.0
+LodChain::select	A	v:3 g:42bee759 g:423228c2 g:42dc69bd g:7fc00000	i:2	chain 6 at NaN
+LodChain::select	A	v:3 g:42bee759 g:423228c2 g:42dc69bd g:7f800000	i:2	chain 6 at inf
+LodChain::select	A	v:3 g:42bee759 g:423228c2 g:42dc69bd g:7f7fffff	i:2	chain 6 at 3.4028235e38
+LodChain::select	A	v:3 g:42bee759 g:423228c2 g:42dc69bd g:460e5c38	i:0	chain 6 at 9111.055
+LodChain::select	A	v:3 g:42bee759 g:423228c2 g:42dc69bd g:460e5c39	i:0	chain 6 at 9111.056
+LodChain::select	A	v:3 g:42bee759 g:423228c2 g:42dc69bd g:460e5c3a	i:2	chain 6 at 9111.057
+LodChain::select	A	v:3 g:42bee759 g:423228c2 g:42dc69bd g:44f7f968	i:0	chain 6 at 1983.794
+LodChain::select	A	v:3 g:42bee759 g:423228c2 g:42dc69bd g:44f7f969	i:0	chain 6 at 1983.7941
+LodChain::select	A	v:3 g:42bee759 g:423228c2 g:42dc69bd g:44f7f96a	i:0	chain 6 at 1983.7942
+LodChain::select	A	v:3 g:42bee759 g:423228c2 g:42dc69bd g:463dc5e8	i:2	chain 6 at 12145.477
+LodChain::select	A	v:3 g:42bee759 g:423228c2 g:42dc69bd g:463dc5e9	i:2	chain 6 at 12145.478
+LodChain::select	A	v:3 g:42bee759 g:423228c2 g:42dc69bd g:463dc5ea	i:2	chain 6 at 12145.479
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:00000000	i:0	chain 7 at 0.0
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:80000000	i:0	chain 7 at -0.0
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:bf800000	i:0	chain 7 at -1.0
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:7fc00000	i:5	chain 7 at NaN
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:7f800000	i:5	chain 7 at inf
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:7f7fffff	i:5	chain 7 at 3.4028235e38
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:45c868e7	i:0	chain 7 at 6413.113
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:45c868e8	i:0	chain 7 at 6413.1133
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:45c868e9	i:5	chain 7 at 6413.114
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:45654a0e	i:0	chain 7 at 3668.6284
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:45654a0f	i:0	chain 7 at 3668.6287
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:45654a10	i:0	chain 7 at 3668.629
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:44e63335	i:0	chain 7 at 1841.6002
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:44e63336	i:0	chain 7 at 1841.6003
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:44e63337	i:0	chain 7 at 1841.6005
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:44c7622b	i:0	chain 7 at 1595.0677
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:44c7622c	i:0	chain 7 at 1595.0679
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:44c7622d	i:0	chain 7 at 1595.068
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:43a6cfa3	i:0	chain 7 at 333.62216
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:43a6cfa4	i:0	chain 7 at 333.6222
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:43a6cfa5	i:0	chain 7 at 333.62222
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:449d2b66	i:0	chain 7 at 1257.3562
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:449d2b67	i:0	chain 7 at 1257.3563
+LodChain::select	A	v:6 g:42a029f1 g:427246de g:422ba7ce g:421fc0d2 g:41921f64 g:420dd63e g:449d2b68	i:0	chain 7 at 1257.3564
+LodChain::select	A	v:2 g:42f45407 g:42905321 g:00000000	i:0	chain 8 at 0.0
+LodChain::select	A	v:2 g:42f45407 g:42905321 g:80000000	i:0	chain 8 at -0.0
+LodChain::select	A	v:2 g:42f45407 g:42905321 g:bf800000	i:0	chain 8 at -1.0
+LodChain::select	A	v:2 g:42f45407 g:42905321 g:7fc00000	i:1	chain 8 at NaN
+LodChain::select	A	v:2 g:42f45407 g:42905321 g:7f800000	i:1	chain 8 at inf
+LodChain::select	A	v:2 g:42f45407 g:42905321 g:7f7fffff	i:1	chain 8 at 3.4028235e38
+LodChain::select	A	v:2 g:42f45407 g:42905321 g:46693048	i:0	chain 8 at 14924.07
+LodChain::select	A	v:2 g:42f45407 g:42905321 g:46693049	i:0	chain 8 at 14924.071
+LodChain::select	A	v:2 g:42f45407 g:42905321 g:4669304a	i:1	chain 8 at 14924.072
+LodChain::select	A	v:2 g:42f45407 g:42905321 g:45a2bb3f	i:0	chain 8 at 5207.406
+LodChain::select	A	v:2 g:42f45407 g:42905321 g:45a2bb40	i:0	chain 8 at 5207.4063
+LodChain::select	A	v:2 g:42f45407 g:42905321 g:45a2bb41	i:0	chain 8 at 5207.4067
+LodChain::select	A	v:1 g:42a7007d g:00000000	i:0	chain 9 at 0.0
+LodChain::select	A	v:1 g:42a7007d g:80000000	i:0	chain 9 at -0.0
+LodChain::select	A	v:1 g:42a7007d g:bf800000	i:0	chain 9 at -1.0
+LodChain::select	A	v:1 g:42a7007d g:7fc00000	i:0	chain 9 at NaN
+LodChain::select	A	v:1 g:42a7007d g:7f800000	i:0	chain 9 at inf
+LodChain::select	A	v:1 g:42a7007d g:7f7fffff	i:0	chain 9 at 3.4028235e38
+LodChain::select	A	v:1 g:42a7007d g:45d9e345	i:0	chain 9 at 6972.4087
+LodChain::select	A	v:1 g:42a7007d g:45d9e346	i:0	chain 9 at 6972.409
+LodChain::select	A	v:1 g:42a7007d g:45d9e347	i:0	chain 9 at 6972.4097
+LodChain::select	A	v:3 g:42ea9865 g:42496166 g:410b0128 g:00000000	i:0	chain 10 at 0.0
+LodChain::select	A	v:3 g:42ea9865 g:42496166 g:410b0128 g:80000000	i:0	chain 10 at -0.0
+LodChain::select	A	v:3 g:42ea9865 g:42496166 g:410b0128 g:bf800000	i:0	chain 10 at -1.0
+LodChain::select	A	v:3 g:42ea9865 g:42496166 g:410b0128 g:7fc00000	i:2	chain 10 at NaN
+LodChain::select	A	v:3 g:42ea9865 g:42496166 g:410b0128 g:7f800000	i:2	chain 10 at inf
+LodChain::select	A	v:3 g:42ea9865 g:42496166 g:410b0128 g:7f7fffff	i:2	chain 10 at 3.4028235e38
+LodChain::select	A	v:3 g:42ea9865 g:42496166 g:410b0128 g:4656faf2	i:0	chain 10 at 13758.736
+LodChain::select	A	v:3 g:42ea9865 g:42496166 g:410b0128 g:4656faf3	i:0	chain 10 at 13758.737
+LodChain::select	A	v:3 g:42ea9865 g:42496166 g:410b0128 g:4656faf4	i:2	chain 10 at 13758.738
+LodChain::select	A	v:3 g:42ea9865 g:42496166 g:410b0128 g:451e6a16	i:0	chain 10 at 2534.6304
+LodChain::select	A	v:3 g:42ea9865 g:42496166 g:410b0128 g:451e6a17	i:0	chain 10 at 2534.6306
+LodChain::select	A	v:3 g:42ea9865 g:42496166 g:410b0128 g:451e6a18	i:0	chain 10 at 2534.6309
+LodChain::select	A	v:3 g:42ea9865 g:42496166 g:410b0128 g:4296f482	i:0	chain 10 at 75.477554
+LodChain::select	A	v:3 g:42ea9865 g:42496166 g:410b0128 g:4296f483	i:0	chain 10 at 75.47756
+LodChain::select	A	v:3 g:42ea9865 g:42496166 g:410b0128 g:4296f484	i:0	chain 10 at 75.47757
+LodChain::select	A	v:1 g:4239354e g:00000000	i:0	chain 11 at 0.0
+LodChain::select	A	v:1 g:4239354e g:80000000	i:0	chain 11 at -0.0
+LodChain::select	A	v:1 g:4239354e g:bf800000	i:0	chain 11 at -1.0
+LodChain::select	A	v:1 g:4239354e g:7fc00000	i:0	chain 11 at NaN
+LodChain::select	A	v:1 g:4239354e g:7f800000	i:0	chain 11 at inf
+LodChain::select	A	v:1 g:4239354e g:7f7fffff	i:0	chain 11 at 3.4028235e38
+LodChain::select	A	v:1 g:4239354e g:4505fe15	i:0	chain 11 at 2143.8801
+LodChain::select	A	v:1 g:4239354e g:4505fe16	i:0	chain 11 at 2143.8804
+LodChain::select	A	v:1 g:4239354e g:4505fe17	i:0	chain 11 at 2143.8806
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:00000000	i:0	chain 12 at 0.0
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:80000000	i:0	chain 12 at -0.0
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:bf800000	i:0	chain 12 at -1.0
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:7fc00000	i:5	chain 12 at NaN
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:7f800000	i:5	chain 12 at inf
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:7f7fffff	i:5	chain 12 at 3.4028235e38
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:46232fc1	i:0	chain 12 at 10443.938
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:46232fc2	i:0	chain 12 at 10443.939
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:46232fc3	i:1	chain 12 at 10443.94
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:466438a7	i:1	chain 12 at 14606.163
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:466438a8	i:1	chain 12 at 14606.164
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:466438a9	i:5	chain 12 at 14606.165
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:4622f1fd	i:0	chain 12 at 10428.497
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:4622f1fe	i:0	chain 12 at 10428.498
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:4622f1ff	i:0	chain 12 at 10428.499
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:4567fcc1	i:0	chain 12 at 3711.797
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:4567fcc2	i:0	chain 12 at 3711.7974
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:4567fcc3	i:0	chain 12 at 3711.7976
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:4561f78b	i:0	chain 12 at 3615.4714
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:4561f78c	i:0	chain 12 at 3615.4717
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:4561f78d	i:0	chain 12 at 3615.472
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:444d2db4	i:0	chain 12 at 820.7141
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:444d2db5	i:0	chain 12 at 820.7142
+LodChain::select	A	v:6 g:42cc6425 g:42f1b641 g:42cc3d73 g:4273b2b6 g:427083e2 g:41e52f54 g:444d2db6	i:0	chain 12 at 820.71423
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:00000000	i:0	chain 13 at 0.0
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:80000000	i:0	chain 13 at -0.0
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:bf800000	i:0	chain 13 at -1.0
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:7fc00000	i:4	chain 13 at NaN
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:7f800000	i:4	chain 13 at inf
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:7f7fffff	i:4	chain 13 at 3.4028235e38
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:4437f652	i:0	chain 13 at 735.84875
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:4437f653	i:0	chain 13 at 735.8488
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:4437f654	i:1	chain 13 at 735.8489
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:45d519d8	i:1	chain 13 at 6819.2305
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:45d519d9	i:1	chain 13 at 6819.231
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:45d519da	i:4	chain 13 at 6819.2314
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:447eaaa9	i:1	chain 13 at 1018.66656
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:447eaaaa	i:1	chain 13 at 1018.6666
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:447eaaab	i:1	chain 13 at 1018.6667
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:45820062	i:1	chain 13 at 4160.048
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:45820063	i:1	chain 13 at 4160.0483
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:45820064	i:1	chain 13 at 4160.049
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:4640d6a7	i:4	chain 13 at 12341.663
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:4640d6a8	i:4	chain 13 at 12341.664
+LodChain::select	A	v:5 g:41d90324 g:42a52843 g:41ff551c g:4280ff33 g:42de2fa3 g:4640d6a9	i:4	chain 13 at 12341.665
+LodChain::select	A	v:1 g:42f3eaff g:00000000	i:0	chain 14 at 0.0
+LodChain::select	A	v:1 g:42f3eaff g:80000000	i:0	chain 14 at -0.0
+LodChain::select	A	v:1 g:42f3eaff g:bf800000	i:0	chain 14 at -1.0
+LodChain::select	A	v:1 g:42f3eaff g:7fc00000	i:0	chain 14 at NaN
+LodChain::select	A	v:1 g:42f3eaff g:7f800000	i:0	chain 14 at inf
+LodChain::select	A	v:1 g:42f3eaff g:7f7fffff	i:0	chain 14 at 3.4028235e38
+LodChain::select	A	v:1 g:42f3eaff g:466867f7	i:0	chain 14 at 14873.991
+LodChain::select	A	v:1 g:42f3eaff g:466867f8	i:0	chain 14 at 14873.992
+LodChain::select	A	v:1 g:42f3eaff g:466867f9	i:0	chain 14 at 14873.993
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:00000000	i:0	chain 15 at 0.0
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:80000000	i:0	chain 15 at -0.0
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:bf800000	i:0	chain 15 at -1.0
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:7fc00000	i:5	chain 15 at NaN
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:7f800000	i:5	chain 15 at inf
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:7f7fffff	i:5	chain 15 at 3.4028235e38
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:453fd16c	i:0	chain 15 at 3069.0889
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:453fd16d	i:0	chain 15 at 3069.089
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:453fd16e	i:2	chain 15 at 3069.0894
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:4521926b	i:0	chain 15 at 2585.1511
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:4521926c	i:0	chain 15 at 2585.1514
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:4521926d	i:0	chain 15 at 2585.1516
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:460c343f	i:2	chain 15 at 8973.062
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:460c3440	i:2	chain 15 at 8973.0625
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:460c3441	i:5	chain 15 at 8973.063
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:42d34514	i:0	chain 15 at 105.63492
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:42d34515	i:0	chain 15 at 105.634926
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:42d34516	i:0	chain 15 at 105.63493
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:452ce85a	i:0	chain 15 at 2766.522
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:452ce85b	i:0	chain 15 at 2766.5222
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:452ce85c	i:0	chain 15 at 2766.5225
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:450e07f6	i:0	chain 15 at 2272.4976
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:450e07f7	i:0	chain 15 at 2272.4978
+LodChain::select	A	v:6 g:425d98f2 g:424b60a6 g:42bd73d7 g:41247238 g:42526416 g:423eaed2 g:450e07f8	i:0	chain 15 at 2272.498
+LodChain::select	A	v:2 g:42d866d5 g:42613c1e g:00000000	i:0	chain 16 at 0.0
+LodChain::select	A	v:2 g:42d866d5 g:42613c1e g:80000000	i:0	chain 16 at -0.0
+LodChain::select	A	v:2 g:42d866d5 g:42613c1e g:bf800000	i:0	chain 16 at -1.0
+LodChain::select	A	v:2 g:42d866d5 g:42613c1e g:7fc00000	i:1	chain 16 at NaN
+LodChain::select	A	v:2 g:42d866d5 g:42613c1e g:7f800000	i:1	chain 16 at inf
+LodChain::select	A	v:2 g:42d866d5 g:42613c1e g:7f7fffff	i:1	chain 16 at 3.4028235e38
+LodChain::select	A	v:2 g:42d866d5 g:42613c1e g:4636edb0	i:0	chain 16 at 11707.422
+LodChain::select	A	v:2 g:42d866d5 g:42613c1e g:4636edb1	i:0	chain 16 at 11707.423
+LodChain::select	A	v:2 g:42d866d5 g:42613c1e g:4636edb2	i:1	chain 16 at 11707.424
+LodChain::select	A	v:2 g:42d866d5 g:42613c1e g:45462aba	i:0	chain 16 at 3170.6704
+LodChain::select	A	v:2 g:42d866d5 g:42613c1e g:45462abb	i:0	chain 16 at 3170.6707
+LodChain::select	A	v:2 g:42d866d5 g:42613c1e g:45462abc	i:0	chain 16 at 3170.671
+LodChain::select	A	v:1 g:419b23cc g:00000000	i:0	chain 17 at 0.0
+LodChain::select	A	v:1 g:419b23cc g:80000000	i:0	chain 17 at -0.0
+LodChain::select	A	v:1 g:419b23cc g:bf800000	i:0	chain 17 at -1.0
+LodChain::select	A	v:1 g:419b23cc g:7fc00000	i:0	chain 17 at NaN
+LodChain::select	A	v:1 g:419b23cc g:7f800000	i:0	chain 17 at inf
+LodChain::select	A	v:1 g:419b23cc g:7f7fffff	i:0	chain 17 at 3.4028235e38
+LodChain::select	A	v:1 g:419b23cc g:43bc08bb	i:0	chain 17 at 376.0682
+LodChain::select	A	v:1 g:419b23cc g:43bc08bc	i:0	chain 17 at 376.06824
+LodChain::select	A	v:1 g:419b23cc g:43bc08bd	i:0	chain 17 at 376.06827
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:00000000	i:0	chain 18 at 0.0
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:80000000	i:0	chain 18 at -0.0
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:bf800000	i:0	chain 18 at -1.0
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:7fc00000	i:3	chain 18 at NaN
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:7f800000	i:3	chain 18 at inf
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:7f7fffff	i:3	chain 18 at 3.4028235e38
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:435638de	i:0	chain 18 at 214.22214
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:435638df	i:0	chain 18 at 214.22215
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:435638e0	i:1	chain 18 at 214.22217
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:4512a24a	i:1	chain 18 at 2346.143
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:4512a24b	i:1	chain 18 at 2346.1433
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:4512a24c	i:2	chain 18 at 2346.1436
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:45e20a39	i:2	chain 18 at 7233.278
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:45e20a3a	i:2	chain 18 at 7233.2783
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:45e20a3b	i:3	chain 18 at 7233.279
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:4400dec3	i:1	chain 18 at 515.48065
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:4400dec4	i:1	chain 18 at 515.4807
+LodChain::select	A	v:4 g:416a2e68 g:4241bf7e g:42aa18ed g:41b5a234 g:4400dec5	i:1	chain 18 at 515.4808
+LodChain::select	A	v:1 g:42a633fd g:00000000	i:0	chain 19 at 0.0
+LodChain::select	A	v:1 g:42a633fd g:80000000	i:0	chain 19 at -0.0
+LodChain::select	A	v:1 g:42a633fd g:bf800000	i:0	chain 19 at -1.0
+LodChain::select	A	v:1 g:42a633fd g:7fc00000	i:0	chain 19 at NaN
+LodChain::select	A	v:1 g:42a633fd g:7f800000	i:0	chain 19 at inf
+LodChain::select	A	v:1 g:42a633fd g:7f7fffff	i:0	chain 19 at 3.4028235e38
+LodChain::select	A	v:1 g:42a633fd g:45d7ceec	i:0	chain 19 at 6905.865
+LodChain::select	A	v:1 g:42a633fd g:45d7ceed	i:0	chain 19 at 6905.8657
+LodChain::select	A	v:1 g:42a633fd g:45d7ceee	i:0	chain 19 at 6905.866
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:00000000	i:0	chain 20 at 0.0
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:80000000	i:0	chain 20 at -0.0
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:bf800000	i:0	chain 20 at -1.0
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:7fc00000	i:4	chain 20 at NaN
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:7f800000	i:4	chain 20 at inf
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:7f7fffff	i:4	chain 20 at 3.4028235e38
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:45e8485c	i:0	chain 20 at 7433.045
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:45e8485d	i:0	chain 20 at 7433.0454
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:45e8485e	i:4	chain 20 at 7433.046
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:4422df19	i:0	chain 20 at 651.4859
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:4422df1a	i:0	chain 20 at 651.48596
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:4422df1b	i:0	chain 20 at 651.486
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:4488840d	i:0	chain 20 at 1092.1266
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:4488840e	i:0	chain 20 at 1092.1267
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:4488840f	i:0	chain 20 at 1092.1268
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:45191bd7	i:0	chain 20 at 2449.74
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:45191bd8	i:0	chain 20 at 2449.7402
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:45191bd9	i:0	chain 20 at 2449.7405
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:4667a3c2	i:4	chain 20 at 14824.939
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:4667a3c3	i:4	chain 20 at 14824.94
+LodChain::select	A	v:5 g:42ac6e23 g:41cc319c g:4204307a g:4245faba g:42f383f3 g:4667a3c4	i:4	chain 20 at 14824.941
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:00000000	i:0	chain 21 at 0.0
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:80000000	i:0	chain 21 at -0.0
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:bf800000	i:0	chain 21 at -1.0
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:7fc00000	i:4	chain 21 at NaN
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:7f800000	i:4	chain 21 at inf
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:7f7fffff	i:4	chain 21 at 3.4028235e38
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:42cbf552	i:0	chain 21 at 101.97914
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:42cbf553	i:0	chain 21 at 101.97915
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:42cbf554	i:1	chain 21 at 101.97916
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:4676a95e	i:1	chain 21 at 15786.342
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:4676a95f	i:1	chain 21 at 15786.343
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:4676a960	i:4	chain 21 at 15786.344
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:4511165c	i:1	chain 21 at 2321.3975
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:4511165d	i:1	chain 21 at 2321.3977
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:4511165e	i:1	chain 21 at 2321.398
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:4456269a	i:1	chain 21 at 856.60315
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:4456269b	i:1	chain 21 at 856.6032
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:4456269c	i:1	chain 21 at 856.6033
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:464a180a	i:1	chain 21 at 12934.01
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:464a180b	i:1	chain 21 at 12934.011
+LodChain::select	A	v:5 g:41219358 g:42fb4995 g:4240b93a g:41ea246c g:42e374a1 g:464a180c	i:1	chain 21 at 12934.012
+LodChain::select	A	v:3 g:429a2169 g:4221bc2e g:42ece359 g:00000000	i:0	chain 22 at 0.0
+LodChain::select	A	v:3 g:429a2169 g:4221bc2e g:42ece359 g:80000000	i:0	chain 22 at -0.0
+LodChain::select	A	v:3 g:429a2169 g:4221bc2e g:42ece359 g:bf800000	i:0	chain 22 at -1.0
+LodChain::select	A	v:3 g:429a2169 g:4221bc2e g:42ece359 g:7fc00000	i:2	chain 22 at NaN
+LodChain::select	A	v:3 g:429a2169 g:4221bc2e g:42ece359 g:7f800000	i:2	chain 22 at inf
+LodChain::select	A	v:3 g:429a2169 g:4221bc2e g:42ece359 g:7f7fffff	i:2	chain 22 at 3.4028235e38
+LodChain::select	A	v:3 g:429a2169 g:4221bc2e g:42ece359 g:45b9986c	i:0	chain 22 at 5939.0527
+LodChain::select	A	v:3 g:429a2169 g:4221bc2e g:42ece359 g:45b9986d	i:0	chain 22 at 5939.053
+LodChain::select	A	v:3 g:429a2169 g:4221bc2e g:42ece359 g:45b9986e	i:2	chain 22 at 5939.0537
+LodChain::select	A	v:3 g:429a2169 g:4221bc2e g:42ece359 g:44cc5c77	i:0	chain 22 at 1634.8895
+LodChain::select	A	v:3 g:429a2169 g:4221bc2e g:42ece359 g:44cc5c78	i:0	chain 22 at 1634.8896
+LodChain::select	A	v:3 g:429a2169 g:4221bc2e g:42ece359 g:44cc5c79	i:0	chain 22 at 1634.8898
+LodChain::select	A	v:3 g:429a2169 g:4221bc2e g:42ece359 g:465b33f5	i:2	chain 22 at 14028.989
+LodChain::select	A	v:3 g:429a2169 g:4221bc2e g:42ece359 g:465b33f6	i:2	chain 22 at 14028.99
+LodChain::select	A	v:3 g:429a2169 g:4221bc2e g:42ece359 g:465b33f7	i:2	chain 22 at 14028.991
+LodChain::select	A	v:2 g:42f365f7 g:422a8bea g:00000000	i:0	chain 23 at 0.0
+LodChain::select	A	v:2 g:42f365f7 g:422a8bea g:80000000	i:0	chain 23 at -0.0
+LodChain::select	A	v:2 g:42f365f7 g:422a8bea g:bf800000	i:0	chain 23 at -1.0
+LodChain::select	A	v:2 g:42f365f7 g:422a8bea g:7fc00000	i:1	chain 23 at NaN
+LodChain::select	A	v:2 g:42f365f7 g:422a8bea g:7f800000	i:1	chain 23 at inf
+LodChain::select	A	v:2 g:42f365f7 g:422a8bea g:7f7fffff	i:1	chain 23 at 3.4028235e38
+LodChain::select	A	v:2 g:42f365f7 g:422a8bea g:46676abb	i:0	chain 23 at 14810.683
+LodChain::select	A	v:2 g:42f365f7 g:422a8bea g:46676abc	i:0	chain 23 at 14810.684
+LodChain::select	A	v:2 g:42f365f7 g:422a8bea g:46676abd	i:1	chain 23 at 14810.685
+LodChain::select	A	v:2 g:42f365f7 g:422a8bea g:44e33c3d	i:0	chain 23 at 1817.8824
+LodChain::select	A	v:2 g:42f365f7 g:422a8bea g:44e33c3e	i:0	chain 23 at 1817.8826
+LodChain::select	A	v:2 g:42f365f7 g:422a8bea g:44e33c3f	i:0	chain 23 at 1817.8827
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:00000000	i:0	chain 24 at 0.0
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:80000000	i:0	chain 24 at -0.0
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:bf800000	i:0	chain 24 at -1.0
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:7fc00000	i:4	chain 24 at NaN
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:7f800000	i:4	chain 24 at inf
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:7f7fffff	i:4	chain 24 at 3.4028235e38
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:46377249	i:0	chain 24 at 11740.571
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:4637724a	i:0	chain 24 at 11740.572
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:4637724b	i:2	chain 24 at 11740.573
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:43e2c269	i:0	chain 24 at 453.51883
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:43e2c26a	i:0	chain 24 at 453.51886
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:43e2c26b	i:0	chain 24 at 453.5189
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:465edc4a	i:2	chain 24 at 14263.072
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:465edc4b	i:2	chain 24 at 14263.073
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:465edc4c	i:4	chain 24 at 14263.074
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:460e883e	i:0	chain 24 at 9122.061
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:460e883f	i:0	chain 24 at 9122.062
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:460e8840	i:0	chain 24 at 9122.0625
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:45ee713e	i:0	chain 24 at 7630.1553
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:45ee713f	i:0	chain 24 at 7630.156
+LodChain::select	A	v:5 g:42d8b535 g:41aa5e2c g:42eedb31 g:42bf04db g:42aeb397 g:45ee7140	i:0	chain 24 at 7630.1563
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c1ad8fb8 g:41c3f388 g:42b0a81a v:3 g:42020b90 g:c2d82baa g:42b3e7e4	i:2	case 0
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2cabb44 g:c21c6ea4 g:c2b1d24e v:3 g:c1a94f98 g:c28bba46 g:42b1eb00	i:2	case 1
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2131294 g:c2c17c54 g:42a673b6 v:3 g:c2a77734 g:c2aad820 g:c24ebb24	i:2	case 2
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2db3a84 g:c2c53b2e g:42df63c4 v:3 g:c1ed6bc0 g:c260af04 g:c2372390	i:2	case 3
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c1d44670 g:c1a4ccc8 g:c20caef4 v:3 g:c1f1fb80 g:42331070 g:4144b440	i:2	case 4
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42ee223a g:c2549568 g:c2e29a58 v:3 g:41ee99d8 g:42e310c8 g:42b7e6a8	i:2	case 5
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:425b3344 g:c26b8a4c g:c2069988 v:3 g:c2344bc4 g:c19eb708 g:42647d4c	i:2	case 6
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:413154f0 g:42064f74 g:42789478 v:3 g:c2ba6d0c g:41b0f950 g:418bf4f0	i:2	case 7
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:424f3ae4 g:41565990 g:c29449e4 v:3 g:42b004ec g:c2ef5ca0 g:c2b89eba	i:2	case 8
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c09f7d00 g:42bc8714 g:c08b0fe0 v:3 g:c2e488ee g:42b81b5a g:4296fda2	i:2	case 9
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42a9e2f2 g:41803198 g:c20d2a50 v:3 g:42900366 g:c1813f98 g:c2ff7914	i:2	case 10
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42d2aaf2 g:c167d180 g:c2987e16 v:3 g:4289ef1e g:4256e564 g:c249a748	i:2	case 11
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:41c80108 g:c232470c g:42499058 v:3 g:c2d67a56 g:c0186dc0 g:c2a11e36	i:2	case 12
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42cd960a g:418c0f28 g:422fce48 v:3 g:c2c1bd7a g:42957e66 g:c28c18bc	i:2	case 13
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c23b3e6c g:c2aee8da g:c2afe0a2 v:3 g:c2916b6a g:42c6488e g:42a515fa	i:2	case 14
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c23fbc74 g:c2fa61a6 g:4190f4a0 v:3 g:426aa604 g:423049cc g:c2fbc89e	i:2	case 15
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2b5c0bc g:c241da74 g:c2dc7ee8 v:3 g:41481b70 g:428c76c2 g:c2d84a78	i:2	case 16
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42d8c8b0 g:4278e658 g:c2b0aca0 v:3 g:c19ce588 g:c1a1e3c0 g:42ee4c1c	i:2	case 17
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2dbd490 g:c2d61a66 g:c2252aa4 v:3 g:c0a47fe0 g:4043f100 g:c2563eb0	i:2	case 18
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2b5998c g:c2b1e2aa g:c2c62d88 v:3 g:c2373a34 g:42fcdffc g:42fd660a	i:2	case 19
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4281a972 g:40e4f760 g:c0864580 v:3 g:c2a24d02 g:42c025c8 g:42e511d4	i:2	case 20
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:41be8560 g:42345d80 g:42973258 v:3 g:c280dfae g:c21aff54 g:c2a2197a	i:2	case 21
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c276b49c g:c28a3842 g:423d6748 v:3 g:42b4b00e g:c28490f8 g:42927b9e	i:2	case 22
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4226d828 g:c1f8c978 g:42a695a6 v:3 g:c1a212f0 g:c258f428 g:4289bc70	i:2	case 23
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c116ae90 g:42b81564 g:c26e787c v:3 g:c2149218 g:42df4be8 g:42a654be	i:2	case 24
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:429e1ec8 g:42e0f7f4 g:c250af10 v:3 g:428065fe g:c21707e0 g:425f4530	i:2	case 25
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4284d988 g:c2d73126 g:c2e3578a v:3 g:c1842b08 g:c2bd27b4 g:c1f666f0	i:2	case 26
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c180aad0 g:42e06d9a g:4073c140 v:3 g:c002a040 g:c2a1ab24 g:c2be91a6	i:2	case 27
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c0e68a00 g:4281a16e g:c2bb7036 v:3 g:42dac1c0 g:4234f698 g:42e4e0d2	i:2	case 28
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42ccfebe g:c0d4c940 g:425f8e70 v:3 g:c187dad0 g:42b74310 g:c2ce74d8	i:2	case 29
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c183c4f0 g:42db2f16 g:420f7478 v:3 g:c178d7e0 g:c2b885ba g:c2aab380	i:2	case 30
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c256f4c0 g:be1e5800 g:c295df76 v:3 g:bfadc880 g:c2abcbee g:c22d2d90	i:2	case 31
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4221f6d0 g:c2ed7c7c g:c2a8c186 v:3 g:42114b84 g:42e4db0c g:42b17e46	i:2	case 32
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42c29728 g:428be988 g:429edb2c v:3 g:42e45d04 g:4238caf0 g:42132d0c	i:2	case 33
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2a6b330 g:c2fc4d60 g:42a90da6 v:3 g:c1918e90 g:c1e545c0 g:420450a4	i:2	case 34
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:41974c80 g:421ff590 g:417c3c70 v:3 g:41758b10 g:c2650a24 g:c2ed7476	i:2	case 35
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4288a8b4 g:c24ce87c g:40e83b00 v:3 g:c2fbd980 g:c2a904c8 g:c2eca810	i:2	case 36
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42ec7c26 g:42862ede g:42054534 v:3 g:c162e2b0 g:c20785b4 g:c2b1f4f8	i:2	case 37
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42a0a48e g:429ccff2 g:c23d43f0 v:3 g:c254dc54 g:c2adb7ae g:c1bc7bd8	i:2	case 38
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:426a4fbc g:420aad54 g:4288b056 v:3 g:42f80472 g:42803418 g:c243eef4	i:2	case 39
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42eedd00 g:4223055c g:4242d9a8 v:3 g:c2f15d2e g:40923a20 g:426cc37c	i:2	case 40
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42f97d86 g:413bb820 g:411d2fa0 v:3 g:42fedf90 g:c24097b0 g:c2ce2844	i:2	case 41
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:429e4746 g:410da820 g:42c11bc8 v:3 g:42c1b2fe g:c27bf758 g:c2746828	i:2	case 42
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42e05130 g:42fac02c g:c1d01658 v:3 g:c1ef00b8 g:42f0adc2 g:c26ac130	i:2	case 43
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42f5e304 g:42e1be08 g:423dd348 v:3 g:c238c688 g:c2f78b96 g:42fb2004	i:2	case 44
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:414c34c0 g:4247e2d8 g:429aa3bc v:3 g:c1c90860 g:c2e01cd8 g:41842e90	i:2	case 45
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42006588 g:c13e2f10 g:c2cae4a0 v:3 g:c29a9f0a g:c0b4b460 g:40fc7ce0	i:2	case 46
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c207b824 g:42c7056a g:c2da720e v:3 g:428abb3c g:42713bb4 g:423681e4	i:2	case 47
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42b6991c g:c0496680 g:c27d96d8 v:3 g:c223dfa4 g:42f9dc88 g:42f70966	i:2	case 48
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:415f50a0 g:c15d35e0 g:41793d70 v:3 g:42e70bd4 g:c24fb87c g:c2b8948a	i:2	case 49
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c291beb6 g:42a7c2a4 g:417991e0 v:3 g:c2db5bec g:421354e8 g:c2ab53bc	i:2	case 50
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2a78d66 g:c29c2ffa g:c284afd0 v:3 g:c2ff36a4 g:c2e21bee g:42303958	i:2	case 51
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:420cad5c g:c15325b0 g:c25a7470 v:3 g:c29bae76 g:4091be60 g:c1d7d0b0	i:2	case 52
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c154fba0 g:40b52440 g:c289bd4a v:3 g:422adeb8 g:42d74d74 g:4255a338	i:2	case 53
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2ab3dd4 g:42e0588c g:c21bd474 v:3 g:42849cba g:c111dca0 g:41adf6f0	i:2	case 54
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2eaaf6c g:c2ae8434 g:420ad6c0 v:3 g:c05435c0 g:c28f0cc8 g:c2f7f628	i:2	case 55
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2d93bce g:42569bc4 g:c1f2a810 v:3 g:c151a0c0 g:c25eb288 g:c2edae10	i:2	case 56
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c24b9f88 g:4226d8a0 g:42628df0 v:3 g:c22609bc g:42bb6048 g:c1c3a910	i:2	case 57
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2a63c3e g:c2ad46ea g:c23916f4 v:3 g:c1d03090 g:c228d0b8 g:42caafe6	i:2	case 58
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42770200 g:c1ab12d8 g:c2aeab3c v:3 g:42a8373a g:41dcf038 g:c2afba50	i:2	case 59
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2d2d6d4 g:c29f0120 g:c2fb9ab2 v:3 g:41f6f7d8 g:3fc9ef80 g:42f80a88	i:2	case 60
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:424bf150 g:c2e64f26 g:c249dd34 v:3 g:c2091e60 g:41fa7ea8 g:c1497880	i:2	case 61
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4222dbb0 g:c287482a g:42f1b8ec v:3 g:c211e738 g:c19f99d0 g:c2b97d1a	i:2	case 62
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c163d3f0 g:4286c6fa g:42f2b996 v:3 g:c24dd2b8 g:416da2b0 g:4276957c	i:2	case 63
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:420234b8 g:42abc318 g:c1639a00 v:3 g:c2a9a092 g:40345e00 g:c2bbae70	i:2	case 64
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c28f1498 g:c2ac7d94 g:c19fef40 v:3 g:421e43f0 g:c257d9a8 g:426156b8	i:2	case 65
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:41b87508 g:4291d64a g:c233b938 v:3 g:42500fcc g:c290a116 g:42cee8de	i:2	case 66
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c1f56ce0 g:c289b758 g:42803a48 v:3 g:42a79a0e g:42dc955a g:42a8d5a2	i:2	case 67
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c0e42be0 g:4286db7c g:4134fd60 v:3 g:c2690fc8 g:42ea4fae g:c2de9e62	i:2	case 68
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42986342 g:42203dd8 g:3f633e00 v:3 g:42978514 g:42c5a618 g:c13ba450	i:2	case 69
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:411251d0 g:c1b49088 g:42a27c74 v:3 g:41c74a70 g:c2bb7ec4 g:42984ba8	i:2	case 70
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:41e57b30 g:42f7d46a g:42c5d362 v:3 g:c2f0a2e6 g:c27bf180 g:42eae7ba	i:2	case 71
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42fd7f9e g:41c48ef0 g:c233a4c0 v:3 g:c292a224 g:c2669454 g:c2e3c25a	i:2	case 72
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2057690 g:c2d5f14e g:42a5bbb4 v:3 g:c2a1555a g:c2da314e g:c0a89700	i:2	case 73
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42e2322a g:42fa09fa g:404d6880 v:3 g:c2dee72a g:c2deadda g:c13fe550	i:2	case 74
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2c2bfe2 g:c2b5bb9e g:42d21100 v:3 g:423cc4f0 g:c23f98c0 g:42a9951a	i:2	case 75
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:410e2550 g:c23032b8 g:c258d800 v:3 g:c1cdfe50 g:41a58e50 g:415cac40	i:2	case 76
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42c679d8 g:c25094e0 g:c22eb420 v:3 g:41f29440 g:42c0ccac g:42068b34	i:2	case 77
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2774354 g:4207ade4 g:c23e27a0 v:3 g:42a0841c g:c2ca19a6 g:42842144	i:2	case 78
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2ae28d0 g:42de9620 g:412a6420 v:3 g:c2df2e94 g:424ab290 g:c1fa65d8	i:2	case 79
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c27d9084 g:c28185f6 g:c2ea811e v:3 g:c1b83928 g:42dd4cf4 g:c2f3992c	i:2	case 80
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c293cc0a g:bffc8880 g:4275df70 v:3 g:c2ae57ea g:42dc41b4 g:c1d83c80	i:2	case 81
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c28e53f6 g:420f5edc g:42968dfc v:3 g:c1d85ce0 g:c2bb9bb6 g:41291410	i:2	case 82
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:423e4808 g:421337bc g:41d025b0 v:3 g:42fc2070 g:4228ce28 g:42384360	i:2	case 83
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2c8d39e g:41924730 g:c267209c v:3 g:c1e7c5d0 g:42e8ba64 g:42971396	i:2	case 84
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:420c8084 g:c24d9344 g:429788da v:3 g:42c87e68 g:4234c81c g:c2948430	i:2	case 85
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42e5c036 g:42f41266 g:c2a2e720 v:3 g:42a8e4d0 g:41ac4780 g:42b6b02c	i:2	case 86
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:405d5f40 g:c174a060 g:426b30b0 v:3 g:c1cb7520 g:42ed4b68 g:c20a5f0c	i:2	case 87
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2e107e6 g:4244d3c4 g:410bd760 v:3 g:c19b9c20 g:c1edc210 g:42c9c050	i:2	case 88
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42963d68 g:41738d10 g:42d15b1a v:3 g:4282d21e g:c0e02660 g:c1b86518	i:2	case 89
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42c6df6a g:c29a2390 g:42b468fe v:3 g:42a56a1a g:c0c2d7c0 g:c09e7ec0	i:2	case 90
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c267e4ec g:428113e0 g:42f35640 v:3 g:c2764df0 g:c26d534c g:41cc5258	i:2	case 91
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:426e2b18 g:424d0824 g:c1cf0220 v:3 g:c2d034d8 g:c1336320 g:417a5970	i:2	case 92
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2b2c8b4 g:c137a8c0 g:42cad428 v:3 g:4175ee90 g:4254b858 g:c2b2661c	i:2	case 93
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2177a90 g:c268f3b8 g:424ac42c v:3 g:c1a9b930 g:c291d63c g:42925334	i:1	case 94
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:415065c0 g:c2bfa334 g:417a27b0 v:3 g:41fd4c68 g:42afda20 g:c2ccedb6	i:2	case 95
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42a5d6f0 g:c12d0f70 g:41ee1b78 v:3 g:4281c882 g:40c59e00 g:41b31dd0	i:1	case 96
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c292e570 g:428eaa3c g:c1db29d0 v:3 g:42c74cd8 g:c29f4a3a g:c1497b20	i:2	case 97
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c1e28f40 g:419906a0 g:c21d2820 v:3 g:42ea6fa0 g:41b64eb0 g:bf1f0200	i:2	case 98
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4297ab3a g:41c5af80 g:c2e2b740 v:3 g:4281cf78 g:c29dd8a2 g:42e60fd4	i:2	case 99
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2edf590 g:c2e5f0d2 g:c0d6f400 v:3 g:c26a9d48 g:420cd26c g:c2e152ca	i:2	case 100
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c1900710 g:427e623c g:bdc02000 v:3 g:42b0b960 g:c2ddaf08 g:42be8dd4	i:2	case 101
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:427f6118 g:c1d22240 g:c25b2304 v:3 g:42f81332 g:42fd212e g:c28f233c	i:2	case 102
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:422efd38 g:c152c230 g:c2d1ff74 v:3 g:42ec0494 g:c2883d7c g:41754ae0	i:2	case 103
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2f18bca g:422fd718 g:418b2688 v:3 g:42f7fb78 g:c2feaf02 g:c2c1cb44	i:2	case 104
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2859462 g:c2cd0524 g:423d3544 v:3 g:c21ae7cc g:41681140 g:42339180	i:2	case 105
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c213e5f8 g:c2bae140 g:bd12f000 v:3 g:c19d8468 g:c1caa818 g:c25d4c14	i:2	case 106
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c197c5b8 g:41b28198 g:c2806ebe v:3 g:c208fd98 g:422e7598 g:c2eeffd8	i:2	case 107
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:40f2a460 g:c2d99f3e g:42d309ec v:3 g:c219b9b4 g:c2a7d182 g:42d81b32	i:2	case 108
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2dee8a8 g:42c7d09c g:c1853828 v:3 g:c26f2a64 g:c1b945c8 g:42855ba2	i:2	case 109
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:428558a0 g:c29d2c5e g:418b5aa0 v:3 g:c005dfc0 g:42ddc112 g:c239a934	i:2	case 110
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4206c33c g:c2b6786e g:c2c27ebe v:3 g:c29b9fa2 g:42e8e454 g:c092dc20	i:2	case 111
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:416acf10 g:c2ccabd4 g:41963ac0 v:3 g:c264a378 g:c2feac62 g:41ad1cd8	i:2	case 112
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c110a7a0 g:421889ac g:c08568e0 v:3 g:c20b047c g:c235cc58 g:c0422000	i:2	case 113
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:421608c0 g:42b7aa3c g:42539b70 v:3 g:c2318340 g:c1c032b0 g:c2d8ef16	i:2	case 114
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4284f054 g:42161f74 g:42cf977c v:3 g:412cbfa0 g:404cfd00 g:c2904816	i:2	case 115
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4025da40 g:423dbe68 g:42b16624 v:3 g:c29aeaf6 g:42bdf1e8 g:c2a10af2	i:2	case 116
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4223c568 g:41be63c8 g:409fbb80 v:3 g:420880f8 g:4293ee4a g:42c3b4c6	i:2	case 117
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2176ad8 g:425a7a58 g:414bff70 v:3 g:c115c640 g:408ebb00 g:c237f124	i:2	case 118
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2fc227a g:c22bbbbc g:4252c078 v:3 g:42128a94 g:428e4c20 g:42c2d000	i:2	case 119
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c26a89a8 g:c2852590 g:c2a875a2 v:3 g:c1e0aec8 g:c24dc4dc g:42f43232	i:2	case 120
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4298416a g:c21037d8 g:3fe2d200 v:3 g:42b653d8 g:42bd1966 g:c2a56f8e	i:2	case 121
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42ff2b54 g:c2b52dc2 g:4293fa7c v:3 g:42dffce2 g:c1b58358 g:40d4a8a0	i:2	case 122
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:bf6cb900 g:42c01fba g:4296a4d8 v:3 g:40c56780 g:42de3462 g:42c07370	i:1	case 123
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2fc7732 g:42f8f8c4 g:42a79346 v:3 g:42505bbc g:41e98130 g:c2c58ba6	i:2	case 124
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2d8488a g:c2360b38 g:c287a556 v:3 g:c28c41a8 g:41f5be38 g:c23a0690	i:2	case 125
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c07eaf40 g:c1a55e08 g:42c4a9aa v:3 g:42d12afc g:42e4f1c4 g:42da7f34	i:2	case 126
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2b16296 g:c1b8c4b8 g:c28edfd4 v:3 g:416cc300 g:c2e354ba g:42a19da8	i:2	case 127
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2cb154e g:42507940 g:c1fd0420 v:3 g:c2bdc4bc g:c2870e38 g:c1a5d720	i:2	case 128
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:40a66a80 g:414edf10 g:c2e3547a v:3 g:c2d2eb3a g:42c3c602 g:c2c61de6	i:2	case 129
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2b4622a g:41673040 g:c2427408 v:3 g:4020a600 g:42ae274a g:4284b528	i:2	case 130
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:424b9ecc g:41701190 g:418058d8 v:3 g:42d087e6 g:4207e714 g:42deaa54	i:2	case 131
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42906b18 g:c2bafb24 g:42e36748 v:3 g:41e0b208 g:42b47924 g:c2912458	i:2	case 132
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:3fef4900 g:c2ef74ea g:42d8d2f4 v:3 g:42861a2a g:c197d278 g:c2e9d04e	i:2	case 133
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42e2a214 g:c2d74cb6 g:4278e3b4 v:3 g:42d9a20c g:41da5e48 g:42120390	i:2	case 134
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2f3f3ec g:c2c2f7b0 g:c2e8664e v:3 g:3e616400 g:42c4e3a0 g:429e8208	i:2	case 135
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42a1c8c2 g:4226f4d8 g:42e6d1b6 v:3 g:c1d40f68 g:c2aa73ba g:42965da8	i:2	case 136
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42a32eea g:c2cf386c g:42f503ee v:3 g:425425ec g:be831600 g:c2cee92a	i:2	case 137
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2f3aeec g:c248eed0 g:c2dad720 v:3 g:427fd284 g:c2c9a196 g:412d6280	i:2	case 138
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c22630dc g:c29afaca g:c2152740 v:3 g:c2140844 g:c2a35afc g:c2c5c2ce	i:2	case 139
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2ef3a96 g:c124d560 g:4281ae54 v:3 g:c26d1768 g:c25391e4 g:42c1f81c	i:2	case 140
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42551eec g:415cbfa0 g:40df95a0 v:3 g:c29a041c g:c2c5dd60 g:c241b970	i:2	case 141
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c18fa4b8 g:c29fad76 g:c2f01848 v:3 g:4246b858 g:c16d39a0 g:42fc1d52	i:2	case 142
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:41a2e540 g:427fca74 g:3f9de700 v:3 g:42d57c40 g:4227474c g:c21522e0	i:2	case 143
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2f17a68 g:c1a06100 g:42f114f2 v:3 g:42fd209e g:42d483b2 g:c2389134	i:2	case 144
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c19ac4f8 g:3fb5cc00 g:426b896c v:3 g:c2efe996 g:c298b088 g:bcb08000	i:2	case 145
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c1f34a18 g:c2059eb8 g:42d073cc v:3 g:4150bd60 g:c1089b40 g:42ff20ae	i:2	case 146
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c216c9f8 g:c22670c0 g:c2a2e704 v:3 g:423fa710 g:c12566d0 g:425db0d0	i:2	case 147
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c22cea3c g:c203b6b4 g:c2a2f5fa v:3 g:41d234f8 g:c2e2d8e0 g:409e3b60	i:2	case 148
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c18810c8 g:426f9780 g:42189ef0 v:3 g:c1dae008 g:c2801cbe g:42cd43f2	i:2	case 149
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c286f9f8 g:c2c997d4 g:42ee8aac v:3 g:3fe1d100 g:421a07d4 g:42f88ad2	i:2	case 150
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c07f5580 g:c221f41c g:c2af289c v:3 g:421b402c g:c247b3ec g:c29e01fe	i:1	case 151
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42a1c4fe g:42148b08 g:3fae1b80 v:3 g:405eac40 g:c2a4698c g:42cbc020	i:2	case 152
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2e5dffc g:4199b680 g:c29a5156 v:3 g:c2fcf78e g:42e30a16 g:42de5a9a	i:2	case 153
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2c4957e g:c2b1bcee g:c29e7a46 v:3 g:c2865d7e g:c2e811b0 g:c2f2e372	i:2	case 154
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c24bf350 g:c2bb646c g:426e11b0 v:3 g:c28251de g:428b816e g:4144cd30	i:2	case 155
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42b1ad94 g:41c05f68 g:42e0ad28 v:3 g:418f9a18 g:42897d7c g:42bbe3f8	i:2	case 156
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c14ebdd0 g:c2f38c22 g:c200510c v:3 g:c2e1e3fc g:425e74b8 g:c2840e66	i:2	case 157
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2681be8 g:c2bf7322 g:c0ed9080 v:3 g:c2f77fa4 g:c2ba71d4 g:42b479c8	i:2	case 158
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:420f51ec g:41c6fd28 g:426f4238 v:3 g:c2d86d0e g:40d93a60 g:4186bca0	i:2	case 159
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c26d5c0c g:4120cbc0 g:41e22ad8 v:3 g:4253972c g:c23fdf18 g:c2a57fba	i:2	case 160
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2b1c0b4 g:404d23c0 g:41e0b138 v:3 g:c2385efc g:41964640 g:c28b604e	i:2	case 161
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:427e1a70 g:42b1132a g:c287a4ba v:3 g:c2dc4830 g:42913f32 g:c2bbe79e	i:2	case 162
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42b69de8 g:41f715c0 g:c2a419ba v:3 g:c2e6b88a g:42870474 g:c2bce616	i:2	case 163
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42dd6ba8 g:c2be4dba g:c20c9228 v:3 g:c2e68c72 g:42ee417e g:c1e58fe0	i:2	case 164
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c1f97958 g:c2283868 g:42f21452 v:3 g:c0799f80 g:42fec824 g:c2774564	i:2	case 165
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42e2b6c6 g:c0ac9700 g:c19c9090 v:3 g:c1c3b190 g:c126a070 g:425937a8	i:2	case 166
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c1f029d0 g:c2468ad8 g:c2046094 v:3 g:c280225c g:41fa3950 g:42852482	i:2	case 167
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c1d10838 g:41787370 g:c2eb8024 v:3 g:42efca5e g:4224bfa8 g:c1804c30	i:2	case 168
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c19097f0 g:c1bd0898 g:42eedd26 v:3 g:41e0df98 g:c2790b94 g:c06caf40	i:2	case 169
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:41e1e5c8 g:42f99f8a g:c2e4d226 v:3 g:c25b9b14 g:41a62fc8 g:c092b740	i:2	case 170
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c098f8e0 g:42de7b64 g:c2d02582 v:3 g:c2c46f92 g:c2c50884 g:c21c51d4	i:2	case 171
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4283d8d8 g:c2dabcf8 g:c2b94d3a v:3 g:c28c5d8c g:4272c56c g:42bdba72	i:2	case 172
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2c4da38 g:c2adbc06 g:4298a974 v:3 g:bfd2d400 g:42ed5d9e g:42648e70	i:2	case 173
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4240cc10 g:c2c2386a g:42b305be v:3 g:411674d0 g:4192e388 g:427e68c8	i:2	case 174
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42bd4c06 g:42216558 g:40db4920 v:3 g:42d578aa g:4221a754 g:c2349964	i:2	case 175
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c1a3aa60 g:42b48d7a g:c2b32834 v:3 g:42f6764c g:42f400ac g:40e5d1a0	i:2	case 176
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42b109e0 g:c0859060 g:c2f12874 v:3 g:c2a6747a g:c132d170 g:c2a34b1e	i:2	case 177
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42881524 g:40390c00 g:c0c2f040 v:3 g:41f0d728 g:c2bfdafc g:c28078f2	i:2	case 178
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42fd367e g:41f44f68 g:c2ab8c28 v:3 g:424ac46c g:c28dc97a g:c2586c20	i:2	case 179
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42f1c34e g:c28f9f76 g:c0fa8860 v:3 g:c2b8ec1c g:428cc09e g:42a52c76	i:2	case 180
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c29206fc g:c2b3e7fc g:424904e8 v:3 g:41ff1e48 g:42d2270e g:42c9ad30	i:2	case 181
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c19b4c40 g:c2f51b3e g:c2843c76 v:3 g:42bc475e g:42b15c30 g:c1f2ded8	i:2	case 182
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42b1d316 g:c2c6b370 g:c18627b8 v:3 g:42879a2a g:c2d9705c g:42f9bf6e	i:2	case 183
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2e1ca56 g:c2856bbe g:42af2586 v:3 g:42a53e4e g:c2775b1c g:42c37872	i:2	case 184
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:41857c80 g:42e3142a g:4247be14 v:3 g:42f87fea g:c26bb53c g:c1aa37d8	i:2	case 185
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4130a580 g:c21e1778 g:c28779c8 v:3 g:42c6255c g:c2d40034 g:c1c0bc30	i:2	case 186
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42de163e g:42ca8e08 g:42033d98 v:3 g:c2282c1c g:c262d4a0 g:c22bf01c	i:2	case 187
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c1ab75e0 g:428fe5b2 g:4262caac v:3 g:c2b5fc22 g:42c184d6 g:42824a78	i:2	case 188
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c27e3cc8 g:c2b47f2a g:42376fd0 v:3 g:4283db0a g:42a08bea g:c2f96e98	i:2	case 189
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c26b11b8 g:42056e50 g:42cad9e8 v:3 g:42a8f330 g:c28e0476 g:c296b5a0	i:2	case 190
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2ccf8a0 g:c1954758 g:4207f9bc v:3 g:429354fc g:42b0df04 g:c2ce9276	i:2	case 191
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:41f83a28 g:42cab1f4 g:c25246ac v:3 g:c26d4160 g:c2edd672 g:42f18046	i:2	case 192
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c0a5dae0 g:c1f67638 g:428f17e0 v:3 g:c2a9263e g:c2247d30 g:c282e5c2	i:2	case 193
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2e00b42 g:42980c88 g:c24b5c84 v:3 g:429995f2 g:42f1473e g:c2ffd3a4	i:2	case 194
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42d2467e g:c2ee73c6 g:c2ab7978 v:3 g:c1b53980 g:c2e90db2 g:c2dadf30	i:2	case 195
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42a661e8 g:c2e6aa00 g:c13ae570 v:3 g:c18f4cb8 g:c252ca90 g:41a9ae68	i:2	case 196
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42661cfc g:c141dd60 g:4189db50 v:3 g:c2f3f60e g:42f2d54c g:42514040	i:2	case 197
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:40b5de60 g:c2c6cfaa g:42edb778 v:3 g:c213fb2c g:41b67268 g:424ba124	i:2	case 198
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c29a9e3e g:418072d8 g:404b9d80 v:3 g:c281349a g:c28198ce g:c2e67dfc	i:2	case 199
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c25da8f8 g:4210defc g:c2929bb8 v:3 g:c0c06e60 g:411fcec0 g:c1cea4d8	i:2	case 200
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2bf44a6 g:42fdcde4 g:c2e42670 v:3 g:c2f9af62 g:42fbe86e g:42f189a6	i:2	case 201
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c28e0d82 g:42717f80 g:42b47fd2 v:3 g:42934e8c g:c174c300 g:42a5b440	i:2	case 202
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42cce3b0 g:c2a481ee g:427392dc v:3 g:4287e662 g:c09612a0 g:c2811daa	i:2	case 203
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2a773de g:42f15960 g:42a86dd2 v:3 g:42dfccde g:42a05774 g:c2e8ab52	i:2	case 204
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:41c94220 g:c2e74fc4 g:420520f4 v:3 g:c2dca60c g:41045ec0 g:c2352d9c	i:2	case 205
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2a096e8 g:42a34826 g:42de8110 v:3 g:c2eb5e74 g:c21a8ce0 g:c2eb5438	i:2	case 206
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:422eacf0 g:c1ac6628 g:42b3b416 v:3 g:427e209c g:427a7e24 g:423a1448	i:2	case 207
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2ccfbf8 g:c20b9968 g:c2465a08 v:3 g:c2d0cd4c g:c27a3154 g:c2c52578	i:2	case 208
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2e4c720 g:42ebe560 g:42dc5824 v:3 g:429ac9ae g:c2d8d184 g:41af0e80	i:2	case 209
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2e7da46 g:411d3bd0 g:42f6bd00 v:3 g:42960430 g:c2b50f64 g:c20bd6f8	i:2	case 210
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42a5c492 g:42d0055c g:c1c53388 v:3 g:c2adcb04 g:4200daa4 g:c23836c0	i:2	case 211
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:41e47ae8 g:c258f854 g:c2fffa94 v:3 g:c0d3fb40 g:c2c9bf0e g:42f7f8ac	i:2	case 212
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2a57c82 g:424025b8 g:42d9fece v:3 g:c2173bc0 g:c23c08ec g:42a5919c	i:2	case 213
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2d69a8e g:c212de70 g:4119c720 v:3 g:423aaf88 g:423fa520 g:422702d4	i:2	case 214
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:404d0c80 g:c29faafa g:c2865626 v:3 g:429a5240 g:42db43dc g:c2c73804	i:2	case 215
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42701b54 g:42b646ee g:424016e8 v:3 g:c2f5bbaa g:4225a9d0 g:42c2df80	i:2	case 216
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2dc7d02 g:42f27c2c g:42e9d940 v:3 g:c2064ad4 g:c19c70a0 g:427251f8	i:2	case 217
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42c80520 g:c2a4b98c g:411163a0 v:3 g:c2bbc282 g:42a42e1c g:c2639c34	i:2	case 218
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2dfb758 g:c2999976 g:c2504d3c v:3 g:c14492f0 g:c2a493d2 g:42833eca	i:2	case 219
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2922fd2 g:c19a0220 g:4221cfcc v:3 g:3fcdf700 g:c2d5491c g:c0e24f40	i:2	case 220
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2c3cd26 g:42849ce8 g:c2e523a4 v:3 g:c00d7440 g:be8cd000 g:c12c9830	i:2	case 221
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:424c0e4c g:4204a1d8 g:42617ef0 v:3 g:42496108 g:414c1690 g:c21287f0	i:2	case 222
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:40090500 g:c1e246f8 g:c257316c v:3 g:c26b86f4 g:c2751278 g:3e2f4400	i:2	case 223
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2b2322a g:c20bf0f4 g:c2fa1d1c v:3 g:41de5548 g:c269ed80 g:42032348	i:2	case 224
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42beaf26 g:c2995bba g:42dc32ee v:3 g:c02c9b00 g:c27755e8 g:428c4c06	i:2	case 225
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2b69ebc g:c1d08120 g:c252d4c0 v:3 g:424aff1c g:c202db2c g:42ad7b74	i:2	case 226
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42bac7b4 g:41c85748 g:c16b2780 v:3 g:42685d5c g:42bc4aea g:42217174	i:2	case 227
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2552d24 g:422b3134 g:c08a2e40 v:3 g:424af438 g:c2f74e56 g:c2840c38	i:2	case 228
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:40eb27a0 g:41b60060 g:42a07ca8 v:3 g:415e3400 g:41f5f240 g:42b091f6	i:1	case 229
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:41ef7e30 g:c0abec80 g:3f363900 v:3 g:40291640 g:c2ea4b20 g:42e8a0f8	i:2	case 230
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c1782b60 g:42ffffb0 g:4252a8d0 v:3 g:417878e0 g:c1b3b528 g:4219c618	i:2	case 231
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c145e1d0 g:41de9bc8 g:42b5a824 v:3 g:c2a5192e g:c2be02f4 g:c2d8eef2	i:2	case 232
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42d3331e g:421cdc10 g:c2f8b2d6 v:3 g:42d1764c g:42c95bcc g:4201f1dc	i:2	case 233
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42c61b20 g:c20235b0 g:42389ec4 v:3 g:420f1234 g:c202f474 g:c27999c4	i:2	case 234
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2427244 g:c2e40484 g:42330b00 v:3 g:c1f1b9e8 g:c160b190 g:42a6b6ae	i:2	case 235
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4284d866 g:42eb0790 g:42c4b12c v:3 g:4202a030 g:c25b9b34 g:c1a4eae0	i:2	case 236
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c208e22c g:c2f3a76a g:c093bf00 v:3 g:42a84af8 g:c1acad78 g:4242f704	i:2	case 237
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2f907ee g:c141ec20 g:40f5cfc0 v:3 g:c2743948 g:c1d9ec48 g:c289698a	i:2	case 238
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2b5394a g:428c6982 g:425fdc40 v:3 g:c11ecaf0 g:c23714d8 g:42b0a9d4	i:2	case 239
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c27f3658 g:4194f800 g:c2b6c99e v:3 g:42bd3fb4 g:42e0905e g:c2576964	i:2	case 240
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:40bf7ba0 g:c29e1d14 g:41f7c878 v:3 g:c2d76f12 g:c2af3740 g:c1e9f4d8	i:2	case 241
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:41b51590 g:c2a25c08 g:c28c54b8 v:3 g:42b04726 g:c0d2bc80 g:42d9f3c8	i:2	case 242
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:41e04f60 g:41c5a468 g:c282b05a v:3 g:c2573000 g:c2a09bc4 g:c2de0434	i:2	case 243
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c28c3ef4 g:c169ca10 g:c27b92d8 v:3 g:42897514 g:414ec7c0 g:41f51808	i:2	case 244
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:421269f8 g:c2c163ac g:4287a50c v:3 g:c2bd1b60 g:c1761b00 g:c2051800	i:2	case 245
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c24e7800 g:c28aea56 g:c2a39a74 v:3 g:c299dbae g:c2fb372e g:c0d4e140	i:2	case 246
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2cde414 g:c23b8e7c g:c2c381f8 v:3 g:3fa97b00 g:429ca3b2 g:c0fbc840	i:2	case 247
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2e3581c g:c2c6046a g:bf81a880 v:3 g:c1ec79d8 g:c20e0b94 g:c2ae3c20	i:2	case 248
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2f30926 g:c2935f18 g:c20b4d0c v:3 g:42e06bba g:c250af58 g:c2b14b58	i:2	case 249
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2cfaf40 g:c24789a4 g:c23dd430 v:3 g:c0925c60 g:c2b7628c g:c0be9700	i:2	case 250
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c22376fc g:c2d2fb2c g:c2e9a63c v:3 g:42b202e0 g:42b5e254 g:41c13670	i:2	case 251
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42dc3d74 g:c2d4a17a g:413c8f40 v:3 g:c182a230 g:c252ff94 g:40f38e80	i:2	case 252
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2838ebe g:c1cc65a8 g:c22fd620 v:3 g:c28a2b1e g:c26e08f8 g:c291e0dc	i:1	case 253
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42d1013c g:c2644b38 g:42ae516c v:3 g:c2b0f8ae g:42bbb9a8 g:42f646ae	i:2	case 254
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c276b1e8 g:c25508a4 g:c2a72c38 v:3 g:c26dab58 g:c2f488b2 g:42e6ffe8	i:2	case 255
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:419f4e78 g:c2fceec8 g:42b36444 v:3 g:c226dde0 g:42f85ae6 g:4161d0e0	i:2	case 256
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c1004370 g:42502b84 g:42bbc752 v:3 g:42c534fe g:c1a440a8 g:4156b970	i:2	case 257
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2304af8 g:c2e8610c g:42b18950 v:3 g:c1cde698 g:424c543c g:42b8e6a4	i:2	case 258
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:41f860f8 g:4142f9c0 g:41bcd988 v:3 g:42407a90 g:c2e17166 g:c1e82938	i:2	case 259
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4219289c g:429e4e8a g:c1c84a80 v:3 g:c215db38 g:41a2e5b0 g:c2bd299e	i:2	case 260
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c23f9ffc g:4214a67c g:c1d28210 v:3 g:421ca72c g:c2612088 g:c244b9e4	i:2	case 261
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c1f65d90 g:42df2be6 g:c2d99ec4 v:3 g:c2d938ea g:42474950 g:c24527bc	i:2	case 262
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42bd5884 g:42bd7ac4 g:c2aa3fc0 v:3 g:428bcf6a g:c2d8f4f8 g:42e509de	i:2	case 263
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c29d07fc g:42bdae74 g:c1585410 v:3 g:429cf00e g:c19e6780 g:42864a18	i:2	case 264
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2a50028 g:c18e82d0 g:c2ec0c08 v:3 g:c0cc1c40 g:42439e64 g:c0e36a80	i:2	case 265
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2ea4318 g:410cda60 g:428b5100 v:3 g:4235ed08 g:c2c220e8 g:427b9f7c	i:2	case 266
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:424528f8 g:c24ce6c8 g:c2e31ca2 v:3 g:42fef228 g:c2a1df3c g:42d1a488	i:2	case 267
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c294fc90 g:c2844d6e g:c1bd61b8 v:3 g:c2723744 g:c2d628fa g:c27d03b0	i:2	case 268
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42987ef0 g:c26640c0 g:c2a2e73e v:3 g:42f580ea g:c2c9ef28 g:c2d56b2e	i:2	case 269
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c1c7f198 g:c25d2728 g:3fd68a80 v:3 g:c1526860 g:c2af6c4e g:c28b0e8a	i:2	case 270
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4223c4a8 g:40ff8900 g:427963f0 v:3 g:4202bb74 g:42da6188 g:c2c2389e	i:2	case 271
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42e5b6ca g:c1749fd0 g:c25e0e2c v:3 g:42d48c4e g:c2bf1d16 g:40e709c0	i:2	case 272
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c29453fe g:42dea60a g:c0975460 v:3 g:c28e4d38 g:c2871ad2 g:c132a030	i:2	case 273
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42600b4c g:c190c5d0 g:c28459c2 v:3 g:42755240 g:42330ec4 g:429c9652	i:2	case 274
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2008c90 g:429b9ae2 g:428cbcb6 v:3 g:4234c4dc g:42d99c5a g:c286d1ea	i:2	case 275
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:428ab3c4 g:c2e62fba g:42da2ad2 v:3 g:421dc1f8 g:42d66f54 g:41a64340	i:2	case 276
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2cf10b4 g:c0103000 g:4087e300 v:3 g:421ee83c g:c1884670 g:c1b06d10	i:2	case 277
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2789ddc g:c21faf14 g:c2eaf0da v:3 g:429fc102 g:42e0b8a2 g:c25bf12c	i:2	case 278
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c0ccf880 g:42eb6bf4 g:c1cff2e8 v:3 g:c239936c g:42d68d2e g:c2f5ac9e	i:2	case 279
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2c1d644 g:42a941be g:c1b9b058 v:3 g:42d44dda g:c284005a g:42a84674	i:2	case 280
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2e061d8 g:c2d961c8 g:c278a5b4 v:3 g:41ca89e0 g:42eb2eb2 g:c22ebdc4	i:2	case 281
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c28c5544 g:42545950 g:c2b2052a v:3 g:c28e57d0 g:42187eb8 g:4291764a	i:2	case 282
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2b2a78a g:c297fc54 g:42cc50d2 v:3 g:42c8733c g:4252be94 g:426d4b74	i:2	case 283
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2cde778 g:40fbd900 g:40de9e80 v:3 g:c287a258 g:c21b4bec g:42c9f9d2	i:2	case 284
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2a89528 g:420288f8 g:424a6698 v:3 g:c286df2a g:42a7742e g:c2da87c0	i:2	case 285
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42baff02 g:42d8805e g:42fddbbc v:3 g:c2a97022 g:41c1eae8 g:c2700120	i:2	case 286
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42b2d674 g:42c2095c g:c1d11820 v:3 g:422b0dd4 g:4211f7fc g:42d709ea	i:2	case 287
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4247bd10 g:c228d300 g:c2720e14 v:3 g:4252ae90 g:c2a45204 g:3e8e4c00	i:2	case 288
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2bcd722 g:c2dc2c50 g:42dfe56a v:3 g:c2cb092a g:c2bd59b0 g:40993f60	i:2	case 289
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2f76370 g:c2447abc g:428fc0b0 v:3 g:c03e4240 g:42cad4f8 g:c1e10ff0	i:2	case 290
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:429d25f0 g:42b9553e g:42a97542 v:3 g:41cec1c8 g:40c62480 g:42fb8bbc	i:2	case 291
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:416a7cb0 g:c2ab5a88 g:c2de591a v:3 g:42b8031c g:c298a5fc g:427d7e68	i:2	case 292
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c20cb618 g:c1c89468 g:42011bb0 v:3 g:41a6e4b0 g:c2f846e4 g:c2ae1b70	i:2	case 293
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2625ae0 g:c21cf8f4 g:c2925e52 v:3 g:bdb32800 g:42af521c g:c2f4020c	i:2	case 294
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2f99a4e g:42f49662 g:c2d318be v:3 g:42bb63b6 g:42844d1e g:42a3147c	i:2	case 295
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c0e55ac0 g:42c22a30 g:412a4e80 v:3 g:42a70e36 g:c28a47da g:bfe4e200	i:2	case 296
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:42ce2f6c g:42f001e0 g:c26161f4 v:3 g:423fa720 g:c07b4500 g:c2548c80	i:2	case 297
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:c2e81e16 g:bf8c1700 g:c2aab874 v:3 g:40bdcca0 g:c29f1722 g:429d99ce	i:2	case 298
+LodChain::select_from_positions	A	v:3 g:41200000 g:42480000 g:43480000 v:3 g:4252b598 g:c2844bfc g:c2b08a14 v:3 g:c2bcc780 g:c1e7d540 g:c12adb00	i:2	case 299
+TerrainLod::new	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000	i:1	terrain 0: Ok
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:00000000	i:64	terrain 0 at 0.0
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:bf800000	i:64	terrain 0 at -1.0
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:7fc00000	i:8	terrain 0 at NaN
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:7f800000	i:8	terrain 0 at inf
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:4479c000	i:8	terrain 0 at 999.0
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:41f00000	i:64	terrain 0 at 30.0
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:42960000	i:32	terrain 0 at 75.0
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:43160000	i:16	terrain 0 at 150.0
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:43960000	i:8	terrain 0 at 300.0
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:4247ffff	i:64	terrain 0 at 49.999996
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:42480000	i:64	terrain 0 at 50.0
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:42480001	i:32	terrain 0 at 50.000004
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:42c7ffff	i:32	terrain 0 at 99.99999
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:42c80000	i:32	terrain 0 at 100.0
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:42c80001	i:16	terrain 0 at 100.00001
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:4347ffff	i:16	terrain 0 at 199.99998
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:43480000	i:16	terrain 0 at 200.0
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:43480001	i:8	terrain 0 at 200.00002
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:43f9ffff	i:8	terrain 0 at 499.99997
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:43fa0000	i:8	terrain 0 at 500.0
+TerrainLod::select_resolution	A	v:4 i:64 i:32 i:16 i:8 v:4 g:42480000 g:42c80000 g:43480000 g:43fa0000 g:43fa0001	i:8	terrain 0 at 500.00003
+TerrainLod::new	A	v:2 i:64 i:8 v:2 g:42480000 g:43480000	i:1	terrain 1: Ok
+TerrainLod::select_resolution	A	v:2 i:64 i:8 v:2 g:42480000 g:43480000 g:00000000	i:64	terrain 1 at 0.0
+TerrainLod::select_resolution	A	v:2 i:64 i:8 v:2 g:42480000 g:43480000 g:bf800000	i:64	terrain 1 at -1.0
+TerrainLod::select_resolution	A	v:2 i:64 i:8 v:2 g:42480000 g:43480000 g:7fc00000	i:8	terrain 1 at NaN
+TerrainLod::select_resolution	A	v:2 i:64 i:8 v:2 g:42480000 g:43480000 g:7f800000	i:8	terrain 1 at inf
+TerrainLod::select_resolution	A	v:2 i:64 i:8 v:2 g:42480000 g:43480000 g:4479c000	i:8	terrain 1 at 999.0
+TerrainLod::select_resolution	A	v:2 i:64 i:8 v:2 g:42480000 g:43480000 g:41f00000	i:64	terrain 1 at 30.0
+TerrainLod::select_resolution	A	v:2 i:64 i:8 v:2 g:42480000 g:43480000 g:42960000	i:8	terrain 1 at 75.0
+TerrainLod::select_resolution	A	v:2 i:64 i:8 v:2 g:42480000 g:43480000 g:43160000	i:8	terrain 1 at 150.0
+TerrainLod::select_resolution	A	v:2 i:64 i:8 v:2 g:42480000 g:43480000 g:43960000	i:8	terrain 1 at 300.0
+TerrainLod::select_resolution	A	v:2 i:64 i:8 v:2 g:42480000 g:43480000 g:4247ffff	i:64	terrain 1 at 49.999996
+TerrainLod::select_resolution	A	v:2 i:64 i:8 v:2 g:42480000 g:43480000 g:42480000	i:64	terrain 1 at 50.0
+TerrainLod::select_resolution	A	v:2 i:64 i:8 v:2 g:42480000 g:43480000 g:42480001	i:8	terrain 1 at 50.000004
+TerrainLod::select_resolution	A	v:2 i:64 i:8 v:2 g:42480000 g:43480000 g:4347ffff	i:8	terrain 1 at 199.99998
+TerrainLod::select_resolution	A	v:2 i:64 i:8 v:2 g:42480000 g:43480000 g:43480000	i:8	terrain 1 at 200.0
+TerrainLod::select_resolution	A	v:2 i:64 i:8 v:2 g:42480000 g:43480000 g:43480001	i:8	terrain 1 at 200.00002
+TerrainLod::new	A	v:0 v:0	i:1	terrain 2: Ok
+TerrainLod::select_resolution	A	v:0 v:0 g:00000000	i:8	terrain 2 at 0.0
+TerrainLod::select_resolution	A	v:0 v:0 g:bf800000	i:8	terrain 2 at -1.0
+TerrainLod::select_resolution	A	v:0 v:0 g:7fc00000	i:8	terrain 2 at NaN
+TerrainLod::select_resolution	A	v:0 v:0 g:7f800000	i:8	terrain 2 at inf
+TerrainLod::select_resolution	A	v:0 v:0 g:4479c000	i:8	terrain 2 at 999.0
+TerrainLod::select_resolution	A	v:0 v:0 g:41f00000	i:8	terrain 2 at 30.0
+TerrainLod::select_resolution	A	v:0 v:0 g:42960000	i:8	terrain 2 at 75.0
+TerrainLod::select_resolution	A	v:0 v:0 g:43160000	i:8	terrain 2 at 150.0
+TerrainLod::select_resolution	A	v:0 v:0 g:43960000	i:8	terrain 2 at 300.0
+TerrainLod::new	A	v:3 i:64 i:32 i:16 v:2 g:42480000 g:42c80000	E:Pipeline	terrain 3: Err
+TerrainLod::new	A	v:1 i:64 v:3 g:42480000 g:42c80000 g:43480000	E:Pipeline	terrain 4: Err
+TerrainLod::new	A	v:1 i:7 v:1 g:7fc00000	i:1	terrain 5: Ok
+TerrainLod::select_resolution	A	v:1 i:7 v:1 g:7fc00000 g:00000000	i:7	terrain 5 at 0.0
+TerrainLod::select_resolution	A	v:1 i:7 v:1 g:7fc00000 g:bf800000	i:7	terrain 5 at -1.0
+TerrainLod::select_resolution	A	v:1 i:7 v:1 g:7fc00000 g:7fc00000	i:7	terrain 5 at NaN
+TerrainLod::select_resolution	A	v:1 i:7 v:1 g:7fc00000 g:7f800000	i:7	terrain 5 at inf
+TerrainLod::select_resolution	A	v:1 i:7 v:1 g:7fc00000 g:4479c000	i:7	terrain 5 at 999.0
+TerrainLod::select_resolution	A	v:1 i:7 v:1 g:7fc00000 g:41f00000	i:7	terrain 5 at 30.0
+TerrainLod::select_resolution	A	v:1 i:7 v:1 g:7fc00000 g:42960000	i:7	terrain 5 at 75.0
+TerrainLod::select_resolution	A	v:1 i:7 v:1 g:7fc00000 g:43160000	i:7	terrain 5 at 150.0
+TerrainLod::select_resolution	A	v:1 i:7 v:1 g:7fc00000 g:43960000	i:7	terrain 5 at 300.0

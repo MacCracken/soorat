@@ -1,0 +1,41 @@
+# integration.tcyr — the ported tests of Rust 1.2.0's tests/integration.rs. M1: the three that use colours and
+# vertices. The rest use sprites and batches (M2), the texture cache (M6) and the window configuration (M9).
+
+include "tests/lib.cyr"
+include "tests/support.cyr"
+
+# Runs the ported integration tests.
+fn main() {
+    alloc_init();
+    var hex = alloc(16);
+    var arr = alloc(16);
+    var back = alloc(16);
+
+    test_group("color_conversions");
+    SrColor_from_hex(0x336699FF, hex);
+    SrColor_to_array(hex, arr);
+    SrColor_from_array4(arr, back);
+    var tol: f64 = 0.01;
+    assert(t_near(t_f(hex, 0), t_f(back, 0), tol) == 1, "r");
+    assert(t_near(t_f(hex, 1), t_f(back, 1), tol) == 1, "g");
+    assert(t_near(t_f(hex, 2), t_f(back, 2), tol) == 1, "b");
+
+    test_group("vertex_sizes");
+    assert_eq(sizeof(SrVertex2D), 32, "Vertex2D");
+    assert_eq(sizeof(SrVertex3D), 48, "Vertex3D");
+
+    # A colour's array is a Vertex2D's color field: position (8 bytes), tex_coords (8), then color at 16.
+    test_group("vertex_color_interop");
+    var c = SrColor_from_hex(0xFF8040FF, alloc(16));
+    var v: SrVertex2D;
+    var vp = &v;
+    t_set4(vp, 0x41200000, 0x41A00000, 0, 0);
+    SrColor_to_array(c, vp + 16);
+    assert(t_arr_eq(vp + 16, c, 4) == 1, "color = c.to_array()");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

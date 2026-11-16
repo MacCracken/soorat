@@ -1,0 +1,110 @@
+# support.cyr — helpers the ported unit tests share (tests/*.tcyr include it after tests/lib.cyr).
+#
+# The Rust tests compare f32 values with `==` and `(a - b).abs() < tol`. Here an f32 is its bits, so these widen
+# it exactly to f64 and compare there; a tolerance check in f64 on widened f32 values gives the same verdict as
+# Rust's f32 check at every tolerance the tests use, except within an ulp of the bound.
+
+# 1 when the C strings a and b are equal.
+#must_use
+fn t_cs_eq(a, b): i64 {
+    var n = strlen(a);
+    if (n != strlen(b)) { return 0; }
+    return memeq(a, b, n);
+}
+
+# The f32 at p + 4·i, widened exactly to f64.
+#must_use
+fn t_f(p, i): f64 {
+    var x: f64 = f32_to(load32(p + i * 4));
+    return x;
+}
+
+# 1 when the f32 bits x are a NaN.
+#must_use
+fn t_is_nan32(x): i64 {
+    var b = x & 0xFFFFFFFF;
+    if ((b & 0x7F800000) == 0x7F800000 && (b & 0x007FFFFF) != 0) { return 1; }
+    return 0;
+}
+
+# 1 when none of the n f32 at p is a NaN.
+#must_use
+fn t_none_nan(p, n): i64 {
+    var i = 0;
+    while (i < n) {
+        if (t_is_nan32(load32(p + i * 4)) == 1) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+# 1 when |a − b| < tol.
+#must_use
+fn t_near(a: f64, b: f64, tol: f64): i64 {
+    var d: f64 = a - b;
+    if (d < 0.0) { d = 0.0 - d; }
+    if (d < tol) { return 1; }
+    return 0;
+}
+
+# 1 when the f32 at p + 4·i equals v as Rust's f32 `==` does (−0 == +0; NaN equals nothing).
+#must_use
+fn t_eq_at(p, i, v: f64): i64 {
+    var x: f64 = f32_to(load32(p + i * 4));
+    if (x == v) { return 1; }
+    return 0;
+}
+
+# 1 when the n f32 at a and b are equal as Rust's `[f32; n] == [f32; n]` is (element-wise f32 `==`).
+#must_use
+fn t_arr_eq(a, b, n): i64 {
+    var i = 0;
+    while (i < n) {
+        var x: f64 = f32_to(load32(a + i * 4));
+        var y: f64 = f32_to(load32(b + i * 4));
+        if (x != y) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+# Stores three f32 bit patterns at p.
+fn t_set3(p, a, b, c) {
+    store32(p, a);
+    store32(p + 4, b);
+    store32(p + 8, c);
+    return p;
+}
+
+# (a·b) of two f32 3-vectors, widened, in f64.
+#must_use
+fn t_dot3(a, b): f64 {
+    var a0: f64 = t_f(a, 0);
+    var a1: f64 = t_f(a, 1);
+    var a2: f64 = t_f(a, 2);
+    var b0: f64 = t_f(b, 0);
+    var b1: f64 = t_f(b, 1);
+    var b2: f64 = t_f(b, 2);
+    var r: f64 = ((a0 * b0) + (a1 * b1)) + (a2 * b2);
+    return r;
+}
+
+# 1 when every one of the n f32 at p is finite (not NaN, not ±∞).
+#must_use
+fn t_all_finite(p, n): i64 {
+    var i = 0;
+    while (i < n) {
+        if ((load32(p + i * 4) & 0x7F800000) == 0x7F800000) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+# Stores four f32 bit patterns at p.
+fn t_set4(p, a, b, c, d) {
+    store32(p, a);
+    store32(p + 4, b);
+    store32(p + 8, c);
+    store32(p + 12, d);
+    return p;
+}

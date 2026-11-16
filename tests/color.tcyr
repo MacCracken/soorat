@@ -1,0 +1,179 @@
+# color.tcyr — the ported tests of Rust 1.2.0's src/color.rs (M1 part b): 18 of its 23. `color_serde_roundtrip`
+# arrives with bayan and the four `optics` tests with prakash (M1 part b2). The golden rows (tests/golden/color.tsv,
+# 3,397) are replayed by tests/parity.tcyr.
+
+include "tests/lib.cyr"
+include "tests/support.cyr"
+
+# f32 bits (from rustc).
+var F0 = 0;
+var F1 = 0x3F800000;
+var F2 = 0x40000000;
+var FM1 = 0xBF800000;
+var F01 = 0x3DCCCCCD;
+var F02 = 0x3E4CCCCD;
+var F03 = 0x3E99999A;
+var F04 = 0x3ECCCCCD;
+var F025 = 0x3E800000;
+var F05 = 0x3F000000;
+var F06 = 0x3F19999A;
+var F07 = 0x3F333333;
+var FNAN = 0x7FC00000;
+var FINF = 0x7F800000;
+var FNINF = 0xFF800000;
+var F255 = 0x437F0000;
+
+# 1 when the four bytes at p are (a, b, c, d).
+#must_use
+fn bytes_are(p, a, b, c, d): i64 {
+    if (load8(p) == a && load8(p + 1) == b && load8(p + 2) == c && load8(p + 3) == d) { return 1; }
+    return 0;
+}
+
+# Runs the ported colour tests.
+fn main() {
+    alloc_init();
+    var c = alloc(16);
+    var d = alloc(16);
+    var e = alloc(16);
+    var arr = alloc(16);
+    var b8 = alloc(8);
+    var w = alloc(32);
+    var one: f64 = 1.0;
+    var zero: f64 = 0.0;
+
+    test_group("heat_map_and_signed_handle_nan");
+    sr_visualization_heat_map(FNAN, c);
+    sr_visualization_heat_map(F0, d);
+    assert(t_arr_eq(c, d, 4) == 1, "heat_map(NaN) = heat_map(0)");
+    assert(t_all_finite(c, 4) == 1, "heat_map(NaN) is finite");
+    sr_signed_value_color(FNAN, c);
+    sr_signed_value_color(F0, d);
+    assert(t_arr_eq(c, d, 4) == 1, "signed(NaN) = signed(0)");
+    assert(t_all_finite(sr_visualization_heat_map(FINF, c), 4) == 1, "heat_map(+inf) is finite");
+    assert(t_all_finite(sr_signed_value_color(FINF, c), 4) == 1, "signed(+inf) is finite");
+    assert(t_all_finite(sr_visualization_heat_map(FNINF, c), 4) == 1, "heat_map(-inf) is finite");
+    assert(t_all_finite(sr_signed_value_color(FNINF, c), 4) == 1, "signed(-inf) is finite");
+
+    test_group("to_rgba8_rounds_and_clamps");
+    assert(bytes_are(SrColor_to_rgba8(SR_COLOR_WHITE, b8), 255, 255, 255, 255) == 1, "white");
+    SrColor_new(F05, F0, F1, F025, c);
+    assert(bytes_are(SrColor_to_rgba8(c, b8), 128, 0, 255, 64) == 1, "0.5 rounds away from zero to 128");
+    SrColor_rgb(F2, FM1, FNAN, c);
+    assert(bytes_are(SrColor_to_rgba8(c, b8), 255, 0, 0, 255) == 1, "clamped, NaN -> 0");
+    SrColor_from_rgba8(12, 34, 56, 78, c);
+    assert(bytes_are(SrColor_to_rgba8(c, b8), 12, 34, 56, 78) == 1, "bytes round-trip");
+
+    test_group("color_constants");
+    assert(t_arr_eq(SrColor_to_array(SR_COLOR_WHITE, arr), t_set4(d, F1, F1, F1, F1), 4) == 1, "WHITE");
+    assert(t_arr_eq(SrColor_to_array(SR_COLOR_BLACK, arr), t_set4(d, F0, F0, F0, F1), 4) == 1, "BLACK");
+    assert(t_eq_at(SR_COLOR_TRANSPARENT, 3, zero) == 1, "TRANSPARENT.a = 0");
+
+    test_group("color_from_rgba8");
+    SrColor_from_rgba8(255, 128, 0, 255, c);
+    assert(t_near(t_f(c, 0), one, f32_to(0x34000000)) == 1, "r = 1");
+    var g128: f64 = 128.0 / 255.0;
+    assert(t_near(t_f(c, 1), g128, 0.001) == 1, "g = 128/255");
+    assert(t_eq_at(c, 2, zero) == 1, "b = 0");
+
+    test_group("color_from_hex");
+    SrColor_from_hex(0xFF0000FF, c);
+    assert(t_eq_at(c, 0, one) == 1, "r");
+    assert(t_eq_at(c, 1, zero) == 1, "g");
+    assert(t_eq_at(c, 2, zero) == 1, "b");
+    assert(t_eq_at(c, 3, one) == 1, "a");
+
+    test_group("color_lerp");
+    SrColor_lerp(SR_COLOR_BLACK, SR_COLOR_WHITE, F05, c);
+    var half: f64 = 0.5;
+    assert(t_near(t_f(c, 0), half, f32_to(0x34000000)) == 1, "r = 0.5");
+    assert(t_near(t_f(c, 1), half, f32_to(0x34000000)) == 1, "g = 0.5");
+
+    test_group("color_lerp_clamp");
+    SrColor_lerp(SR_COLOR_BLACK, SR_COLOR_WHITE, F2, c);
+    assert(t_eq_at(c, 0, one) == 1, "t clamped to 1");
+
+    test_group("color_from_array");
+    SrColor_from_array4(t_set4(arr, F01, F02, F03, F04), c);
+    assert(load32(c) == F01 && load32(c + 12) == F04, "[0.1, 0.2, 0.3, 0.4]");
+    SrColor_from_array3(t_set3(arr, F05, F06, F07), c);
+    assert(t_eq_at(c, 3, one) == 1, "[f32; 3] is opaque");
+
+    test_group("color_to_array");
+    assert(t_arr_eq(SrColor_to_array(SR_COLOR_RED, arr), t_set4(d, F1, F0, F0, F1), 4) == 1, "RED");
+
+    test_group("color_to_wgpu");
+    SrColor_to_wgpu(SR_COLOR_RED, w);
+    var wr: f64 = load64(w);
+    var wg: f64 = load64(w + 8);
+    assert(wr == one, "r = 1");
+    assert(wg == zero, "g = 0");
+
+    test_group("color_default");
+    assert(t_arr_eq(SrColor_default(c), SR_COLOR_WHITE, 4) == 1, "default is WHITE");
+
+    test_group("color_luminance");
+    var lw: f64 = f32_to(SrColor_luminance(SR_COLOR_WHITE));
+    assert(t_near(lw, one, 0.01) == 1, "white ≈ 1");
+    var lb: f64 = f32_to(SrColor_luminance(SR_COLOR_BLACK));
+    assert(lb == zero, "black = 0");
+    assert(_sr_f32_lt(SrColor_luminance(SR_COLOR_RED), SrColor_luminance(SR_COLOR_GREEN)) == 1, "red < green");
+
+    test_group("color_rgb_constructor");
+    SrColor_rgb(F01, F02, F03, c);
+    assert(load32(c) == F01 && load32(c + 4) == F02 && load32(c + 8) == F03, "r, g, b");
+    assert(t_eq_at(c, 3, one) == 1, "a = 1");
+
+    test_group("color_from_array_3");
+    SrColor_from_array3(t_set3(arr, F05, F06, F07), c);
+    assert(load32(c) == F05 && load32(c + 4) == F06 && load32(c + 8) == F07, "r, g, b");
+    assert(t_eq_at(c, 3, one) == 1, "a = 1");
+
+    test_group("color_lerp_boundaries");
+    assert(t_arr_eq(SrColor_lerp(SR_COLOR_RED, SR_COLOR_BLUE, F0, c), SR_COLOR_RED, 4) == 1, "t = 0");
+    assert(t_arr_eq(SrColor_lerp(SR_COLOR_RED, SR_COLOR_BLUE, F1, c), SR_COLOR_BLUE, 4) == 1, "t = 1");
+    assert(t_arr_eq(SrColor_lerp(SR_COLOR_RED, SR_COLOR_BLUE, FM1, c), SR_COLOR_RED, 4) == 1, "t < 0");
+
+    test_group("color_from_hex_zero");
+    assert(t_arr_eq(SrColor_from_hex(0, c), SR_COLOR_TRANSPARENT, 4) == 1, "0x00000000");
+
+    test_group("color_from_rgba8_boundary");
+    assert(t_arr_eq(SrColor_from_rgba8(0, 0, 0, 0, c), SR_COLOR_TRANSPARENT, 4) == 1, "zero");
+    assert(t_arr_eq(SrColor_from_rgba8(255, 255, 255, 255, c), SR_COLOR_WHITE, 4) == 1, "full");
+
+    test_group("color_rgba8_roundtrip");
+    var vals = alloc(48);
+    store64(vals, 0);
+    store64(vals + 8, 1);
+    store64(vals + 16, 127);
+    store64(vals + 24, 128);
+    store64(vals + 32, 254);
+    store64(vals + 40, 255);
+    var k = 0;
+    while (k < 6) {
+        var v = load64(vals + k * 8);
+        SrColor_from_rgba8(v, v, v, v, c);
+        var j = 0;
+        while (j < 4) {
+            var back = _sr_f32_to_u8(_sr_round32(ganita_f32_mul(load32(c + j * 4), F255)));
+            assert_eq(back, v, "u8 -> f32 -> u8");
+            j = j + 1;
+        }
+        k = k + 1;
+    }
+
+    # Cyrius-only: an out pointer may be an input, and the constants are what Rust's are.
+    test_group("cyrius: lerp in place, CORNFLOWER_BLUE");
+    SrColor_to_array(SR_COLOR_RED, e);
+    SrColor_lerp(e, SR_COLOR_BLUE, F05, e);
+    SrColor_lerp(SR_COLOR_RED, SR_COLOR_BLUE, F05, c);
+    assert(t_arr_eq(e, c, 4) == 1, "lerp(a, b, t, a)");
+    assert(load32(SR_COLOR_CORNFLOWER_BLUE) == 0x3EC8B439, "0.392f32");
+    assert_eq(sizeof(SrColor), 16, "SrColor is 16 bytes");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

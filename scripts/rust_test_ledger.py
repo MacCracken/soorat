@@ -59,7 +59,7 @@ FILES = {
     "src/instancing.rs": ("M1", ["tests/layout.tcyr"]),
     "src/lights.rs": ("M1", ["tests/lights.tcyr"]),
     "src/lod.rs": ("M1", ["tests/lod.tcyr"]),
-    "src/material.rs": ("M1", ["tests/material.tcyr"]),
+    "src/material.rs": ("M6", ["tests/material.tcyr"]),  # owns a GPU texture and bind group: with texture.rs (M6)
     "src/sprite.rs": ("M2", ["tests/sprite.tcyr"]),
     "src/text.rs": ("M2", ["tests/text.tcyr"]),
     "src/ui.rs": ("M2", ["tests/ui.tcyr"]),
@@ -102,6 +102,22 @@ FILES = {
 
 # (Rust file, test) -> its milestone, where it isn't its file's.
 TEST_MILESTONE = {
+    # error's `From<mabda::GpuError>` (M6): mabda, and with it the GPU_ERR_* codes, becomes a dependency at M6
+    # (`sr_error_from_gpu`, tests/error.tcyr). The rest of error.rs is M1.
+    ("src/error.rs", "from_gpu_error_adapter_not_found"): "M6",
+    ("src/error.rs", "from_gpu_error_surface_config"): "M6",
+    ("src/error.rs", "from_gpu_error_shader"): "M6",
+    ("src/error.rs", "from_gpu_error_pipeline"): "M6",
+    ("src/error.rs", "from_gpu_error_other_variants_fallback"): "M6",
+    # vertex and instancing (M6): their types are mabda's, re-exported; these tests exercise mabda's own methods
+    # (the vertex-buffer layout descriptor, InstanceData::default and from_translation), which soorat takes from
+    # mabda at M6. Their sizes and bytes are soorat's layouts (tests/layout.tcyr, M1).
+    ("src/vertex.rs", "vertex2d_layout_stride"): "M6",
+    ("src/vertex.rs", "vertex3d_layout_stride"): "M6",
+    ("src/instancing.rs", "instance_data_default"): "M6",
+    ("src/instancing.rs", "instance_data_translation"): "M6",
+    ("src/instancing.rs", "instance_data_layout"): "M6",
+    ("src/instancing.rs", "instance_data_batch_cast"): "M6",
     # debug_draw's line pipeline half (M6): the wgpu vertex-buffer layout descriptor.
     ("src/debug_draw.rs", "line_vertex_layout"): "M6",
     # environment's GPU half (M7): the IBL bind group and the cube map types. The other six are its CPU half (M4).
@@ -241,8 +257,13 @@ def uncalled(root, rel):
     text = path.read_text(encoding="utf-8")
     out = []
     for m in re.finditer(r"^fn (\w+)\(", text, re.M):
-        close = re.compile(r"^}", re.M).search(text, m.start())
-        end = close.end() if close else len(text)
+        line_end = text.find("\n", m.start())
+        line_end = len(text) if line_end < 0 else line_end
+        if text[m.start():line_end].rstrip().endswith("}"):
+            end = line_end  # a one-line function: `fn f(k): i64 { return …; }`
+        else:
+            close = re.compile(r"^}", re.M).search(text, m.start())
+            end = close.end() if close else len(text)
         if "test_group(" not in text[m.start():end]:
             continue
         rest = text[:m.start()] + text[end:]

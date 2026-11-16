@@ -14,33 +14,342 @@
 #   outputs, where those differ from Rust 1.2.0's;
 # - pending: its function isn't ported yet (no dispatcher entry).
 #
-# **M0:** nothing is ported, so every row is pending and the run exits 0. Each milestone adds its modules'
-# dispatchers here (`_par_<module>`), with the src files they need included above parity_core.
-# The exit code is the number of modules with a failure.
+# Each milestone adds its modules' dispatchers here (`_par_<module>`); the library comes in through tests/lib.cyr,
+# above parity_core. A function without a dispatcher entry is pending. The exit code is the number of modules with
+# a failure.
+# - M1 part a: `math` (all 8 functions) and `constants`' IDENTITY_MAT4.
+# - M1 part b: `color` (all but the `optics` functions), the colour constants, and `layout` (every GPU type, measured
+#   in Cyrius by tests/layout_probe.cyr).
+# - M1 part c: `lights` (the spot cones class C at 0 ulp against lights.cr.tsv) and `lod`; `constants`' MAX_LIGHTS.
 
+# The library first: a file that declares an `enum` (src/error.cyr) must be included before any top-level statement.
+include "tests/lib.cyr"
+include "tests/layout_probe.cyr"
 include "tests/ulp.cyr"
 
 alloc_init();
 
 include "tests/parity_core.cyr"
 
-# ── hooks ────────────────────────────────────────────────────────────────────────────
+# Scratch arrays for one row's f32 inputs and outputs (a matrix is 16 f32, 64 bytes).
+var _par_ga = alloc(64);
+var _par_gb = alloc(64);
+var _par_gc = alloc(64);
+var _par_gr = alloc(64);
+var _par_gu = alloc(64);
 
-# The Rust variant name of an `SR_ERR_*` code (src/error.cyr, from M1), which a golden `E:<Variant>` token names.
-#must_use
-fn _par_error_name(code): i64 {
-    return "Unknown";
+# Reads `v:n` then n `g:` tokens from token k into the f32 array buf. Returns the index of the token after them.
+fn _par_in_g32s(k, buf): i64 {
+    var n = _par_in(k);
+    var j = 0;
+    while (j < n) {
+        store32(buf + j * 4, _par_in(k + 1 + j));
+        j = j + 1;
+    }
+    return k + 1 + n;
 }
 
-# Fills the got list for one row: 1 handled, 0 pending, -1 unusable. M0: every function is pending.
-fn _par_dispatch(mp, ml, fp, fl): i64 {
-    _par_got_n = 0;
+# Appends `v:n` and the n f32 at buf to the got list.
+fn _par_got_g32s(buf, n) {
+    _par_got_seq(n);
+    var j = 0;
+    while (j < n) {
+        _par_got_g(load32(buf + j * 4));
+        j = j + 1;
+    }
     return 0;
 }
 
-# A class-C function's ulp bound, or -1 (measured). Set per function from M0 step 8's baselines.
+# ── constants (M1: IDENTITY_MAT4; the rest arrive with their modules) ────────────────
+
+fn _par_constants(fp, fl): i64 {
+    if (_par_eq(fp, fl, "const::MAX_LIGHTS") == 1) {
+        _par_got_i(SR_MAX_LIGHTS);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "const::IDENTITY_MAT4") == 1) {
+        _par_got_g32s(SR_IDENTITY_MAT4, 16);
+        return 1;
+    }
+    var c = 0;
+    if (_par_eq(fp, fl, "const::Color::WHITE") == 1) { c = SR_COLOR_WHITE; }
+    if (_par_eq(fp, fl, "const::Color::BLACK") == 1) { c = SR_COLOR_BLACK; }
+    if (_par_eq(fp, fl, "const::Color::RED") == 1) { c = SR_COLOR_RED; }
+    if (_par_eq(fp, fl, "const::Color::GREEN") == 1) { c = SR_COLOR_GREEN; }
+    if (_par_eq(fp, fl, "const::Color::BLUE") == 1) { c = SR_COLOR_BLUE; }
+    if (_par_eq(fp, fl, "const::Color::TRANSPARENT") == 1) { c = SR_COLOR_TRANSPARENT; }
+    if (_par_eq(fp, fl, "const::Color::CORNFLOWER_BLUE") == 1) { c = SR_COLOR_CORNFLOWER_BLUE; }
+    if (c != 0) {
+        _par_got_g32s(c, 4);
+        return 1;
+    }
+    return 0;
+}
+
+# ── layout (src/layout.cyr, measured by tests/layout_probe.cyr) ──────────────────────
+
+fn _par_layout(fp, fl): i64 {
+    var n = _lp_measure(fp, fl, _par_gr);
+    if (n < 0) { return 0; }
+    _par_got_i(load64(_par_gr));
+    _par_got_seq(n);
+    var k = 0;
+    while (k < n) {
+        _par_got_i(load64(_par_gr + 8 + k * 8));
+        k = k + 1;
+    }
+    return 1;
+}
+
+# ── lights (src/lights.cyr) ──────────────────────────────────────────────────────────
+
+var _par_la = alloc(16 * 64);
+var _par_lu = alloc(1024);
+
+fn _par_lights(fp, fl): i64 {
+    if (_par_eq(fp, fl, "GpuLight::directional") == 1) {
+        var k = _par_in_g32s(_par_in_g32s(0, _par_ga), _par_gb);
+        _par_got_g32s(SrGpuLight_directional(_par_ga, _par_gb, _par_in(k), _par_gr), 16);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "GpuLight::point") == 1) {
+        var kp = _par_in_g32s(_par_in_g32s(0, _par_ga), _par_gb);
+        _par_got_g32s(SrGpuLight_point(_par_ga, _par_gb, _par_in(kp), _par_in(kp + 1), _par_gr), 16);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "GpuLight::spot") == 1) {
+        var ks = _par_in_g32s(_par_in_g32s(_par_in_g32s(0, _par_ga), _par_gb), _par_gc);
+        SrGpuLight_spot(_par_ga, _par_gb, _par_gc, _par_in(ks), _par_in(ks + 1), _par_in(ks + 2), _par_in(ks + 3),
+            _par_gr);
+        _par_got_g32s(_par_gr, 16);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "LightArrayUniforms::default") == 1) {
+        _par_got_g32s(SrLightArrayUniforms_default(_par_lu), 136);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "LightArrayUniforms::set_lights") == 1) {
+        var n = _par_in(0);
+        var at = 1;
+        var i = 0;
+        while (i < n) {
+            at = _par_in_g32s(at, _par_la + i * 64);
+            i = i + 1;
+        }
+        SrLightArrayUniforms_default(_par_lu);
+        _par_got_g32s(SrLightArrayUniforms_set_lights(_par_lu, _par_la, n), 136);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "LightArrayUniforms::set_ambient") == 1) {
+        var ka = _par_in_g32s(0, _par_ga);
+        SrLightArrayUniforms_default(_par_lu);
+        _par_got_g32s(SrLightArrayUniforms_set_ambient(_par_lu, _par_ga, _par_in(ka)), 136);
+        return 1;
+    }
+    return 0;
+}
+
+# ── lod (src/lod.cyr) ────────────────────────────────────────────────────────────────
+
+var _par_li = alloc(64);
+
+fn _par_lod(fp, fl): i64 {
+    if (_par_eq(fp, fl, "LodChain::new") == 1 || _par_eq(fp, fl, "LodChain::level_count") == 1) {
+        _par_in_g32s(0, _par_ga);
+        var c = SrLodChain_new(_par_ga, _par_in(0));
+        if (c == 0) { return 0 - 1; }
+        var n = SrLodChain_level_count(c);
+        if (_par_eq(fp, fl, "LodChain::level_count") == 1) {
+            _par_got_i(n);
+        } else {
+            var lv = load64(c);
+            _par_got_seq(n);
+            var i = 0;
+            while (i < n) {
+                _par_got_i(load64(lv + i * sizeof(SrLodLevel)));
+                i = i + 1;
+            }
+            _par_got_seq(n);
+            var j = 0;
+            while (j < n) {
+                _par_got_g(load32(lv + j * sizeof(SrLodLevel) + 8));
+                j = j + 1;
+            }
+        }
+        SrLodChain_drop(c);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "LodChain::select") == 1) {
+        var k = _par_in_g32s(0, _par_ga);
+        var cs = SrLodChain_new(_par_ga, _par_in(0));
+        if (cs == 0) { return 0 - 1; }
+        _par_got_i(SrLodChain_select(cs, _par_in(k)));
+        SrLodChain_drop(cs);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "LodChain::select_from_positions") == 1) {
+        _par_in_g32s(_par_in_g32s(_par_in_g32s(0, _par_ga), _par_gb), _par_gc);
+        var cp = SrLodChain_new(_par_ga, _par_in(0));
+        if (cp == 0) { return 0 - 1; }
+        _par_got_i(SrLodChain_select_from_positions(cp, _par_gb, _par_gc));
+        SrLodChain_drop(cp);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "TerrainLod::new") == 1 || _par_eq(fp, fl, "TerrainLod::select_resolution") == 1) {
+        var nr = _par_in(0);
+        var r = 0;
+        while (r < nr) {
+            store32(_par_li + r * 4, _par_in(1 + r));
+            r = r + 1;
+        }
+        var kd = _par_in_g32s(1 + nr, _par_ga);
+        var t, v = SrTerrainLod_new(_par_li, nr, _par_ga, _par_in(1 + nr));
+        if (_par_eq(fp, fl, "TerrainLod::new") == 1) {
+            if (is_err_result(t) == 1) {
+                _par_got_err(v);
+            } else {
+                _par_got_i(1);
+                SrTerrainLod_drop(v);
+            }
+            return 1;
+        }
+        if (is_err_result(t) == 1) { return 0 - 1; }
+        _par_got_i(SrTerrainLod_select_resolution(v, _par_in(kd)));
+        SrTerrainLod_drop(v);
+        return 1;
+    }
+    return 0;
+}
+
+# ── color (src/color.cyr) ────────────────────────────────────────────────────────────
+
+fn _par_color(fp, fl): i64 {
+    if (_par_eq(fp, fl, "Color::from_rgba8") == 1) {
+        _par_got_g32s(SrColor_from_rgba8(_par_in(1), _par_in(2), _par_in(3), _par_in(4), _par_gr), 4);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "Color::from_hex") == 1) {
+        _par_got_g32s(SrColor_from_hex(_par_in(0), _par_gr), 4);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "Color::to_rgba8") == 1) {
+        _par_in_g32s(0, _par_ga);
+        SrColor_to_rgba8(_par_ga, _par_gr);
+        _par_got_seq(4);
+        var j = 0;
+        while (j < 4) {
+            _par_got_i(load8(_par_gr + j));
+            j = j + 1;
+        }
+        return 1;
+    }
+    if (_par_eq(fp, fl, "Color::to_wgpu") == 1) {
+        _par_in_g32s(0, _par_ga);
+        SrColor_to_wgpu(_par_ga, _par_gr);
+        var k = 0;
+        while (k < 4) {
+            _par_got_f(load64(_par_gr + k * 8));
+            k = k + 1;
+        }
+        return 1;
+    }
+    if (_par_eq(fp, fl, "Color::luminance") == 1) {
+        _par_in_g32s(0, _par_ga);
+        _par_got_g(SrColor_luminance(_par_ga));
+        return 1;
+    }
+    if (_par_eq(fp, fl, "Color::lerp") == 1) {
+        var t = _par_in_g32s(_par_in_g32s(0, _par_ga), _par_gb);
+        _par_got_g32s(SrColor_lerp(_par_ga, _par_gb, _par_in(t), _par_gr), 4);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "visualization_heat_map") == 1) {
+        _par_got_g32s(sr_visualization_heat_map(_par_in(0), _par_gr), 4);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "signed_value_color") == 1) {
+        _par_got_g32s(sr_signed_value_color(_par_in(0), _par_gr), 4);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "Color::default") == 1) {
+        _par_got_g32s(SrColor_default(_par_gr), 4);
+        return 1;
+    }
+    return 0;
+}
+
+# ── math (src/math.cyr) ──────────────────────────────────────────────────────────────
+
+fn _par_math(fp, fl): i64 {
+    if (_par_eq(fp, fl, "mul_mat4") == 1) {
+        _par_in_g32s(_par_in_g32s(0, _par_ga), _par_gb);
+        _par_got_g32s(sr_mul_mat4(_par_ga, _par_gb, _par_gr), 16);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "normalize3") == 1) {
+        _par_in_g32s(0, _par_ga);
+        _par_got_g32s(sr_normalize3(_par_ga, _par_gr), 3);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "cross") == 1) {
+        _par_in_g32s(_par_in_g32s(0, _par_ga), _par_gb);
+        _par_got_g32s(sr_cross(_par_ga, _par_gb, _par_gr), 3);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "perspective_90") == 1) {
+        _par_got_g32s(sr_perspective_90(_par_in(0), _par_in(1), _par_gr), 16);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "look_at") == 1) {
+        _par_in_g32s(_par_in_g32s(_par_in_g32s(0, _par_ga), _par_gb), _par_gc);
+        _par_got_g32s(sr_look_at(_par_ga, _par_gb, _par_gc, _par_gr), 16);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "compose_trs") == 1) {
+        _par_in_g32s(_par_in_g32s(_par_in_g32s(0, _par_ga), _par_gb), _par_gc);
+        _par_got_g32s(sr_compose_trs(_par_ga, _par_gb, _par_gc, _par_gr), 16);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "normal_to_basis") == 1) {
+        _par_in_g32s(0, _par_ga);
+        sr_normal_to_basis(_par_ga, _par_gr, _par_gu);
+        _par_got_g32s(_par_gr, 3);
+        _par_got_g32s(_par_gu, 3);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "flatten_mat4") == 1) {
+        _par_in_g32s(0, _par_ga);
+        _par_got_g32s(sr_flatten_mat4(_par_ga, _par_gr), 16);
+        return 1;
+    }
+    return 0;
+}
+
+# ── hooks ────────────────────────────────────────────────────────────────────────────
+
+# The Rust variant name of an `SR_ERR_*` code (src/error.cyr), which a golden `E:<Variant>` token names.
+#must_use
+fn _par_error_name(code): i64 {
+    return sr_error_name(code);
+}
+
+# Fills the got list for one row: 1 handled, 0 pending, -1 unusable.
+fn _par_dispatch(mp, ml, fp, fl): i64 {
+    _par_got_n = 0;
+    if (_par_eq(mp, ml, "math") == 1) { return _par_math(fp, fl); }
+    if (_par_eq(mp, ml, "constants") == 1) { return _par_constants(fp, fl); }
+    if (_par_eq(mp, ml, "color") == 1) { return _par_color(fp, fl); }
+    if (_par_eq(mp, ml, "layout") == 1) { return _par_layout(fp, fl); }
+    if (_par_eq(mp, ml, "lights") == 1) { return _par_lights(fp, fl); }
+    if (_par_eq(mp, ml, "lod") == 1) { return _par_lod(fp, fl); }
+    return 0;
+}
+
+# A class-C function's ulp bound, or -1 (measured). The spot cones' cos is correctly rounded (ganita's f32 tier),
+# so it is held to 0 against lights.cr.tsv where glibc misrounds and to Rust's bits elsewhere (ADR 0002 #16).
 #must_use
 fn _par_c_bound(fp, fl): i64 {
+    if (_par_eq(fp, fl, "GpuLight::spot") == 1) { return 0; }
     return 0 - 1;
 }
 

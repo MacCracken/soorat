@@ -10,7 +10,8 @@ and writes the class-E rows.
 cargo run --release --locked --manifest-path scripts/oracle/Cargo.toml             # write tests/golden/*.tsv + modules.txt
 cargo run --release --locked --manifest-path scripts/oracle/Cargo.toml -- --check  # verify; exit 1 on any difference, 2 on another platform
 python3 -I -B scripts/oracle/validate.py .                                         # re-derive every row; check the .e.tsv
-python3 -I -B scripts/oracle/validate.py . --write                                 # (re)write tests/golden/<module>.e.tsv
+python3 -I -B scripts/oracle/validate.py . --write                                 # (re)write the .e.tsv and .cr.tsv side tables
+python3 -I -B scripts/oracle/gen_layout.py . [--check]                              # (re)write src/layout.cyr, tests/layout_probe.cyr
 cyrius test --bounds tests/parity.tcyr                                             # replay the corpus against the port
 ```
 
@@ -35,6 +36,9 @@ Every port's harness reads the same files. This README records what is specific 
 | `constants` | M0 | 18 | `src/m_constants.rs` | public constants (`MAX_*`, `IDENTITY_MAT4`, the `Color` constants, `UvRect::FULL`) and the oracle's `MAX_SEGMENTS`, `MAX_QUADS`, `XZ_QUAD_INDICES`. `validate.py` checks the integers against the literals in `rust-old/src` |
 | `layout` | M0 | 19 | `src/m_layout.rs` | size and field offsets of every GPU-facing `#[repr(C)]` type (probe P1) |
 | `math` | M0 | 1,436 | `src/m_math.rs` | `math_util` on probe P2's grid: `mul_mat4`, `normalize3`, `cross`, `perspective_90`, `look_at`, `compose_trs`, `normal_to_basis` (class E) and `flatten_mat4` (class A). `math.e.tsv`: 1,149 rows where f64-once differs |
+| `color` | M1 | 3,397 | `src/m_color.rs` | `Color` without its `optics` half: every byte in `from_rgba8`; `to_rgba8` at every k/510 and every halfway point (Rust rounds half away from zero); the colour maps across and beyond their domain, each stop ± 1 ulp, ±0, ±∞, NaN (A, B) |
+| `lights` | M1 | 1,066 | `src/m_lights.rs` | the three light constructors and the light array; `GpuLight::spot`'s cone cosines are class C, and `lights.cr.tsv` holds the 28 rows where glibc's `cosf` misrounds (ADR 0002 #16) |
+| `lod` | M1 | 770 | `src/m_lod.rs` | `LodChain` and `TerrainLod`: every threshold ± 1 ulp, NaN, ±∞, empty chains, mismatched lengths (`E:Pipeline`) (A) |
 
 ## Format 1
 
@@ -82,4 +86,13 @@ operation (f64 carries more than 2·24 + 2 bits). So `validate.py`:
 - derives the class-E outputs: the same formula with the f32 inputs and constants widened exactly, no
   intermediate rounding, and the result rounded once.
 
-At M0 it re-derives all 1,436 `math` rows bit for bit, and checks `constants` against `rust-old/src`.
+It re-derives every row of `math`, `color`, `lights` and `lod` bit for bit, checks `constants` against
+`rust-old/src`, and writes two side tables: `math.e.tsv` (class E) and `lights.cr.tsv` (a spot light's cone cosines,
+correctly rounded as glibc's f64 `cos` rounded once, where Rust's f32 `cosf` differs).
+
+## `gen_layout.py`
+
+`src/layout.cyr` is generated: one table of the 19 GPU-facing `#[repr(C)]` types with their fields' Cyrius types
+(probe P1's), checked against `layout.tsv`'s sizes and offsets before anything is written. It also writes
+`tests/layout_probe.cyr`, which measures each compiled struct with P1's marker technique, so the replay checks what
+the compiler lays out rather than the table. `--check` (CI) fails when either file is stale.

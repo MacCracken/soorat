@@ -1,0 +1,360 @@
+# math.cyr — Rust 1.2.0's src/math_util.rs (M1 part a): column-major 4×4 matrices, 3-vectors and quaternions.
+#
+# **Layout.** A matrix is 16 f32 (64 bytes, column-major: element (row, col) at byte (col·4 + row)·4), a 3-vector
+# is 3 f32 and a quaternion 4 f32 (x, y, z, w). Every one is passed by pointer, and a result is written through an
+# out pointer the caller owns. Every input is read before any output is written, so an out pointer may be one of
+# the inputs. An f32 scalar is passed as its bits.
+#
+# **Precision (D4 rule b, ADR 0002 #4).** Each function evaluates Rust's formula in Rust's order, but in f64: the
+# f32 inputs and constants are widened exactly, nothing is rounded along the way, and each output is rounded once
+# to f32. Where that differs from Rust's f32 result (1,149 of the 1,416 `math` rows), the Cyrius value is the more
+# accurate one, and tests/golden/math.e.tsv holds it (class E, compared bit for bit). Everywhere else it equals
+# Rust's. Values that Rust only copies (the translation column, `flatten`) are copied as bits.
+#
+# **Speed.** Straight-line f64 locals, each input widened once: the loop form of mul_mat4 took 294 ns a call, this
+# one 115 ns (tests/math.bcyr; docs/benchmarks-rust-v-cyrius.md has the current numbers).
+
+# Rust's f32 constants, widened exactly (from rustc's bits: a decimal literal would round twice).
+var _SR_1E_10: f64 = f32_to(0x2EDBE6FF);      # 1e-10f32
+var _SR_F32_EPS: f64 = f32_to(0x34000000);    # f32::EPSILON
+var _SR_0_99: f64 = f32_to(0x3F7D70A4);       # 0.99f32
+
+# f32 bits of 0.0, 1.0 and -1.0.
+var _SR_F0 = 0;
+var _SR_F1 = 0x3F800000;
+var _SR_FM1 = 0xBF800000;
+
+# |x| for an f64: the sign bit cleared (an untyped parameter carries the bits).
+#must_use
+#inline
+fn _sr_abs64(x): i64 {
+    return x & 0x7FFFFFFFFFFFFFFF;
+}
+
+# The larger of x and y, ignoring a NaN operand, as Rust's `max` (IEEE maxNum).
+#must_use
+fn _sr_max64(x: f64, y: f64): f64 {
+    if (x != x) { return y; }
+    if (y != y) { return x; }
+    if (x >= y) { return x; }
+    return y;
+}
+
+# 1 when len < 1e-10f32, normalize3's zero-length test (0 for a NaN length, which then divides, as Rust's does).
+#must_use
+fn _sr_tiny(len: f64): i64 {
+    if (len < _SR_1E_10) { return 1; }
+    return 0;
+}
+
+# Writes the 4×4 identity (column-major) to out.
+fn _sr_mat4_set_identity(out) {
+    var i = 0;
+    while (i < 16) {
+        store32(out + i * 4, _SR_F0);
+        i = i + 1;
+    }
+    store32(out, _SR_F1);
+    store32(out + 20, _SR_F1);
+    store32(out + 40, _SR_F1);
+    store32(out + 60, _SR_F1);
+    return out;
+}
+
+# The 4×4 identity (column-major): a pointer to a static matrix, filled once at load. Read or copy it; never write
+# through it. Mirrors `IDENTITY_MAT4`.
+var _sr_identity_mat4_data[64];
+var SR_IDENTITY_MAT4 = &_sr_identity_mat4_data;
+var _sr_identity_mat4_ready = _sr_mat4_set_identity(SR_IDENTITY_MAT4);
+
+# out = a · b, for column-major 4×4 matrices: element (row, col) is
+# ((((0 + a(row, 0)·b(0, col)) + a(row, 1)·b(1, col)) + a(row, 2)·b(2, col)) + a(row, 3)·b(3, col)), Rust's loop
+# order. Mirrors `mul_mat4`.
+fn sr_mul_mat4(a, b, out) {
+    var a00: f64 = f32_to(load32(a));
+    var a01: f64 = f32_to(load32(a + 4));
+    var a02: f64 = f32_to(load32(a + 8));
+    var a03: f64 = f32_to(load32(a + 12));
+    var a10: f64 = f32_to(load32(a + 16));
+    var a11: f64 = f32_to(load32(a + 20));
+    var a12: f64 = f32_to(load32(a + 24));
+    var a13: f64 = f32_to(load32(a + 28));
+    var a20: f64 = f32_to(load32(a + 32));
+    var a21: f64 = f32_to(load32(a + 36));
+    var a22: f64 = f32_to(load32(a + 40));
+    var a23: f64 = f32_to(load32(a + 44));
+    var a30: f64 = f32_to(load32(a + 48));
+    var a31: f64 = f32_to(load32(a + 52));
+    var a32: f64 = f32_to(load32(a + 56));
+    var a33: f64 = f32_to(load32(a + 60));
+    var b00: f64 = f32_to(load32(b));
+    var b01: f64 = f32_to(load32(b + 4));
+    var b02: f64 = f32_to(load32(b + 8));
+    var b03: f64 = f32_to(load32(b + 12));
+    var b10: f64 = f32_to(load32(b + 16));
+    var b11: f64 = f32_to(load32(b + 20));
+    var b12: f64 = f32_to(load32(b + 24));
+    var b13: f64 = f32_to(load32(b + 28));
+    var b20: f64 = f32_to(load32(b + 32));
+    var b21: f64 = f32_to(load32(b + 36));
+    var b22: f64 = f32_to(load32(b + 40));
+    var b23: f64 = f32_to(load32(b + 44));
+    var b30: f64 = f32_to(load32(b + 48));
+    var b31: f64 = f32_to(load32(b + 52));
+    var b32: f64 = f32_to(load32(b + 56));
+    var b33: f64 = f32_to(load32(b + 60));
+    var z: f64 = 0.0;
+    var r00: f64 = (((z + (a00 * b00)) + (a10 * b01)) + (a20 * b02)) + (a30 * b03);
+    var r01: f64 = (((z + (a01 * b00)) + (a11 * b01)) + (a21 * b02)) + (a31 * b03);
+    var r02: f64 = (((z + (a02 * b00)) + (a12 * b01)) + (a22 * b02)) + (a32 * b03);
+    var r03: f64 = (((z + (a03 * b00)) + (a13 * b01)) + (a23 * b02)) + (a33 * b03);
+    var r10: f64 = (((z + (a00 * b10)) + (a10 * b11)) + (a20 * b12)) + (a30 * b13);
+    var r11: f64 = (((z + (a01 * b10)) + (a11 * b11)) + (a21 * b12)) + (a31 * b13);
+    var r12: f64 = (((z + (a02 * b10)) + (a12 * b11)) + (a22 * b12)) + (a32 * b13);
+    var r13: f64 = (((z + (a03 * b10)) + (a13 * b11)) + (a23 * b12)) + (a33 * b13);
+    var r20: f64 = (((z + (a00 * b20)) + (a10 * b21)) + (a20 * b22)) + (a30 * b23);
+    var r21: f64 = (((z + (a01 * b20)) + (a11 * b21)) + (a21 * b22)) + (a31 * b23);
+    var r22: f64 = (((z + (a02 * b20)) + (a12 * b21)) + (a22 * b22)) + (a32 * b23);
+    var r23: f64 = (((z + (a03 * b20)) + (a13 * b21)) + (a23 * b22)) + (a33 * b23);
+    var r30: f64 = (((z + (a00 * b30)) + (a10 * b31)) + (a20 * b32)) + (a30 * b33);
+    var r31: f64 = (((z + (a01 * b30)) + (a11 * b31)) + (a21 * b32)) + (a31 * b33);
+    var r32: f64 = (((z + (a02 * b30)) + (a12 * b31)) + (a22 * b32)) + (a32 * b33);
+    var r33: f64 = (((z + (a03 * b30)) + (a13 * b31)) + (a23 * b32)) + (a33 * b33);
+    store32(out, f32_from(r00));
+    store32(out + 4, f32_from(r01));
+    store32(out + 8, f32_from(r02));
+    store32(out + 12, f32_from(r03));
+    store32(out + 16, f32_from(r10));
+    store32(out + 20, f32_from(r11));
+    store32(out + 24, f32_from(r12));
+    store32(out + 28, f32_from(r13));
+    store32(out + 32, f32_from(r20));
+    store32(out + 36, f32_from(r21));
+    store32(out + 40, f32_from(r22));
+    store32(out + 44, f32_from(r23));
+    store32(out + 48, f32_from(r30));
+    store32(out + 52, f32_from(r31));
+    store32(out + 56, f32_from(r32));
+    store32(out + 60, f32_from(r33));
+    return out;
+}
+
+# out = v / |v|, |v| = √((x² + y²) + z²), or (0, 0, 1) when |v| < 1e-10 (the Z-up fallback). Mirrors `normalize3`.
+fn sr_normalize3(v, out) {
+    var x: f64 = f32_to(load32(v));
+    var y: f64 = f32_to(load32(v + 4));
+    var z: f64 = f32_to(load32(v + 8));
+    var len: f64 = f64_sqrt(((x * x) + (y * y)) + (z * z));
+    if (_sr_tiny(len) == 1) {
+        store32(out, _SR_F0);
+        store32(out + 4, _SR_F0);
+        store32(out + 8, _SR_F1);
+        return out;
+    }
+    store32(out, f32_from(x / len));
+    store32(out + 4, f32_from(y / len));
+    store32(out + 8, f32_from(z / len));
+    return out;
+}
+
+# out = a × b = (a1·b2 − a2·b1, a2·b0 − a0·b2, a0·b1 − a1·b0). Mirrors `cross`.
+fn sr_cross(a, b, out) {
+    var a0: f64 = f32_to(load32(a));
+    var a1: f64 = f32_to(load32(a + 4));
+    var a2: f64 = f32_to(load32(a + 8));
+    var b0: f64 = f32_to(load32(b));
+    var b1: f64 = f32_to(load32(b + 4));
+    var b2: f64 = f32_to(load32(b + 8));
+    var x: f64 = (a1 * b2) - (a2 * b1);
+    var y: f64 = (a2 * b0) - (a0 * b2);
+    var z: f64 = (a0 * b1) - (a1 * b0);
+    store32(out, f32_from(x));
+    store32(out + 4, f32_from(y));
+    store32(out + 8, f32_from(z));
+    return out;
+}
+
+# The 90° perspective projection (aspect 1) for cube shadow-map faces, into out: with nf = 1 / (near − far),
+# out[10] = far·nf, out[11] = −1 and out[14] = (near·far)·nf on an otherwise zero matrix with out[0] = out[5] = 1.
+# When |near − far| < 1e-10 it writes the identity instead, and warns. near and far are f32 bits. Mirrors
+# `perspective_90`.
+fn sr_perspective_90(near, far, out) {
+    var n: f64 = f32_to(near);
+    var f: f64 = f32_to(far);
+    var diff: f64 = n - f;
+    var adiff: f64 = _sr_abs64(diff);
+    if (adiff < _SR_1E_10) {
+        _sr_warn("soorat::math_util: perspective_90: near ≈ far — returning identity matrix");
+        return _sr_mat4_set_identity(out);
+    }
+    var one: f64 = 1.0;
+    var nf: f64 = one / diff;
+    var m10: f64 = f * nf;
+    var m14: f64 = (n * f) * nf;
+    var i = 0;
+    while (i < 16) {
+        store32(out + i * 4, _SR_F0);
+        i = i + 1;
+    }
+    store32(out, _SR_F1);
+    store32(out + 20, _SR_F1);
+    store32(out + 40, f32_from(m10));
+    store32(out + 44, _SR_FM1);
+    store32(out + 56, f32_from(m14));
+    return out;
+}
+
+# The view matrix looking from pos along dir, into out: f = normalize3(dir), s = normalize3(f × up),
+# u = s × f; the columns are (s, u, −f) by row, and the translation is (−s·pos, −u·pos, f·pos), each dot product
+# (x + y) + z. Mirrors `look_at`.
+fn sr_look_at(pos, dir, up, out) {
+    var zero: f64 = 0.0;
+    var one: f64 = 1.0;
+    # f = normalize3(dir)
+    var dx: f64 = f32_to(load32(dir));
+    var dy: f64 = f32_to(load32(dir + 4));
+    var dz: f64 = f32_to(load32(dir + 8));
+    var fl: f64 = f64_sqrt(((dx * dx) + (dy * dy)) + (dz * dz));
+    var f0: f64 = zero;
+    var f1: f64 = zero;
+    var f2: f64 = one;
+    if (_sr_tiny(fl) == 0) {
+        f0 = dx / fl;
+        f1 = dy / fl;
+        f2 = dz / fl;
+    }
+    # s = normalize3(f × up)
+    var w0: f64 = f32_to(load32(up));
+    var w1: f64 = f32_to(load32(up + 4));
+    var w2: f64 = f32_to(load32(up + 8));
+    var cx: f64 = (f1 * w2) - (f2 * w1);
+    var cy: f64 = (f2 * w0) - (f0 * w2);
+    var cz: f64 = (f0 * w1) - (f1 * w0);
+    var sl: f64 = f64_sqrt(((cx * cx) + (cy * cy)) + (cz * cz));
+    var s0: f64 = zero;
+    var s1: f64 = zero;
+    var s2: f64 = one;
+    if (_sr_tiny(sl) == 0) {
+        s0 = cx / sl;
+        s1 = cy / sl;
+        s2 = cz / sl;
+    }
+    # u = s × f
+    var u0: f64 = (s1 * f2) - (s2 * f1);
+    var u1: f64 = (s2 * f0) - (s0 * f2);
+    var u2: f64 = (s0 * f1) - (s1 * f0);
+    var p0: f64 = f32_to(load32(pos));
+    var p1: f64 = f32_to(load32(pos + 4));
+    var p2: f64 = f32_to(load32(pos + 8));
+    var tx: f64 = ((s0 * p0) + (s1 * p1)) + (s2 * p2);
+    var ty: f64 = ((u0 * p0) + (u1 * p1)) + (u2 * p2);
+    var tz: f64 = ((f0 * p0) + (f1 * p1)) + (f2 * p2);
+    store32(out, f32_from(s0));
+    store32(out + 4, f32_from(u0));
+    store32(out + 8, f32_from(-f0));
+    store32(out + 12, _SR_F0);
+    store32(out + 16, f32_from(s1));
+    store32(out + 20, f32_from(u1));
+    store32(out + 24, f32_from(-f1));
+    store32(out + 28, _SR_F0);
+    store32(out + 32, f32_from(s2));
+    store32(out + 36, f32_from(u2));
+    store32(out + 40, f32_from(-f2));
+    store32(out + 44, _SR_F0);
+    store32(out + 48, f32_from(-tx));
+    store32(out + 52, f32_from(-ty));
+    store32(out + 56, f32_from(tz));
+    store32(out + 60, _SR_F1);
+    return out;
+}
+
+# Copies a `[[f32; 4]; 4]` (four columns of four) into a flat column-major [f32; 16]: the same 64 bytes, no
+# transpose. Mirrors `flatten_mat4`.
+fn sr_flatten_mat4(m, out) {
+    var i = 0;
+    while (i < 16) {
+        store32(out + i * 4, load32(m + i * 4));
+        i = i + 1;
+    }
+    return out;
+}
+
+# The column-major matrix T · R · S, into out, for the translation t (3 f32), the rotation quaternion r (x, y, z,
+# w; not normalized here) and the scale s (3 f32). Mirrors `compose_trs`.
+fn sr_compose_trs(t, r, s, out) {
+    var x: f64 = f32_to(load32(r));
+    var y: f64 = f32_to(load32(r + 4));
+    var z: f64 = f32_to(load32(r + 8));
+    var w: f64 = f32_to(load32(r + 12));
+    var one: f64 = 1.0;
+    var two: f64 = 2.0;
+    var r00: f64 = one - (two * ((y * y) + (z * z)));
+    var r01: f64 = two * ((x * y) + (w * z));
+    var r02: f64 = two * ((x * z) - (w * y));
+    var r10: f64 = two * ((x * y) - (w * z));
+    var r11: f64 = one - (two * ((x * x) + (z * z)));
+    var r12: f64 = two * ((y * z) + (w * x));
+    var r20: f64 = two * ((x * z) + (w * y));
+    var r21: f64 = two * ((y * z) - (w * x));
+    var r22: f64 = one - (two * ((x * x) + (y * y)));
+    var s0: f64 = f32_to(load32(s));
+    var s1: f64 = f32_to(load32(s + 4));
+    var s2: f64 = f32_to(load32(s + 8));
+    var t0 = load32(t);
+    var t1 = load32(t + 4);
+    var t2 = load32(t + 8);
+    store32(out, f32_from(s0 * r00));
+    store32(out + 4, f32_from(s0 * r01));
+    store32(out + 8, f32_from(s0 * r02));
+    store32(out + 12, _SR_F0);
+    store32(out + 16, f32_from(s1 * r10));
+    store32(out + 20, f32_from(s1 * r11));
+    store32(out + 24, f32_from(s1 * r12));
+    store32(out + 28, _SR_F0);
+    store32(out + 32, f32_from(s2 * r20));
+    store32(out + 36, f32_from(s2 * r21));
+    store32(out + 40, f32_from(s2 * r22));
+    store32(out + 44, _SR_F0);
+    store32(out + 48, t0);
+    store32(out + 52, t1);
+    store32(out + 56, t2);
+    store32(out + 60, _SR_F1);
+    return out;
+}
+
+# A right/up basis for the direction n (3 f32), into right and up (3 f32 each): right = normalize(n × ref) and
+# up = normalize(right × n), where ref is +Y unless |n.y| ≥ 0.99 (or n.y is NaN), then +X, and each length is at
+# least f32::EPSILON. Mirrors `normal_to_basis`, whose tuple result is the two out pointers.
+fn sr_normal_to_basis(n, right, up) {
+    var n0: f64 = f32_to(load32(n));
+    var n1: f64 = f32_to(load32(n + 4));
+    var n2: f64 = f32_to(load32(n + 8));
+    var zero: f64 = 0.0;
+    var one: f64 = 1.0;
+    var f0: f64 = one;
+    var f1: f64 = zero;
+    var f2: f64 = zero;
+    var an1: f64 = _sr_abs64(n1);
+    if (an1 < _SR_0_99) {
+        f0 = zero;
+        f1 = one;
+    }
+    var rx: f64 = (n1 * f2) - (n2 * f1);
+    var ry: f64 = (n2 * f0) - (n0 * f2);
+    var rz: f64 = (n0 * f1) - (n1 * f0);
+    var rlen: f64 = _sr_max64(f64_sqrt(((rx * rx) + (ry * ry)) + (rz * rz)), _SR_F32_EPS);
+    var r0: f64 = rx / rlen;
+    var r1: f64 = ry / rlen;
+    var r2: f64 = rz / rlen;
+    var ux: f64 = (r1 * n2) - (r2 * n1);
+    var uy: f64 = (r2 * n0) - (r0 * n2);
+    var uz: f64 = (r0 * n1) - (r1 * n0);
+    var ulen: f64 = _sr_max64(f64_sqrt(((ux * ux) + (uy * uy)) + (uz * uz)), _SR_F32_EPS);
+    store32(right, f32_from(r0));
+    store32(right + 4, f32_from(r1));
+    store32(right + 8, f32_from(r2));
+    store32(up, f32_from(ux / ulen));
+    store32(up + 4, f32_from(uy / ulen));
+    store32(up + 8, f32_from(uz / ulen));
+    return right;
+}

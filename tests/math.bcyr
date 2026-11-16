@@ -1,0 +1,95 @@
+# math.bcyr — src/math.cyr's benchmarks (M1 part a).
+#
+# Rust 1.2.0 has no bench of its own for math_util; its shadow benches (M4: `shadow/directional_matrix` and the
+# rest) call these functions. So these are EXTRA rows in docs/benchmarks-rust-v-cyrius.md, measured from M1 so M4's
+# shadow numbers have a baseline to be read against. Each is a batch of 1,000,000 calls on fixed inputs (see
+# lib/bench.cyr on batching sub-µs operations).
+
+include "tests/lib.cyr"
+
+var N = 1000000;
+
+# Fills the n f32 at p with small distinct values (k − 7)/4, so no input is zero, huge or NaN.
+fn fill(p, n, k0) {
+    var i = 0;
+    while (i < n) {
+        store32(p + i * 4, f32_from(f64_div(f64_from(i + k0 - 7), 4.0)));
+        i = i + 1;
+    }
+    return p;
+}
+
+# Runs the math benches.
+fn main(): i64 {
+    alloc_init();
+    var a = fill(alloc(64), 16, 0);
+    var b = fill(alloc(64), 16, 3);
+    var c = fill(alloc(64), 16, 5);
+    var r = alloc(64);
+    var u = alloc(64);
+    var i = 0;
+
+    var bm = bench_new("math/mul_mat4");
+    bench_batch_start(bm);
+    i = 0;
+    while (i < N) {
+        sr_mul_mat4(a, b, r);
+        i = i + 1;
+    }
+    bench_batch_stop(bm, N);
+    bench_report(bm);
+
+    var bl = bench_new("math/look_at");
+    bench_batch_start(bl);
+    i = 0;
+    while (i < N) {
+        sr_look_at(a, b, c, r);
+        i = i + 1;
+    }
+    bench_batch_stop(bl, N);
+    bench_report(bl);
+
+    var bt = bench_new("math/compose_trs");
+    bench_batch_start(bt);
+    i = 0;
+    while (i < N) {
+        sr_compose_trs(a, b, c, r);
+        i = i + 1;
+    }
+    bench_batch_stop(bt, N);
+    bench_report(bt);
+
+    var bn = bench_new("math/normalize3");
+    bench_batch_start(bn);
+    i = 0;
+    while (i < N) {
+        sr_normalize3(a, r);
+        i = i + 1;
+    }
+    bench_batch_stop(bn, N);
+    bench_report(bn);
+
+    var bb = bench_new("math/normal_to_basis");
+    bench_batch_start(bb);
+    i = 0;
+    while (i < N) {
+        sr_normal_to_basis(b, r, u);
+        i = i + 1;
+    }
+    bench_batch_stop(bb, N);
+    bench_report(bb);
+
+    var bp = bench_new("math/perspective_90");
+    bench_batch_start(bp);
+    i = 0;
+    while (i < N) {
+        sr_perspective_90(0x3DCCCCCD, 0x42C80000, r);
+        i = i + 1;
+    }
+    bench_batch_stop(bp, N);
+    bench_report(bp);
+    return 0;
+}
+
+var r = main();
+sys_exit_group(r);

@@ -16,10 +16,32 @@ entry = "src/main.cyr"
 output = "build/soorat"
 dce = true
 
+# stdlib leaves, vendored into lib/ by `cyrius deps` and prepended to every compile:
+#   math / ganita — f64_sqrt and the f32 tier (f32_to / f32_from, ganita_f32_*), port plan §9.1
+#   sakshi        — tracing's events (src/log.cyr), port plan §1.1
+#   tagged / result — the value-form Option and Result (src/error.cyr)
+#   freelist      — fl_alloc / fl_free: storage an object owns and frees in its `_drop` (src/lod.cyr), port plan §9.4
 [deps]
-stdlib = ["string", "fmt", "alloc", "vec", "str", "syscalls", "io", "args", "math", "ganita"]
+stdlib = ["string", "fmt", "alloc", "vec", "str", "syscalls", "io", "args", "math", "ganita", "tagged", "result",
+    "freelist", "sakshi"]
 
 [test]
 # `bench` too: the port template omits it, so tests/soorat.bcyr and `cyrius audit` failed
 # (cyrius issue 2026-11-08-cyrius-port-clobbers-project-docs-and-omits-bench.md, item 3).
 stdlib = ["assert", "bench", "overflow"]
+
+# `[lib]` is the bundle `cyrius distlib` writes to dist/soorat.cyr. The list IS the concatenation order and it is
+# load-bearing: no src/ file includes another, so each module resolves at file scope against what precedes it (port
+# plan §4 step 3). tests/lib.cyr mirrors this list for test compiles (`cyrius test` never prepends [lib]). Modules
+# are appended as their milestone lands.
+[lib]
+modules = [
+    "src/error.cyr",
+    "src/log.cyr",
+    "src/mathx.cyr",
+    "src/math.cyr",
+    "src/layout.cyr",
+    "src/color.cyr",
+    "src/lights.cyr",
+    "src/lod.cyr",
+]

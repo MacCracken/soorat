@@ -81,6 +81,13 @@ REASONS = {}
 # Cyrius benches that twin no Rust bench -> what they measure.
 EXTRA = {
     "noop": "the scaffold's harness check: an empty call, i.e. loop and call overhead (tests/soorat.bcyr)",
+    # math_util has no Rust bench; M4's shadow benches call it, so these give them a baseline (tests/math.bcyr).
+    "math/mul_mat4": "M1: `mul_mat4` in f64, rounded once (D4 rule b); no Rust bench (`shadow/*` call it, M4)",
+    "math/look_at": "M1: `look_at` in f64, rounded once; no Rust bench (`shadow/directional_matrix` calls it, M4)",
+    "math/compose_trs": "M1: `compose_trs` in f64, rounded once; no Rust bench (animation's joint chains call it, M3)",
+    "math/normalize3": "M1: `normalize3` in f64, rounded once; no Rust bench",
+    "math/normal_to_basis": "M1: `normal_to_basis` in f64, rounded once; no Rust bench (acoustic and em call it, M5)",
+    "math/perspective_90": "M1: `perspective_90` in f64, rounded once; no Rust bench (`shadow/point_shadow_6_faces`, M4)",
 }
 
 

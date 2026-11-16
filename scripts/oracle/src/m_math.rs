@@ -7,7 +7,10 @@
 //! class A.
 
 use crate::{Module, Rng, Toks};
-use soorat::oracle::{compose_trs, cross, flatten_mat4, look_at, mul_mat4, normal_to_basis, normalize3, perspective_90};
+use soorat::oracle::{
+    compose_trs, cross, flatten_mat4, look_at, mul_mat4, normal_to_basis, normalize3,
+    perspective_90,
+};
 
 const N: usize = 200;
 
@@ -34,17 +37,39 @@ pub fn module() -> Module {
     for i in 0..N {
         let a: [f32; 16] = std::array::from_fn(|_| r.f());
         let b: [f32; 16] = std::array::from_fn(|_| r.f());
-        m.row("mul_mat4", 'E', &Toks::new().gs(&a).gs(&b), &Toks::new().gs(&mul_mat4(a, b)), &format!("case {i}"));
+        m.row(
+            "mul_mat4",
+            'E',
+            &Toks::new().gs(&a).gs(&b),
+            &Toks::new().gs(&mul_mat4(a, b)),
+            &format!("case {i}"),
+        );
     }
     let edges = edge3();
     for i in 0..N + edges.len() {
-        let v = if i < N { [r.f(), r.f(), r.f()] } else { edges[i - N] };
-        m.row("normalize3", 'E', &t3(v), &t3(normalize3(v)), &format!("case {i}"));
+        let v = if i < N {
+            [r.f(), r.f(), r.f()]
+        } else {
+            edges[i - N]
+        };
+        m.row(
+            "normalize3",
+            'E',
+            &t3(v),
+            &t3(normalize3(v)),
+            &format!("case {i}"),
+        );
     }
     for i in 0..N {
         let a = [r.f(), r.f(), r.f()];
         let b = [r.f(), r.f(), r.f()];
-        m.row("cross", 'E', &t3(a).gs(&b), &t3(cross(a, b)), &format!("case {i}"));
+        m.row(
+            "cross",
+            'E',
+            &t3(a).gs(&b),
+            &t3(cross(a, b)),
+            &format!("case {i}"),
+        );
     }
     for i in 0..N + 1 {
         let (near, far) = if i < N {
@@ -63,7 +88,11 @@ pub fn module() -> Module {
     }
     for i in 0..N + 3 {
         let (pos, dir, up) = match i {
-            _ if i < N => ([r.f(), r.f(), r.f()], [r.f(), r.f(), r.f()], [r.f(), r.f(), r.f()]),
+            _ if i < N => (
+                [r.f(), r.f(), r.f()],
+                [r.f(), r.f(), r.f()],
+                [r.f(), r.f(), r.f()],
+            ),
             n if n == N => ([1.0, 2.0, 3.0], [0.0, 1.0, 0.0], [0.0, 1.0, 0.0]),
             n if n == N + 1 => ([1.0, 2.0, 3.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]),
             _ => ([0.0; 3], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]),
@@ -89,14 +118,30 @@ pub fn module() -> Module {
         );
     }
     for i in 0..N + edges.len() {
-        let n = if i < N { normalize3([r.f(), r.f(), r.f()]) } else { edges[i - N] };
+        let n = if i < N {
+            normalize3([r.f(), r.f(), r.f()])
+        } else {
+            edges[i - N]
+        };
         let (right, up) = normal_to_basis(n);
-        m.row("normal_to_basis", 'E', &t3(n), &t3(right).gs(&up), &format!("case {i}"));
+        m.row(
+            "normal_to_basis",
+            'E',
+            &t3(n),
+            &t3(right).gs(&up),
+            &format!("case {i}"),
+        );
     }
     for i in 0..20 {
         let cols: [[f32; 4]; 4] = std::array::from_fn(|_| std::array::from_fn(|_| r.f()));
         let flat: Vec<f32> = cols.iter().flatten().copied().collect();
-        m.row("flatten_mat4", 'A', &Toks::new().gs(&flat), &Toks::new().gs(&flatten_mat4(cols)), &format!("case {i}"));
+        m.row(
+            "flatten_mat4",
+            'A',
+            &Toks::new().gs(&flat),
+            &Toks::new().gs(&flatten_mat4(cols)),
+            &format!("case {i}"),
+        );
     }
     m
 }

@@ -1,0 +1,99 @@
+# lights.cyr — Rust 1.2.0's src/lights.rs (M1 part c): directional, point and spot lights packed for the GPU.
+#
+# `SrGpuLight` (64 bytes) and `SrLightArrayUniforms` (16 + 16 + 8 × 64 = 544 bytes) are src/layout.cyr's; these
+# functions fill them through pointers the caller owns. Every value is copied, except a spot light's cone cosines:
+# Rust's f32 `cos` is host glibc's, which misrounds about 1 % of arguments by 1 ulp (probe P3); ganita's f32 `cos`
+# is correctly rounded, so those rows are class C against tests/golden/lights.cr.tsv (ADR 0002 #16).
+
+# Maximum number of lights in one draw call. Mirrors `MAX_LIGHTS`.
+var SR_MAX_LIGHTS = 8;
+
+# Light type discriminator, packed into `position_type.w` as an f32. Mirrors `LightType` (append-only: the Cyrius
+# form of #[non_exhaustive]).
+enum SrLightType {
+    SR_LIGHT_TYPE_DIRECTIONAL = 0;
+    SR_LIGHT_TYPE_POINT = 1;
+    SR_LIGHT_TYPE_SPOT = 2;
+}
+
+# f32 bits of 0, 1, 2 (the light types as f32) and 0.1 (the default ambient intensity).
+var _SR_L0 = 0;
+var _SR_L1 = 0x3F800000;
+var _SR_L2 = 0x40000000;
+var _SR_L01 = 0x3DCCCCCD;
+
+# Writes one vec4 (four f32 bits) at p.
+fn _sr_light_v4(p, x, y, z, w) {
+    store32(p, x);
+    store32(p + 4, y);
+    store32(p + 8, z);
+    store32(p + 12, w);
+    return p;
+}
+
+# A directional light into out (an SrGpuLight): position_type = (direction, 0), color_intensity = (color,
+# intensity), the rest zero. direction and color are 3 f32 each; intensity is f32 bits. Mirrors
+# `GpuLight::directional`.
+fn SrGpuLight_directional(direction, color, intensity, out) {
+    _sr_light_v4(out, load32(direction), load32(direction + 4), load32(direction + 8), _SR_L0);
+    _sr_light_v4(out + 16, _SR_L0, _SR_L0, _SR_L0, _SR_L0);
+    _sr_light_v4(out + 32, load32(color), load32(color + 4), load32(color + 8), intensity);
+    _sr_light_v4(out + 48, _SR_L0, _SR_L0, _SR_L0, _SR_L0);
+    return out;
+}
+
+# A point light into out: position_type = (position, 1), direction_range = (0, 0, 0, range), color_intensity =
+# (color, intensity). Mirrors `GpuLight::point`.
+fn SrGpuLight_point(position, color, intensity, range, out) {
+    _sr_light_v4(out, load32(position), load32(position + 4), load32(position + 8), _SR_L1);
+    _sr_light_v4(out + 16, _SR_L0, _SR_L0, _SR_L0, range);
+    _sr_light_v4(out + 32, load32(color), load32(color + 4), load32(color + 8), intensity);
+    _sr_light_v4(out + 48, _SR_L0, _SR_L0, _SR_L0, _SR_L0);
+    return out;
+}
+
+# A spot light into out: position_type = (position, 2), direction_range = (direction, range), color_intensity =
+# (color, intensity), spot_params = (cos inner_cone, cos outer_cone, 0, 0). The cones are half-angles in radians, f32
+# bits; their cosines are correctly rounded (ganita_f32_cos). Mirrors `GpuLight::spot`.
+fn SrGpuLight_spot(position, direction, color, intensity, range, inner_cone, outer_cone, out) {
+    _sr_light_v4(out, load32(position), load32(position + 4), load32(position + 8), _SR_L2);
+    _sr_light_v4(out + 16, load32(direction), load32(direction + 4), load32(direction + 8), range);
+    _sr_light_v4(out + 32, load32(color), load32(color + 4), load32(color + 8), intensity);
+    _sr_light_v4(out + 48, ganita_f32_cos(inner_cone), ganita_f32_cos(outer_cone), _SR_L0, _SR_L0);
+    return out;
+}
+
+# The default light array into out (an SrLightArrayUniforms): ambient (1, 1, 1, 0.1), no lights, every light slot
+# zero. Mirrors `impl Default for LightArrayUniforms`.
+fn SrLightArrayUniforms_default(out) {
+    memset(out, 0, sizeof(SrLightArrayUniforms));
+    _sr_light_v4(out, _SR_L1, _SR_L1, _SR_L1, _SR_L01);
+    return out;
+}
+
+# Copies the first min(n, SR_MAX_LIGHTS) of the n SrGpuLight at lights into u's slots and sets light_count.x to
+# that count as f32; the other slots and light_count.yzw keep their values. Mirrors
+# `LightArrayUniforms::set_lights`.
+fn SrLightArrayUniforms_set_lights(u, lights, n) {
+    var count = n;
+    if (count > SR_MAX_LIGHTS) { count = SR_MAX_LIGHTS; }
+    if (count < 0) { count = 0; }
+    store32(u + 16, f32_from(f64_from(count)));
+    var i = 0;
+    while (i < count) {
+        var k = 0;
+        while (k < 64) {
+            store64(u + 32 + i * 64 + k, load64(lights + i * 64 + k));
+            k = k + 8;
+        }
+        i = i + 1;
+    }
+    return u;
+}
+
+# Sets u's ambient to (color, intensity): color is 3 f32, intensity f32 bits. Mirrors
+# `LightArrayUniforms::set_ambient`.
+fn SrLightArrayUniforms_set_ambient(u, color, intensity) {
+    _sr_light_v4(u, load32(color), load32(color + 4), load32(color + 8), intensity);
+    return u;
+}

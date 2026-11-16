@@ -527,3 +527,68 @@ output. The Rust side is about 400 lines on top of the `gltf` crate.
 - No chitra accuracy request is needed. Decode speed is already chitra's open issue of 2026-11-14.
 - A texture's decode memory goes through a freeing allocator.
 - The 16.7 Mpx cap is an ADR 0002 row: soorat 1.2.0 allows larger images up to the device limit.
+
+## 2. M1: foundation (parts a–c, 2026-11-15)
+
+Same dev box and toolchain as §1. Re-run: `cyrius test --bounds tests/parity.tcyr` (the replay),
+`python3 -I -B scripts/oracle/validate.py .` (the independent re-derivation), `taskset -c 2 cyrius bench`.
+
+### 2.1 Parity
+
+| Module | Rows | Classes | Result |
+|---|---|---|---|
+| `math` | 1,436 | E (7 functions), A (`flatten_mat4`) | 287 identical to Rust; **1,149 accepted (E)**, each bit-identical to Rust's formula in f64 rounded once |
+| `color` | 3,397 | A, B | all identical to Rust, including every −0 output. Re-run with class B held to exact bits: still all identical |
+| `lights` | 1,066 | A; C (`GpuLight::spot`, bound 0) | 1,038 identical; the **28 spot rows where glibc's `cosf` misrounds** (28 of 2,016 cosines, 1.4 %) give the correctly rounded value, never glibc's |
+| `lod` | 770 | A | all identical, thresholds ± 1 ulp and NaN included |
+| `layout` | 19 | A | all identical, measured on the compiled structs (`tests/layout_probe.cyr`) |
+| `constants` | 9 of 18 | A | identical; the other 9 arrive with their modules |
+
+**Class E, by function** (`validate.py`): f64-once differs from Rust's f32 on `mul_mat4` and `compose_trs` 100 %,
+`look_at` 98.5 %, `normal_to_basis` 83.0 %, `cross` 73.5 %, `normalize3` 60.2 %, `perspective_90` 53.2 % of their
+rows. The port reproduces the f64-once value on every one, so the corpus pins D4 rule b exactly (§5).
+
+### 2.2 Speed
+
+`taskset -c 2 cyrius bench`, 10⁶ calls per bench, in ns per call. The Rust column is the 1.2.0 release run.
+
+| Bench | Rust | Cyrius | Ratio | Plan §11 |
+|---|---|---|---|---|
+| `color/from_hex` | 1.36 | 19.98 | 14.7× | 10–50× |
+| `color/from_rgba8` | 3.30 | 15.70 | 4.76× | 10–50× |
+| `color/lerp` | 1.05 | 38.92 | 36.9× | 10–50× |
+| `color/luminance` | 0.76 | 11.07 | 14.5× | 10–50× |
+| `color/to_array` | 0.52 | 4.91 | 9.47× | 10–50× |
+| `vertex/bytemuck_cast_100` | 0.77 | 1.28 (`vertex/byte_view_100`) | 1.67× | — |
+
+The Rust numbers are sub-nanosecond because criterion's loop inlines each call; a bare Cyrius call costs about 3 ns
+(`noop`). Every ratio is within or below §11's band.
+
+**Two wins, measured on the same box in the same session:**
+- **Colour arithmetic in one typed helper per formula.** Each ganita `f32` op is a call, so `lerp` made 12. A helper
+  with `: f32` parameters does the same native single-precision operations in one call per component: `lerp`
+  75 → 37 ns (−51 %), `luminance` 20 → 11 (−45 %), `to_array` 11 → 5 (−55 %), `from_rgba8` 27 → 15 (−44 %),
+  `from_hex` 30 → 19 (−37 %). All 3,397 rows stay identical.
+- **Straight-line f64 matrices.** The loop form of `mul_mat4` widened each input four times: 294 ns; unrolled, 115
+  (−61 %). Locals instead of in-memory f64 triples: `look_at` 116 → 75 (−35 %), `compose_trs` 59 → 46,
+  `normalize3` 29 → 17, `normal_to_basis` 66 → 57. Every row stays bit-identical. `mul_mat4` stays at about 120 ns,
+  which looks like the compiler's code for 48 f64 locals: a performance item for M4, whose shadow benches call it.
+
+One full run read about 2× slow on everything, `noop` included (3 → 6 ns). Two repeat runs agreed with the earlier
+numbers, so it was the machine's state; `bench-history.csv` keeps that run, and the record uses the later one.
+
+### 2.3 What M1 taught (rules for the next parts)
+
+- **An `include` of a file that declares an `enum` must come before the first top-level statement.**
+  tests/parity.tcyr includes the library first.
+- **Assigning an integer to an f32 struct field warns under `--bounds`** ("keeps its integer bits"), so f32 fields
+  are written with `store32` at their offsets (`SrColor`, the lights).
+- **ganita's `f32_clamp` turns −0 into +0**; Rust's `clamp` keeps −0. `heat_map(−0)` would have lost its sign bit,
+  so src/mathx.cyr has Rust's clamp (`_sr_clamp32`), and its round (half away from zero) and `as u8`.
+- **Class B can't see a sign-of-zero slip**: −0 and +0 sit at the same point of the ordered line. Rows expected
+  at 0 ulp were also run with B held to exact bits.
+- **Constants that are arrays** (`IDENTITY_MAT4`, the `Color` constants) are pointers to static arrays filled at
+  load (`var SR_COLOR_WHITE = &_sr_color_consts;`). A library's top-level code runs before the program's
+  `alloc_init`, so they can't use `alloc`.
+- **There is no `offsetof`.** The layouts are measured with P1's marker technique, in generated code
+  (`scripts/oracle/gen_layout.py`).

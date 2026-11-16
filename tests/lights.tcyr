@@ -1,0 +1,72 @@
+# lights.tcyr — the ported tests of Rust 1.2.0's src/lights.rs (M1 part c), all 8. The golden rows
+# (tests/golden/lights.tsv, 1,066) are replayed by tests/parity.tcyr.
+
+include "tests/lib.cyr"
+include "tests/support.cyr"
+
+# Runs the ported lights tests.
+fn main() {
+    alloc_init();
+    var l = alloc(64);
+    var d = alloc(16);
+    var c = alloc(16);
+    var p = alloc(16);
+    var arr = alloc(sizeof(SrLightArrayUniforms));
+    var many = alloc(20 * 64);
+    var zero: f64 = 0.0;
+    var one: f64 = 1.0;
+
+    test_group("gpu_light_size");
+    assert_eq(sizeof(SrGpuLight), 64, "4 × vec4");
+
+    test_group("light_array_uniforms_size");
+    assert_eq(sizeof(SrLightArrayUniforms), 16 + 16 + 64 * SR_MAX_LIGHTS, "ambient + count + lights");
+
+    test_group("directional_light");
+    SrGpuLight_directional(t_set3(d, 0, 0xBF800000, 0), t_set3(c, 0x3F800000, 0x3F800000, 0x3F800000), 0x3F800000, l);
+    assert(t_eq_at(l, 3, zero) == 1, "Directional = 0");
+    assert(t_eq_at(l, 11, one) == 1, "intensity");
+
+    test_group("point_light");
+    SrGpuLight_point(t_set3(p, 0x40A00000, 0x40400000, 0), t_set3(c, 0x3F800000, 0, 0), 0x40000000, 0x41200000, l);
+    assert(t_eq_at(l, 3, one) == 1, "Point = 1");
+    assert(t_eq_at(l, 7, 10.0) == 1, "range");
+
+    test_group("spot_light");
+    SrGpuLight_spot(t_set3(p, 0, 0x40A00000, 0), t_set3(d, 0, 0xBF800000, 0), t_set3(c, 0x3F800000, 0x3F800000,
+        0x3F800000), 0x40400000, 0x41700000, 0x3E99999A, 0x3F000000, l);
+    assert(t_eq_at(l, 3, 2.0) == 1, "Spot = 2");
+    assert(t_eq_at(l, 7, 15.0) == 1, "range");
+    var cos03: f64 = f32_to(ganita_f32_cos(0x3E99999A));
+    assert(t_near(t_f(l, 12), cos03, 0.001) == 1, "inner = cos 0.3");
+
+    test_group("light_array_set_lights");
+    SrLightArrayUniforms_default(arr);
+    SrGpuLight_directional(t_set3(d, 0, 0xBF800000, 0), t_set3(c, 0x3F800000, 0x3F800000, 0x3F800000), 0x3F800000,
+      many);
+    SrGpuLight_point(t_set3(p, 0, 0x40400000, 0), t_set3(c, 0x3F800000, 0, 0), 0x40000000, 0x41200000, many + 64);
+    SrLightArrayUniforms_set_lights(arr, many, 2);
+    assert(t_eq_at(arr, 4, 2.0) == 1, "light_count = 2");
+
+    test_group("light_array_clamps_to_max");
+    SrLightArrayUniforms_default(arr);
+    var i = 0;
+    while (i < 20) {
+        SrGpuLight_directional(t_set3(d, 0, 0xBF800000, 0), t_set3(c, 0x3F800000, 0x3F800000, 0x3F800000), 0x3F800000,
+          many + i * 64);
+        i = i + 1;
+    }
+    SrLightArrayUniforms_set_lights(arr, many, 20);
+    assert(t_eq_at(arr, 4, 8.0) == 1, "light_count = MAX_LIGHTS");
+
+    # `bytemuck::bytes_of(&arr)`: the uniform is its bytes.
+    test_group("light_array_bytemuck");
+    SrLightArrayUniforms_default(arr);
+    assert_eq(sizeof(SrLightArrayUniforms), 544, "544 bytes");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

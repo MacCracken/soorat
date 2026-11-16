@@ -1,0 +1,84 @@
+# color.bcyr — twins of Rust 1.2.0's `color/*` and `vertex/bytemuck_cast_100` benches (M1 part b).
+#
+# Each is a batch of 1,000,000 calls on Rust's inputs (rust-old/benches/benchmarks.rs). `vertex/bytemuck_cast_100`
+# times `bytemuck::cast_slice` of 100 Vertex2D, which only reinterprets the slice (0.77 ns): a Cyrius vertex stream
+# is bytes already, so its twin, `vertex/byte_view_100`, times the same nothing: the stream's byte length.
+
+include "tests/lib.cyr"
+
+var N = 1000000;
+
+# A sink the optimizer can't see through (Cyrius doesn't elide calls, but the result is kept anyway).
+var _sink = 0;
+
+# Runs the colour and vertex benches.
+fn main(): i64 {
+    alloc_init();
+    var out = alloc(16);
+    var i = 0;
+
+    var bh = bench_new("color/from_hex");
+    bench_batch_start(bh);
+    i = 0;
+    while (i < N) {
+        SrColor_from_hex(0xFF6633FF, out);
+        i = i + 1;
+    }
+    bench_batch_stop(bh, N);
+    bench_report(bh);
+
+    var br = bench_new("color/from_rgba8");
+    bench_batch_start(br);
+    i = 0;
+    while (i < N) {
+        SrColor_from_rgba8(255, 102, 51, 255, out);
+        i = i + 1;
+    }
+    bench_batch_stop(br, N);
+    bench_report(br);
+
+    var bl = bench_new("color/lerp");
+    bench_batch_start(bl);
+    i = 0;
+    while (i < N) {
+        SrColor_lerp(SR_COLOR_BLACK, SR_COLOR_WHITE, 0x3F000000, out);
+        i = i + 1;
+    }
+    bench_batch_stop(bl, N);
+    bench_report(bl);
+
+    var bm = bench_new("color/luminance");
+    bench_batch_start(bm);
+    i = 0;
+    while (i < N) {
+        _sink = SrColor_luminance(SR_COLOR_CORNFLOWER_BLUE);
+        i = i + 1;
+    }
+    bench_batch_stop(bm, N);
+    bench_report(bm);
+
+    var ba = bench_new("color/to_array");
+    bench_batch_start(ba);
+    i = 0;
+    while (i < N) {
+        SrColor_to_array(SR_COLOR_CORNFLOWER_BLUE, out);
+        i = i + 1;
+    }
+    bench_batch_stop(ba, N);
+    bench_report(ba);
+
+    var verts = alloc(100 * sizeof(SrVertex2D));
+    var bv = bench_new("vertex/byte_view_100");
+    bench_batch_start(bv);
+    i = 0;
+    while (i < N) {
+        _sink = verts + 100 * sizeof(SrVertex2D);
+        i = i + 1;
+    }
+    bench_batch_stop(bv, N);
+    bench_report(bv);
+    return 0;
+}
+
+var r = main();
+sys_exit_group(r);

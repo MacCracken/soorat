@@ -1,0 +1,15 @@
+# log.cyr — soorat's tracing events, on sakshi (port plan §1.1: `tracing` → sakshi).
+#
+# Rust 1.2.0 emits `tracing` events under the targets `soorat::<module>` and leaves the subscriber to the
+# application; soorat has no logging module of its own. Here an event is one sakshi line, `soorat::<module>:
+# <message>`, at the event's level, so a consumer that configures sakshi (level, output, hook) sees soorat's
+# events among its own. sakshi's default level is INFO, so WARN events reach stderr until the consumer changes it.
+#
+# Rust's events also carry fields (`near=1.0 far=1.0`). Those are left out until soorat has Rust's shortest
+# round-trip f32 formatting, which the first module that needs it brings (ADR 0002 #17).
+
+# Emits `msg` (a C string: "soorat::<module>: <message>") as a sakshi WARN event.
+fn _sr_warn(msg): i64 {
+    sakshi_warn(msg, strlen(msg));
+    return 0;
+}

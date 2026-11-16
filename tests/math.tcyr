@@ -1,0 +1,154 @@
+# math.tcyr — the ported tests of Rust 1.2.0's src/math_util.rs (M1 part a), all 13, plus Cyrius-only checks of
+# what the port adds: out pointers that alias an input, and the f64 evaluation (D4 rule b) on inputs where Rust's
+# f32 one loses the answer. The golden rows (tests/golden/math.tsv, 1,436) are replayed by tests/parity.tcyr.
+
+include "tests/lib.cyr"
+include "tests/support.cyr"
+
+var F0 = 0;
+var F1 = 0x3F800000;
+var F2 = 0x40000000;
+var F3 = 0x40400000;
+var FM1 = 0xBF800000;
+
+# Runs the ported math_util tests.
+fn main() {
+    alloc_init();
+    var ident = alloc(64);
+    var r = alloc(64);
+    var m = alloc(64);
+    var a = alloc(16);
+    var b = alloc(16);
+    var c = alloc(16);
+    var d = alloc(16);
+    var tol: f64 = 0.001;
+    var one: f64 = 1.0;
+    var zero: f64 = 0.0;
+    sr_flatten_mat4(SR_IDENTITY_MAT4, ident);
+
+    test_group("mul_mat4_identity");
+    sr_mul_mat4(ident, ident, r);
+    assert(t_arr_eq(r, ident, 16) == 1, "I · I = I");
+
+    test_group("normalize3_unit");
+    sr_normalize3(t_set3(a, F3, F0, 0x40800000), r);
+    var len: f64 = f64_sqrt(t_dot3(r, r));
+    assert(t_near(len, one, tol) == 1, "|n| = 1");
+
+    test_group("normalize3_zero");
+    sr_normalize3(t_set3(a, F0, F0, F0), r);
+    assert(load32(r) == F0 && load32(r + 4) == F0 && load32(r + 8) == F1, "(0, 0, 0) → (0, 0, 1)");
+
+    test_group("cross_product_basis");
+    sr_cross(t_set3(a, F1, F0, F0), t_set3(b, F0, F1, F0), r);
+    assert(t_near(t_f(r, 2), one, tol) == 1, "x × y = z");
+    sr_cross(t_set3(a, F0, F1, F0), t_set3(b, F1, F0, F0), r);
+    var mone: f64 = 0.0 - one;
+    assert(t_near(t_f(r, 2), mone, tol) == 1, "y × x = −z");
+
+    test_group("look_at_parallel_vectors");
+    sr_look_at(t_set3(a, F0, F0, F0), t_set3(b, F0, F1, F0), t_set3(c, F0, F1, F0), r);
+    assert(t_none_nan(r, 16) == 1, "no NaN with dir ∥ up");
+
+    test_group("look_at_zero_direction");
+    sr_look_at(t_set3(a, F0, F0, F0), t_set3(b, F0, F0, F0), t_set3(c, F0, F1, F0), r);
+    assert(t_none_nan(r, 16) == 1, "no NaN with a zero direction");
+
+    test_group("flatten_mat4_identity");
+    sr_flatten_mat4(ident, r);
+    assert(t_arr_eq(r, ident, 16) == 1, "flatten(I) = I");
+
+    test_group("flatten_mat4_roundtrip");
+    var i = 0;
+    while (i < 16) {
+        store32(m + i * 4, f32_from(f64_from(i + 1)));
+        i = i + 1;
+    }
+    sr_flatten_mat4(m, r);
+    assert(t_eq_at(r, 0, 1.0) == 1, "m[0][0]");
+    assert(t_eq_at(r, 4, 5.0) == 1, "m[1][0]");
+    assert(t_eq_at(r, 8, 9.0) == 1, "m[2][0]");
+    assert(t_eq_at(r, 12, 13.0) == 1, "m[3][0]");
+    assert(t_eq_at(r, 15, 16.0) == 1, "m[3][3]");
+
+    test_group("compose_trs_zero_scale");
+    store32(d, F0);
+    store32(d + 4, F0);
+    store32(d + 8, F0);
+    store32(d + 12, F1);
+    sr_compose_trs(t_set3(a, F1, F2, F3), d, t_set3(b, F0, F0, F0), r);
+    assert(t_none_nan(r, 16) == 1, "no NaN with zero scale");
+    assert(t_eq_at(r, 0, zero) == 1, "m[0]");
+    assert(t_eq_at(r, 5, zero) == 1, "m[5]");
+    assert(t_eq_at(r, 10, zero) == 1, "m[10]");
+    assert(t_eq_at(r, 12, 1.0) == 1, "translation x");
+    assert(t_eq_at(r, 13, 2.0) == 1, "translation y");
+    assert(t_eq_at(r, 14, 3.0) == 1, "translation z");
+
+    test_group("compose_trs_rotation_only");
+    var frac_pi_4 = 0x3F490FDB;
+    store32(d, F0);
+    store32(d + 4, F0);
+    store32(d + 8, ganita_f32_sin(frac_pi_4));
+    store32(d + 12, ganita_f32_cos(frac_pi_4));
+    sr_compose_trs(t_set3(a, F0, F0, F0), d, t_set3(b, F1, F1, F1), r);
+    var tol2: f64 = 0.01;
+    assert(t_near(t_f(r, 0), zero, tol2) == 1, "x → y: x component ≈ 0");
+    assert(t_near(t_f(r, 1), one, tol2) == 1, "x → y: y component ≈ 1");
+    assert(t_eq_at(r, 15, 1.0) == 1, "w = 1");
+
+    test_group("normal_to_basis_z_forward");
+    sr_normal_to_basis(t_set3(a, F0, F0, F1), b, c);
+    assert(t_near(t_dot3(b, a), zero, tol) == 1, "right ⟂ n");
+    assert(t_near(t_dot3(c, a), zero, tol) == 1, "up ⟂ n");
+
+    test_group("normal_to_basis_y_up");
+    sr_normal_to_basis(t_set3(a, F0, F1, F0), b, c);
+    assert(t_near(t_dot3(b, a), zero, tol) == 1, "right ⟂ n");
+    assert(t_near(t_dot3(c, a), zero, tol) == 1, "up ⟂ n");
+
+    test_group("normal_to_basis_orthogonal");
+    sr_normalize3(t_set3(a, F1, F2, F3), a);
+    sr_normal_to_basis(a, b, c);
+    assert(t_near(t_dot3(b, c), zero, tol) == 1, "right ⟂ up");
+    assert(t_near(t_dot3(b, a), zero, tol) == 1, "right ⟂ n");
+    assert(t_near(t_dot3(c, a), zero, tol) == 1, "up ⟂ n");
+
+    # ── Cyrius-only ──────────────────────────────────────────────────────────────
+
+    # An out pointer may be an input: the result equals the one written elsewhere.
+    test_group("cyrius: out pointers may alias inputs");
+    i = 0;
+    while (i < 16) {
+        store32(m + i * 4, f32_from(f64_from(i - 7)));
+        i = i + 1;
+    }
+    var m2 = alloc(64);
+    sr_mul_mat4(m, m, r);
+    sr_flatten_mat4(m, m2);
+    sr_mul_mat4(m2, m2, m2);
+    assert(t_arr_eq(m2, r, 16) == 1, "mul_mat4(a, a, a)");
+    sr_cross(t_set3(a, F1, F2, F3), t_set3(b, F3, F1, F2), r);
+    sr_cross(a, b, a);
+    assert(t_arr_eq(a, r, 3) == 1, "cross(a, b, a)");
+
+    # near == far gives the identity (and a WARN event on stderr).
+    test_group("cyrius: perspective_90 at near == far");
+    sr_perspective_90(F1, F1, r);
+    assert(t_arr_eq(r, ident, 16) == 1, "identity");
+
+    # D4 rule b: (1e30, 1e30, 1e30) overflows Rust's f32 x² (its length is +inf, so it returns (0, 0, 0)); the f64
+    # evaluation returns 1/√3 in each component.
+    test_group("cyrius: normalize3 past f32 overflow");
+    var big = 0x7149F2CA;
+    sr_normalize3(t_set3(a, big, big, big), r);
+    var inv_sqrt3: f64 = 0.5773502691896258;
+    assert(t_near(t_f(r, 0), inv_sqrt3, 0.000001) == 1, "x = 1/√3");
+    assert(t_near(t_f(r, 2), inv_sqrt3, 0.000001) == 1, "z = 1/√3");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

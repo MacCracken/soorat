@@ -1,0 +1,62 @@
+# layout.tcyr — the ported tests of Rust 1.2.0's src/vertex.rs and src/instancing.rs (M1 part b): 8 of their 14.
+#
+# Vertex2D, Vertex3D, SkinnedVertex3D and InstanceData are mabda's types, re-exported. Their sizes and bytes are
+# soorat's layouts (src/layout.cyr) and are tested here. Six tests exercise mabda's own methods (`layout()`, the
+# vertex buffer descriptor; `InstanceData::default` and `from_translation`) and move to M6 with mabda
+# (docs/development/rust-test-ledger.md). Every type's offsets are replayed against Rust's by tests/parity.tcyr.
+
+include "tests/lib.cyr"
+include "tests/support.cyr"
+
+# Runs the ported layout tests.
+fn main() {
+    alloc_init();
+    var zero: f64 = 0.0;
+
+    test_group("vertex2d_size");
+    assert_eq(sizeof(SrVertex2D), 32, "Vertex2D is 32 bytes");
+
+    test_group("vertex3d_size");
+    assert_eq(sizeof(SrVertex3D), 48, "Vertex3D is 48 bytes");
+
+    test_group("skinned_vertex3d_size");
+    assert_eq(sizeof(SrSkinnedVertex3D), 96, "SkinnedVertex3D is 96 bytes");
+
+    # `Vertex2D::zeroed()`: the all-zero bytes, whose position reads (0, 0).
+    test_group("vertex2d_zeroed");
+    var v2: SrVertex2D;
+    memset(&v2, 0, sizeof(SrVertex2D));
+    assert(t_eq_at(&v2, 0, zero) == 1 && t_eq_at(&v2, 1, zero) == 1, "position = [0, 0]");
+
+    test_group("vertex3d_zeroed");
+    var v3: SrVertex3D;
+    memset(&v3, 0, sizeof(SrVertex3D));
+    assert(t_eq_at(&v3, 0, zero) == 1 && t_eq_at(&v3, 1, zero) == 1 && t_eq_at(&v3, 2, zero) == 1,
+        "position = [0, 0, 0]");
+
+    # `bytemuck::bytes_of(&v)`: a vertex is its bytes; written field by field at Rust's offsets, it is 48 of them.
+    test_group("vertex3d_bytemuck_cast");
+    var buf = alloc(sizeof(SrVertex3D));
+    t_set3(buf, 0x3F800000, 0x40000000, 0x40400000);
+    t_set3(buf + 12, 0, 0x3F800000, 0);
+    store32(buf + 24, 0x3F000000);
+    store32(buf + 28, 0x3F000000);
+    t_set4(buf + 32, 0x3F800000, 0, 0, 0x3F800000);
+    assert_eq(sizeof(SrVertex3D), 48, "48 bytes");
+    assert(load32(buf + 8) == 0x40400000 && load32(buf + 44) == 0x3F800000, "position.z and color.a in place");
+
+    test_group("instance_data_size");
+    assert_eq(sizeof(SrInstanceData), 80, "mat4 + vec4 = 80 bytes");
+
+    # Rust takes the bytes of `InstanceData::default()` (mabda's, M6); the length is the layout's.
+    test_group("instance_data_bytemuck");
+    var inst: SrInstanceData;
+    memset(&inst, 0, sizeof(SrInstanceData));
+    assert_eq(sizeof(SrInstanceData), 80, "80 bytes");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

@@ -5,17 +5,17 @@
 
 **Rust column:** `rust-old/bench-history.csv`, run `2026-11-15T21:19:13Z` at `7f3213a`: the 1.2.0 release run (plan §4 step 8), criterion medians.
 
-**Cyrius column:** `bench-history.csv` at the repository root (`timestamp,commit,branch,benchmark,estimate_ns`, as the Rust history), its latest run: no run recorded yet, so every Cyrius cell is —. `scripts/bench_record.py . --append <cyrius bench log>` adds a run.
+**Cyrius column:** `bench-history.csv` at the repository root (`timestamp,commit,branch,benchmark,estimate_ns`, as the Rust history), its latest run: `2026-11-16T00:33:41Z` at `9ad9367+wip`, `cyrius bench` means. `scripts/bench_record.py . --append <cyrius bench log>` adds a run.
 
-**35 Rust benches:** 0 twinned, 0 not applicable, 35 pending, 0 missing. Milestones done (plan §14): M0.
+**35 Rust benches:** 6 twinned, 0 not applicable, 29 pending, 0 missing. Milestones done (plan §14): M0.
 
 | Rust bench | Milestone | Rust 1.2.0 | Cyrius twin | Cyrius | Cyrius / Rust |
 |---|---|---:|---|---:|---:|
-| `color/from_hex` | M1 | 1.36 ns | `color/from_hex` — pending | — | — |
-| `color/from_rgba8` | M1 | 3.30 ns | `color/from_rgba8` — pending | — | — |
-| `color/lerp` | M1 | 1.05 ns | `color/lerp` — pending | — | — |
-| `color/luminance` | M1 | 0.76 ns | `color/luminance` — pending | — | — |
-| `color/to_array` | M1 | 0.52 ns | `color/to_array` — pending | — | — |
+| `color/from_hex` | M1 | 1.36 ns | `color/from_hex` | 19.98 ns | 14.7× |
+| `color/from_rgba8` | M1 | 3.30 ns | `color/from_rgba8` | 15.70 ns | 4.76× |
+| `color/lerp` | M1 | 1.05 ns | `color/lerp` | 38.92 ns | 36.9× |
+| `color/luminance` | M1 | 0.76 ns | `color/luminance` | 11.07 ns | 14.5× |
+| `color/to_array` | M1 | 0.52 ns | `color/to_array` | 4.91 ns | 9.47× |
 | `sprite/create` | M2 | 2.39 ns | `sprite/create` — pending | — | — |
 | `sprite/create_full_builder` | M2 | 3.54 ns | `sprite/create_full_builder` — pending | — | — |
 | `sprite/center_bounds` | M2 | 0.25 ns | `sprite/center_bounds` — pending | — | — |
@@ -24,7 +24,7 @@
 | `sprite/batch_sort_100` | M2 | 73.57 ns | `sprite/batch_sort_100` — pending | — | — |
 | `sprite/batch_push_1000` | M2 | 8.31 µs | `sprite/batch_push_1000` — pending | — | — |
 | `sprite/batch_sort_1000` | M2 | 565.87 ns | `sprite/batch_sort_1000` — pending | — | — |
-| `vertex/bytemuck_cast_100` | M1 | 0.77 ns | `vertex/byte_view_100` — pending | — | — |
+| `vertex/bytemuck_cast_100` | M1 | 0.77 ns | `vertex/byte_view_100` | 1.28 ns | 1.67× |
 | `vertex/quad_generation_100` | M2 | 633.72 ns | `vertex/quad_generation_100` — pending | — | — |
 | `pipeline/batch_to_vertices_100` | M2 | 1.19 µs | `pipeline/batch_to_vertices_100` — pending | — | — |
 | `pipeline/batch_to_vertices_1000` | M2 | 11.90 µs | `pipeline/batch_to_vertices_1000` — pending | — | — |
@@ -51,4 +51,10 @@
 
 | Cyrius bench | What it measures | Cyrius |
 |---|---|---:|
-| `noop` | the scaffold's harness check: an empty call, i.e. loop and call overhead (tests/soorat.bcyr) | — |
+| `math/compose_trs` | M1: `compose_trs` in f64, rounded once; no Rust bench (animation's joint chains call it, M3) | 49.10 ns |
+| `math/look_at` | M1: `look_at` in f64, rounded once; no Rust bench (`shadow/directional_matrix` calls it, M4) | 79.36 ns |
+| `math/mul_mat4` | M1: `mul_mat4` in f64, rounded once (D4 rule b); no Rust bench (`shadow/*` call it, M4) | 121.00 ns |
+| `math/normal_to_basis` | M1: `normal_to_basis` in f64, rounded once; no Rust bench (acoustic and em call it, M5) | 62.22 ns |
+| `math/normalize3` | M1: `normalize3` in f64, rounded once; no Rust bench | 18.50 ns |
+| `math/perspective_90` | M1: `perspective_90` in f64, rounded once; no Rust bench (`shadow/point_shadow_6_faces`, M4) | 32.52 ns |
+| `noop` | the scaffold's harness check: an empty call, i.e. loop and call overhead (tests/soorat.bcyr) | 2.72 ns |

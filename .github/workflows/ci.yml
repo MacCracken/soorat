@@ -46,8 +46,18 @@ jobs:
       - name: Test (includes tests/parity.tcyr, the golden-corpus replay)
         run: cyrius test
 
+      # The f32 and f64 type diagnostics appear only under --bounds; the gate is zero warnings (CLAUDE.md).
+      - name: Test (bounds-checked)
+        run: cyrius test --bounds
+
+      - name: Bundle current (dist/soorat.cyr is what distlib writes from [lib])
+        run: cyrius distlib --check
+
       - name: Golden corpus re-derivation (no Rust needed)
         run: python3 -I -B scripts/oracle/validate.py .
+
+      - name: Generated layouts current (src/layout.cyr, tests/layout_probe.cyr, against tests/golden/layout.tsv)
+        run: python3 -I -B scripts/oracle/gen_layout.py . --check
 
       - name: Audit (fmt, lint, docs, tests, bench)
         # Run directly, not through a pipe, so the job sees audit's own exit status.

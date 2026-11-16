@@ -1,0 +1,65 @@
+# mathx.cyr — Rust's f32 std semantics on top of the Cyrius builtins (M1 part b).
+#
+# Port plan §9.1. An f32 is its bits in the low 32 bits of an i64 (ganita's convention). Each helper mirrors one std
+# f32 operation exactly as rustc 1.100 compiles it, where the stdlib or ganita's f32 tier differs:
+# - `clamp` keeps a −0 input (ganita_f32_clamp turns it into +0, so `heat_map(−0)` would lose its sign bit) and lets
+#   a NaN through;
+# - `round` rounds half away from zero (ganita_f32_round and f64_round round ties to even: 0.5 → 0, Rust 1);
+# - `as u8` saturates, NaN → 0.
+# Arithmetic stays on ganita's native f32 tier (ganita_f32_add, _sub, _mul, _div: one f32 rounding each), which is
+# Rust's sequence under D4 rule a.
+
+# 1 when the f32 bits x are a NaN.
+#must_use
+fn _sr_f32_is_nan(x): i64 {
+    var b = x & 0xFFFFFFFF;
+    if ((b & 0x7F800000) == 0x7F800000 && (b & 0x007FFFFF) != 0) { return 1; }
+    return 0;
+}
+
+# 1 when a < b as f32 values (0 when either is NaN). Widening is exact, so the f64 comparison is the f32 one.
+#must_use
+fn _sr_f32_lt(a, b): i64 {
+    var x: f64 = f32_to(a & 0xFFFFFFFF);
+    var y: f64 = f32_to(b & 0xFFFFFFFF);
+    if (x < y) { return 1; }
+    return 0;
+}
+
+# x restricted to [lo, hi], as Rust's `f32::clamp`: lo when x < lo, hi when x > hi, else x itself, bits kept (−0
+# stays −0, a NaN stays NaN). Every caller passes lo ≤ hi, neither NaN (Rust panics otherwise).
+#must_use
+fn _sr_clamp32(x, lo, hi): i64 {
+    var v: f64 = f32_to(x & 0xFFFFFFFF);
+    var l: f64 = f32_to(lo & 0xFFFFFFFF);
+    var h: f64 = f32_to(hi & 0xFFFFFFFF);
+    if (v < l) { return lo & 0xFFFFFFFF; }
+    if (v > h) { return hi & 0xFFFFFFFF; }
+    return x & 0xFFFFFFFF;
+}
+
+# x rounded to the nearest integer, halfway cases away from zero, as Rust's `f32::round`: NaN, ±∞ and every |x| ≥ 2²³
+# (already an integer) come back unchanged, and the sign is kept (round(−0.4) is −0). |x| + 0.5 is exact in f64 for
+# |x| < 2²³, so floor(|x| + 0.5) is the rounded magnitude.
+#must_use
+fn _sr_round32(x): i64 {
+    var b = x & 0xFFFFFFFF;
+    var mag = b & 0x7FFFFFFF;
+    if (mag >= 0x4B000000) { return b; }
+    var v: f64 = f32_to(mag);
+    var half: f64 = 0.5;
+    var r: f64 = f64_floor(v + half);
+    return f32_from(r) | (b & 0x80000000);
+}
+
+# x as u8, as Rust's saturating `as`: NaN → 0, below 0 → 0, above 255 → 255, else truncated toward zero.
+#must_use
+fn _sr_f32_to_u8(x): i64 {
+    if (_sr_f32_is_nan(x) == 1) { return 0; }
+    var v: f64 = f32_to(x & 0xFFFFFFFF);
+    var zero: f64 = 0.0;
+    var top: f64 = 255.0;
+    if (v <= zero) { return 0; }
+    if (v >= top) { return 255; }
+    return f64_to(v);
+}

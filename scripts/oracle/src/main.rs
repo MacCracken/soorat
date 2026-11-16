@@ -19,8 +19,11 @@
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
+mod m_color;
 mod m_constants;
 mod m_layout;
+mod m_lights;
+mod m_lod;
 mod m_math;
 
 /// One module's rows, written as `tests/golden/<name>.tsv`.
@@ -31,12 +34,21 @@ pub struct Module {
 
 impl Module {
     pub fn new(name: &'static str) -> Self {
-        Self { name, rows: Vec::new() }
+        Self {
+            name,
+            rows: Vec::new(),
+        }
     }
     /// Adds a row: `fn <TAB> class <TAB> inputs <TAB> outputs <TAB> note`.
     pub fn row(&mut self, func: &str, class: char, inputs: &Toks, outputs: &Toks, note: &str) {
         let mut line = String::new();
-        let _ = write!(line, "{func}\t{class}\t{}\t{}\t{}", inputs.text(), outputs.text(), note.replace('\t', " "));
+        let _ = write!(
+            line,
+            "{func}\t{class}\t{}\t{}\t{}",
+            inputs.text(),
+            outputs.text(),
+            note.replace('\t', " ")
+        );
         self.rows.push(line);
     }
 }
@@ -72,6 +84,11 @@ impl Toks {
         self.0.push(format!("i:{x}"));
         self
     }
+    /// `E:<Variant>`: `Err(RenderError::<Variant>)`, its payload not compared.
+    pub fn err(mut self, variant: &str) -> Self {
+        self.0.push(format!("E:{variant}"));
+        self
+    }
     /// `v:<len>` then each integer.
     pub fn is(mut self, xs: &[i128]) -> Self {
         self.0.push(format!("v:{}", xs.len()));
@@ -81,7 +98,11 @@ impl Toks {
         self
     }
     fn text(&self) -> String {
-        if self.0.is_empty() { "-".to_string() } else { self.0.join(" ") }
+        if self.0.is_empty() {
+            "-".to_string()
+        } else {
+            self.0.join(" ")
+        }
     }
 }
 
@@ -116,21 +137,35 @@ fn platform() -> String {
         .output()
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
-        .and_then(|s| s.lines().next().map(|l| l.rsplit(' ').next().unwrap_or("").to_string()))
+        .and_then(|s| {
+            s.lines()
+                .next()
+                .map(|l| l.rsplit(' ').next().unwrap_or("").to_string())
+        })
         .unwrap_or_else(|| "unknown".into());
-    let fma = if std::is_x86_feature_detected!("fma") { " fma" } else { "" };
+    let fma = if std::is_x86_feature_detected!("fma") {
+        " fma"
+    } else {
+        ""
+    };
     format!("glibc {glibc} {}{fma}", std::env::consts::ARCH)
 }
 
 fn render(m: &Module, plat: &str) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "# soorat golden corpus, format 1: {}", m.name);
-    let _ = writeln!(s, "# recorded: soorat 1.2.0 (rust-old/, oracle feature); libm: {plat}");
+    let _ = writeln!(
+        s,
+        "# recorded: soorat 1.2.0 (rust-old/, oracle feature); libm: {plat}"
+    );
     let _ = writeln!(
         s,
         "# regenerate: cargo run --release --locked --manifest-path scripts/oracle/Cargo.toml (never patch a row)"
     );
-    let _ = writeln!(s, "# columns: fn<TAB>class<TAB>inputs<TAB>outputs<TAB>note (tokens: scripts/oracle/README.md)");
+    let _ = writeln!(
+        s,
+        "# columns: fn<TAB>class<TAB>inputs<TAB>outputs<TAB>note (tokens: scripts/oracle/README.md)"
+    );
     let _ = writeln!(s, "# rows: {}", m.rows.len());
     for r in &m.rows {
         s.push_str(r);
@@ -145,9 +180,18 @@ fn main() {
     std::fs::create_dir_all(&root).expect("tests/golden");
     let plat = platform();
 
-    let modules = vec![m_constants::module(), m_layout::module(), m_math::module()];
+    let modules = vec![
+        m_constants::module(),
+        m_layout::module(),
+        m_math::module(),
+        m_color::module(),
+        m_lights::module(),
+        m_lod::module(),
+    ];
 
-    let mut index = String::from("# soorat golden corpus: one module per line; tests/parity.tcyr replays each\n");
+    let mut index = String::from(
+        "# soorat golden corpus: one module per line; tests/parity.tcyr replays each\n",
+    );
     let mut bad = 0;
     for m in &modules {
         index.push_str(m.name);
@@ -159,7 +203,10 @@ fn main() {
                 Ok(old) => {
                     let recorded = old.lines().nth(1).unwrap_or("");
                     if !recorded.ends_with(&plat) {
-                        eprintln!("{}: recorded on another platform ({recorded}); this is {plat}", path.display());
+                        eprintln!(
+                            "{}: recorded on another platform ({recorded}); this is {plat}",
+                            path.display()
+                        );
                         std::process::exit(2);
                     }
                     if old != text {

@@ -1,0 +1,50 @@
+# error.tcyr — the ported tests of Rust 1.2.0's src/error.rs (M1 part a).
+#
+# Rust's tests format each error with its payload (`Shader("test")`). A Cyrius error is a code with no payload (ADR
+# 0002 #1), so each test is re-expressed against the code: its variant name and its message.
+# - Ported here: `error_variants`.
+# - n/a (rust-test-ledger.md): `error_display` and `error_other_variant` (thiserror's text and a boxed foreign
+#   error), `error_is_send_sync`.
+# - At M6, with mabda: the five `from_gpu_error_*` tests (`sr_error_from_gpu`).
+
+include "tests/lib.cyr"
+include "tests/support.cyr"
+
+# A function that fails with `code`, as a fallible soorat function does.
+fn fails_with(code): Result {
+    return Err(code);
+}
+
+# Runs the ported error tests.
+fn main() {
+    alloc_init();
+
+    # Every variant has a non-empty message (Rust: `!err.to_string().is_empty()` for the nine with a payload).
+    test_group("error_variants");
+    var code = SR_ERR_ADAPTER_NOT_FOUND;
+    while (code <= SR_ERR_SCREENSHOT) {
+        assert(strlen(sr_error_message(code)) > 0, "message is non-empty");
+        assert(t_cs_eq(sr_error_name(code), "Unknown") == 0, "a named variant");
+        code = code + 1;
+    }
+
+    # Cyrius-only: the names and messages are Rust's, and a code travels in a Result's Err.
+    test_group("cyrius: names and messages follow RenderError");
+    assert(t_cs_eq(sr_error_name(SR_ERR_ADAPTER_NOT_FOUND), "AdapterNotFound") == 1, "AdapterNotFound");
+    assert(t_cs_eq(sr_error_message(SR_ERR_ADAPTER_NOT_FOUND), "GPU adapter not found") == 1, "error_display's text");
+    assert(t_cs_eq(sr_error_name(SR_ERR_SCREENSHOT), "Screenshot") == 1, "Screenshot");
+    assert(t_cs_eq(sr_error_message(SR_ERR_SHADER), "shader compilation failed") == 1, "Shader message");
+    assert(t_cs_eq(sr_error_name(SR_ERR_OTHER), "Other") == 1, "Other");
+    assert(t_cs_eq(sr_error_name(SR_ERR_NONE), "None") == 1, "None");
+    assert(t_cs_eq(sr_error_name(99), "Unknown") == 1, "not a code");
+    assert(t_cs_eq(sr_error_message(99), "unknown error") == 1, "not a code: message");
+    var t, v = fails_with(SR_ERR_PIPELINE);
+    assert(is_err_result(t) == 1, "Err");
+    assert_eq(v, SR_ERR_PIPELINE, "the payload is the code");
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

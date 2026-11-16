@@ -1,0 +1,165 @@
+# lod.cyr — Rust 1.2.0's src/lod.rs (M1 part c): distance-based level-of-detail selection.
+#
+# `SrLodChain` and `SrTerrainLod` own their arrays, allocated from the freelist (`fl_alloc`), so a consumer that
+# rebuilds them doesn't grow the bump heap: free each with its `_drop` (port plan §9.4, ADR 0002 #6). Rust's `Vec`
+# arguments are a pointer and a count here.
+#
+# **Precision (D4 rule a).** The outputs are indices, so the squared distances follow Rust's f32 sequence exactly
+# (native f32 helpers): class A rows (tests/golden/lod.tsv).
+
+# One level: its mesh index and its maximum squared distance (f32). Mirrors `LodLevel`.
+struct SrLodLevel { mesh_index; max_distance_sq: f32; }
+
+# A chain of levels, nearest first: `levels` points to `level_count` SrLodLevel (12 bytes each). Mirrors
+# `LodChain`.
+struct SrLodChain { levels; level_count; }
+
+# Grid resolutions (u32) and their distance thresholds (f32), `count` of each. Mirrors `TerrainLod`.
+struct SrTerrainLod { resolutions; distances; count; }
+
+# x·x in native f32.
+#must_use
+fn _sr_f32_sq(x: f32): i64 {
+    var r: f32 = x * x;
+    return r;
+}
+
+# (a − b)² + (c − d)² + (e − f)², as ((dx·dx + dy·dy) + dz·dz) in native f32, Rust's sequence.
+#must_use
+fn _sr_f32_dist_sq(a: f32, b: f32, c: f32, d: f32, e: f32, f: f32): i64 {
+    var dx: f32 = a - b;
+    var dy: f32 = c - d;
+    var dz: f32 = e - f;
+    var r: f32 = ((dx * dx) + (dy * dy)) + (dz * dz);
+    return r;
+}
+
+# 1 when the f32 a ≤ b (0 when either is NaN).
+#must_use
+fn _sr_f32_le(a, b): i64 {
+    var x: f64 = f32_to(a & 0xFFFFFFFF);
+    var y: f64 = f32_to(b & 0xFFFFFFFF);
+    if (x <= y) { return 1; }
+    return 0;
+}
+
+# A chain from the n distances (f32, nearest first): level i has mesh index i and max_distance_sq = d·d in f32.
+# Returns an SrLodChain to free with SrLodChain_drop, or 0 when the allocation fails. Mirrors `LodChain::new`.
+#must_use
+fn SrLodChain_new(distances, n): i64 {
+    var chain = fl_alloc(sizeof(SrLodChain));
+    if (chain == 0) { return 0; }
+    var levels = 0;
+    if (n > 0) {
+        levels = fl_alloc(n * sizeof(SrLodLevel));
+        if (levels == 0) {
+            fl_free(chain);
+            return 0;
+        }
+    }
+    var i = 0;
+    while (i < n) {
+        store64(levels + i * sizeof(SrLodLevel), i);
+        store32(levels + i * sizeof(SrLodLevel) + 8, _sr_f32_sq(load32(distances + i * 4)));
+        i = i + 1;
+    }
+    store64(chain, levels);
+    store64(chain + 8, n);
+    return chain;
+}
+
+# Frees a chain from SrLodChain_new (0 is ignored).
+fn SrLodChain_drop(chain) {
+    if (chain == 0) { return 0; }
+    if (load64(chain) != 0) { fl_free(load64(chain)); }
+    fl_free(chain);
+    return 0;
+}
+
+# The mesh index of the first level whose max_distance_sq ≥ distance_sq (f32 bits), else the last level's (a NaN
+# distance matches none), or 0 for an empty chain. Mirrors `LodChain::select`.
+#must_use
+fn SrLodChain_select(chain, distance_sq): i64 {
+    var levels = load64(chain);
+    var n = load64(chain + 8);
+    var i = 0;
+    while (i < n) {
+        if (_sr_f32_le(distance_sq, load32(levels + i * sizeof(SrLodLevel) + 8)) == 1) {
+            return load64(levels + i * sizeof(SrLodLevel));
+        }
+        i = i + 1;
+    }
+    if (n == 0) { return 0; }
+    return load64(levels + (n - 1) * sizeof(SrLodLevel));
+}
+
+# SrLodChain_select at the squared distance between camera_pos and object_pos (3 f32 each), computed in f32 as Rust
+# does. Mirrors `LodChain::select_from_positions`.
+#must_use
+fn SrLodChain_select_from_positions(chain, camera_pos, object_pos): i64 {
+    var d = _sr_f32_dist_sq(load32(camera_pos), load32(object_pos), load32(camera_pos + 4), load32(object_pos + 4),
+        load32(camera_pos + 8), load32(object_pos + 8));
+    return SrLodChain_select(chain, d);
+}
+
+# The number of levels. Mirrors `LodChain::level_count`.
+#must_use
+fn SrLodChain_level_count(chain): i64 {
+    return load64(chain + 8);
+}
+
+# A terrain LOD from nr resolutions (u32) and nd distance thresholds (f32), copied. Ok(an SrTerrainLod to free
+# with SrTerrainLod_drop); Err(SR_ERR_PIPELINE) when nr != nd (Rust's message names both lengths) or an allocation
+# fails. Mirrors `TerrainLod::new`.
+fn SrTerrainLod_new(resolutions, nr, distances, nd): Result {
+    if (nr != nd || nr < 0) { return Err(SR_ERR_PIPELINE); }
+    var t = fl_alloc(sizeof(SrTerrainLod));
+    if (t == 0) { return Err(SR_ERR_PIPELINE); }
+    var res = 0;
+    var dist = 0;
+    if (nr > 0) {
+        res = fl_alloc(nr * 4);
+        dist = fl_alloc(nr * 4);
+        if (res == 0 || dist == 0) {
+            if (res != 0) { fl_free(res); }
+            if (dist != 0) { fl_free(dist); }
+            fl_free(t);
+            return Err(SR_ERR_PIPELINE);
+        }
+    }
+    var i = 0;
+    while (i < nr) {
+        store32(res + i * 4, load32(resolutions + i * 4));
+        store32(dist + i * 4, load32(distances + i * 4));
+        i = i + 1;
+    }
+    store64(t, res);
+    store64(t + 8, dist);
+    store64(t + 16, nr);
+    return Ok(t);
+}
+
+# Frees a terrain LOD from SrTerrainLod_new (0 is ignored).
+fn SrTerrainLod_drop(t) {
+    if (t == 0) { return 0; }
+    if (load64(t) != 0) { fl_free(load64(t)); }
+    if (load64(t + 8) != 0) { fl_free(load64(t + 8)); }
+    fl_free(t);
+    return 0;
+}
+
+# The resolution of the first threshold ≥ distance (f32 bits), else the last resolution (a NaN distance matches
+# none), or 8 when there are none. Mirrors `TerrainLod::select_resolution`.
+#must_use
+fn SrTerrainLod_select_resolution(t, distance): i64 {
+    var res = load64(t);
+    var dist = load64(t + 8);
+    var n = load64(t + 16);
+    var i = 0;
+    while (i < n) {
+        if (_sr_f32_le(distance, load32(dist + i * 4)) == 1) { return load32(res + i * 4) & 0xFFFFFFFF; }
+        i = i + 1;
+    }
+    if (n == 0) { return 8; }
+    return load32(res + (n - 1) * 4) & 0xFFFFFFFF;
+}
