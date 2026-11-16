@@ -36,7 +36,7 @@ def text():
         "# (256 f32 bits). `_SR_SRGB8_DECODE` points to the static table, filled once at load; read it through",
         "# `_sr_srgb8_decode(b)` (src/tables.cyr).",
         "",
-        "var _sr_srgb8_decode_data[1024];",
+        "var _sr_srgb8_decode_data: u8[1024];",
         "var _SR_SRGB8_DECODE = &_sr_srgb8_decode_data;",
         "",
         "# Fills the table. Runs once, at load.",

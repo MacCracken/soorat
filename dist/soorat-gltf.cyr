@@ -2154,7 +2154,7 @@ fn _sr_km_acos_acc_td(x: f64, out) {
 # (256 f32 bits). `_SR_SRGB8_DECODE` points to the static table, filled once at load; read it through
 # `_sr_srgb8_decode(b)` (src/tables.cyr).
 
-var _sr_srgb8_decode_data[1024];
+var _sr_srgb8_decode_data: u8[1024];
 var _SR_SRGB8_DECODE = &_sr_srgb8_decode_data;
 
 # Fills the table. Runs once, at load.
@@ -2429,7 +2429,7 @@ fn _sr_mat4_set_identity(out) {
 
 # The 4×4 identity (column-major): a pointer to a static matrix, filled once at load. Read or copy it; never write
 # through it. Mirrors `IDENTITY_MAT4`.
-var _sr_identity_mat4_data[64];
+var _sr_identity_mat4_data: u8[64];
 var SR_IDENTITY_MAT4 = &_sr_identity_mat4_data;
 var _sr_identity_mat4_ready = _sr_mat4_set_identity(SR_IDENTITY_MAT4);
 
@@ -2688,13 +2688,11 @@ fn sr_compose_trs(t, r, s, out) {
     return out;
 }
 
-# A right/up basis for the direction n (3 f32), into right and up (3 f32 each): right = normalize(n × ref) and
-# up = normalize(right × n), where ref is +Y unless |n.y| ≥ 0.99 (or n.y is NaN), then +X, and each length is at
-# least f32::EPSILON. Mirrors `normal_to_basis`, whose tuple result is the two out pointers.
-fn sr_normal_to_basis(n, right, up) {
-    var n0: f64 = f32_to(load32(n));
-    var n1: f64 = f32_to(load32(n + 4));
-    var n2: f64 = f32_to(load32(n + 8));
+# The right/up basis of `normal_to_basis` for the direction (n0, n1, n2) in f64, unrounded, into out (6 f64: right,
+# then up): right = normalize(n × ref) and up = normalize(right × n), where ref is +Y unless |n.y| ≥ 0.99 (or n.y is
+# NaN), then +X, and each length is at least f32::EPSILON. sr_normal_to_basis rounds it once; the acoustic portal
+# (src/acoustic_render.cyr) builds its corners from it unrounded (class E).
+fn _sr_normal_to_basis64(n0: f64, n1: f64, n2: f64, out) {
     var zero: f64 = 0.0;
     var one: f64 = 1.0;
     var f0: f64 = one;
@@ -2716,12 +2714,34 @@ fn sr_normal_to_basis(n, right, up) {
     var uy: f64 = (r2 * n0) - (r0 * n2);
     var uz: f64 = (r0 * n1) - (r1 * n0);
     var ulen: f64 = _sr_max64(f64_sqrt(((ux * ux) + (uy * uy)) + (uz * uz)), _SR_F32_EPS);
-    store32(right, f32_from(r0));
-    store32(right + 4, f32_from(r1));
-    store32(right + 8, f32_from(r2));
-    store32(up, f32_from(ux / ulen));
-    store32(up + 4, f32_from(uy / ulen));
-    store32(up + 8, f32_from(uz / ulen));
+    store64(out, r0);
+    store64(out + 8, r1);
+    store64(out + 16, r2);
+    var u0: f64 = ux / ulen;
+    var u1: f64 = uy / ulen;
+    var u2: f64 = uz / ulen;
+    store64(out + 24, u0);
+    store64(out + 32, u1);
+    store64(out + 40, u2);
+    return out;
+}
+
+# A right/up basis for the direction n (3 f32), into right and up (3 f32 each): _sr_normal_to_basis64 of n, rounded
+# once. Mirrors `normal_to_basis`, whose tuple result is the two out pointers.
+fn sr_normal_to_basis(n, right, up) {
+    var n0: f64 = f32_to(load32(n));
+    var n1: f64 = f32_to(load32(n + 4));
+    var n2: f64 = f32_to(load32(n + 8));
+    var bas[48];
+    _sr_normal_to_basis64(n0, n1, n2, &bas);
+    var k = 0;
+    while (k < 3) {
+        var rk: f64 = load64(&bas + k * 8);
+        var uk: f64 = load64(&bas + 24 + k * 8);
+        store32(right + k * 4, f32_from(rk));
+        store32(up + k * 4, f32_from(uk));
+        k = k + 1;
+    }
     return right;
 }
 
@@ -2881,7 +2901,7 @@ fn _sr_color_set(out, r, g, b, a) {
 # ── constants ────────────────────────────────────────────────────────────────────────
 # Seven static colours, 16 bytes each, filled once at load. Mirror `Color::WHITE` … `Color::CORNFLOWER_BLUE`.
 
-var _sr_color_consts[112];
+var _sr_color_consts: u8[112];
 var SR_COLOR_WHITE = &_sr_color_consts;
 var SR_COLOR_BLACK = &_sr_color_consts + 16;
 var SR_COLOR_RED = &_sr_color_consts + 32;
@@ -3342,7 +3362,7 @@ var _SR_S64 = 0x42800000;
 
 # The full texture, (0, 0) to (1, 1): a pointer to a static rectangle, filled at load. Read or copy it. Mirrors
 # `UvRect::FULL`.
-var _sr_uv_full_data[16];
+var _sr_uv_full_data: u8[16];
 var SR_UV_RECT_FULL = &_sr_uv_full_data;
 
 # Writes (u_min, v_min, u_max, v_max) to out.
@@ -4262,7 +4282,7 @@ fn _sr_circle_step(segments): i64 {
 # _SR_TRIG_MAX: a circle or sphere drawn again with the same count reuses it (the values are the ones it would
 # compute). Not thread-safe: module state, as src/json.cyr's arena.
 var _SR_TRIG_MAX = 256;
-var _sr_trig_data[4112];
+var _sr_trig_data: u8[4112];
 var _sr_trig_n = 0 - 1;
 
 # The angle step · i in native f32, and its correctly rounded sin and cos, into the 2 words at out (sin, cos).
@@ -4541,7 +4561,7 @@ var SR_MAX_QUADS = 1073741823;
 var SR_MAX_SEGMENTS = 1024;
 
 # A quad's two triangles on the XZ plane, counter-clockwise about +Y: a pointer to 6 u32. Mirrors `XZ_QUAD_INDICES`.
-var _sr_xz_quad_data[24];
+var _sr_xz_quad_data: u8[24];
 var SR_XZ_QUAD_INDICES = &_sr_xz_quad_data;
 
 fn _sr_xz_quad_init(): i64 {
@@ -6519,7 +6539,7 @@ fn _sr_look_at64(pos, dir, up, m) {
 }
 
 # The six cube-face directions and up vectors (f32), +X, −X, +Y, −Y, +Z, −Z: Rust's table.
-var _sr_cube_faces_data[144];
+var _sr_cube_faces_data: u8[144];
 var _SR_CUBE_FACES = &_sr_cube_faces_data;
 var _sr_cube_faces_ready = _sr_cube_faces_init();
 fn _sr_cube_faces_init(): i64 {
@@ -7217,6 +7237,59 @@ fn SrRenderGraph_forward_with_effects(): i64 {
         return 0;
     }
     return g;
+}
+
+# --- acoustic.cyr ---
+
+# acoustic.cyr — the producer-free half of Rust 1.2.0's src/acoustic_render.rs (M5 part a): its colour mode, the two
+# parameter structs and their defaults, and `acoustic_heat_map`. Rust compiles these without the `acoustics` feature,
+# so they are in `[lib]`. The renderers, which read goonj's types, are src/acoustic_render.cyr in the
+# `[lib.acoustics]` profile.
+#
+# **Layout.** `SrAcousticVisParams` (32 bytes): color_mode (an SR_ACOUSTIC_COLOR_MODE_*) at 0, base_color (an SrColor)
+# at 8, alpha (f32) at 24. `SrDecayCurveParams` (72 bytes): origin as origin_0 … origin_2 (f32, Cyrius has no array
+# fields) at 0, time_range, db_range, x_scale and y_scale (f32) at 12–24, steps (a u32 in an 8-byte slot) at 32,
+# color_early and color_late (SrColor) at 40 and 56.
+
+enum SrAcousticColorMode {
+    SR_ACOUSTIC_COLOR_MODE_PRESSURE = 0;
+    SR_ACOUSTIC_COLOR_MODE_SIGNED_PRESSURE = 1;
+    SR_ACOUSTIC_COLOR_MODE_ENERGY = 2;
+}
+
+struct SrAcousticVisParams { color_mode; base_color: SrColor; alpha: f32; _pad0: f32; }
+struct SrDecayCurveParams { origin_0: f32; origin_1: f32; origin_2: f32; time_range: f32; db_range: f32; x_scale: f32;
+    y_scale: f32; _pad0: f32; steps; color_early: SrColor; color_late: SrColor; }
+
+# The default parameters into out: Pressure, cornflower blue, alpha 1. Mirrors `impl Default for AcousticVisParams`.
+fn SrAcousticVisParams_default(out) {
+    store64(out, SR_ACOUSTIC_COLOR_MODE_PRESSURE);
+    memcpy(out + 8, SR_COLOR_CORNFLOWER_BLUE, 16);
+    store32(out + 24, _SR_C1);
+    store32(out + 28, 0);
+    return out;
+}
+
+# The default decay-curve parameters into out: origin 0, 3 s, −60 dB, scales 1, 100 steps, green early and red late.
+# Mirrors `impl Default for DecayCurveParams`.
+fn SrDecayCurveParams_default(out) {
+    store32(out, 0);
+    store32(out + 4, 0);
+    store32(out + 8, 0);
+    store32(out + 12, 0x40400000);
+    store32(out + 16, 0xC2700000);
+    store32(out + 20, _SR_C1);
+    store32(out + 24, _SR_C1);
+    store32(out + 28, 0);
+    store64(out + 32, 100);
+    memcpy(out + 40, SR_COLOR_GREEN, 16);
+    memcpy(out + 56, SR_COLOR_RED, 16);
+    return out;
+}
+
+# The heat-map colour of t (f32 bits) into out: `visualization_heat_map`'s. Mirrors `acoustic_heat_map`.
+fn sr_acoustic_heat_map(t, out) {
+    return sr_visualization_heat_map(t, out);
 }
 
 # --- gltf.cyr ---

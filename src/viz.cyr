@@ -26,7 +26,7 @@ var SR_MAX_QUADS = 1073741823;
 var SR_MAX_SEGMENTS = 1024;
 
 # A quad's two triangles on the XZ plane, counter-clockwise about +Y: a pointer to 6 u32. Mirrors `XZ_QUAD_INDICES`.
-var _sr_xz_quad_data[24];
+var _sr_xz_quad_data: u8[24];
 var SR_XZ_QUAD_INDICES = &_sr_xz_quad_data;
 
 fn _sr_xz_quad_init(): i64 {

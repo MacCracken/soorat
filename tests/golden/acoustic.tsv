@@ -1,0 +1,86 @@
+# soorat golden corpus, format 1: acoustic
+# recorded: soorat 1.2.0 (rust-old/, oracle feature); libm: glibc 2.44 x86_64 fma
+# regenerate: cargo run --release --locked --manifest-path scripts/oracle/Cargo.toml (never patch a row)
+# columns: fn<TAB>class<TAB>inputs<TAB>outputs<TAB>note (tokens: scripts/oracle/README.md)
+# rows: 81
+acoustic_heat_map	A	g:00000000	v:4 g:00000000 g:00000000 g:3f800000 g:3f800000	t 0
+acoustic_heat_map	A	g:80000000	v:4 g:00000000 g:80000000 g:3f800000 g:3f800000	t -0
+acoustic_heat_map	A	g:3f800000	v:4 g:3f800000 g:00000000 g:00000000 g:3f800000	t 1
+acoustic_heat_map	A	g:3e800000	v:4 g:00000000 g:3f800000 g:3f800000 g:3f800000	t 0.25
+acoustic_heat_map	A	g:3f000000	v:4 g:00000000 g:3f800000 g:00000000 g:3f800000	t 0.5
+acoustic_heat_map	A	g:3f400000	v:4 g:3f800000 g:3f800000 g:00000000 g:3f800000	t 0.75
+acoustic_heat_map	A	g:bf800000	v:4 g:00000000 g:00000000 g:3f800000 g:3f800000	t -1
+acoustic_heat_map	A	g:40000000	v:4 g:3f800000 g:00000000 g:00000000 g:3f800000	t 2
+acoustic_heat_map	A	g:7fc00000	v:4 g:00000000 g:00000000 g:3f800000 g:3f800000	t NaN
+acoustic_heat_map	A	g:7f800000	v:4 g:3f800000 g:00000000 g:00000000 g:3f800000	t inf
+acoustic_heat_map	A	g:ff800000	v:4 g:00000000 g:00000000 g:3f800000 g:3f800000	t -inf
+acoustic_heat_map	A	g:00800000	v:4 g:00000000 g:01800000 g:3f800000 g:3f800000	t 0.000000000000000000000000000000000000011754944
+acoustic_heat_map	A	g:3e7fffff	v:4 g:00000000 g:3f7fffff g:3f800000 g:3f800000	t 0.24999999
+acoustic_heat_map	A	g:3e800001	v:4 g:00000000 g:3f800000 g:3f7ffffe g:3f800000	t 0.25000003
+acoustic_heat_map	A	g:3effffff	v:4 g:00000000 g:3f800000 g:34000000 g:3f800000	t 0.49999997
+acoustic_heat_map	A	g:3f000001	v:4 g:34800000 g:3f800000 g:00000000 g:3f800000	t 0.50000006
+acoustic_heat_map	A	g:3f3fffff	v:4 g:3f7ffffc g:3f800000 g:00000000 g:3f800000	t 0.74999994
+acoustic_heat_map	A	g:3f400001	v:4 g:3f800000 g:3f7ffffc g:00000000 g:3f800000	t 0.75000006
+acoustic_heat_map	A	g:3f7fffff	v:4 g:3f800000 g:34800000 g:00000000 g:3f800000	t 0.99999994
+acoustic_heat_map	A	g:3eb52f7e	v:4 g:00000000 g:3f800000 g:3f15a104 g:3f800000	t 0.35387796
+acoustic_heat_map	A	g:3f4c556b	v:4 g:3f800000 g:3f4eaa54 g:00000000 g:3f800000	t 0.7981784
+acoustic_heat_map	A	g:3f289989	v:4 g:3f226624 g:3f800000 g:00000000 g:3f800000	t 0.65859276
+acoustic_heat_map	A	g:3f351abb	v:4 g:3f546aec g:3f800000 g:00000000 g:3f800000	t 0.7074391
+acoustic_heat_map	A	g:3f7da93b	v:4 g:3f800000 g:3d15b140 g:00000000 g:3f800000	t 0.9908635
+acoustic_heat_map	A	g:3f081dc5	v:4 g:3e01dc50 g:3f800000 g:00000000 g:3f800000	t 0.53170425
+acoustic_heat_map	A	g:3f22d48f	v:4 g:3f0b523c g:3f800000 g:00000000 g:3f800000	t 0.6360559
+acoustic_heat_map	A	g:3e43bdbc	v:4 g:00000000 g:3f43bdbc g:3f800000 g:3f800000	t 0.19115347
+acoustic_heat_map	A	g:3e37f794	v:4 g:00000000 g:3f37f794 g:3f800000 g:3f800000	t 0.17965537
+acoustic_heat_map	A	g:3dc30b48	v:4 g:00000000 g:3ec30b48 g:3f800000 g:3f800000	t 0.09523636
+acoustic_heat_map	A	g:3f542b25	v:4 g:3f800000 g:3f2f536c g:00000000 g:3f800000	t 0.82878333
+acoustic_heat_map	A	g:3f19ea51	v:4 g:3ecf5288 g:3f800000 g:00000000 g:3f800000	t 0.60123163
+acoustic_heat_map	A	g:3ecd5b6e	v:4 g:00000000 g:3f800000 g:3eca9248 g:3f800000	t 0.40108818
+acoustic_heat_map	A	g:3e7dd30c	v:4 g:00000000 g:3f7dd30c g:3f800000 g:3f800000	t 0.24787539
+acoustic_heat_map	A	g:3e2ed7dc	v:4 g:00000000 g:3f2ed7dc g:3f800000 g:3f800000	t 0.17074531
+acoustic_heat_map	A	g:3c1c5640	v:4 g:00000000 g:3d1c5640 g:3f800000 g:3f800000	t 0.009542048
+acoustic_heat_map	A	g:3dd70ab8	v:4 g:00000000 g:3ed70ab8 g:3f800000 g:3f800000	t 0.10500091
+acoustic_heat_map	A	g:3e5862d4	v:4 g:00000000 g:3f5862d4 g:3f800000 g:3f800000	t 0.2113145
+acoustic_heat_map	A	g:3e5a8f5c	v:4 g:00000000 g:3f5a8f5c g:3f800000 g:3f800000	t 0.2134375
+acoustic_heat_map	A	g:3f6e5ad1	v:4 g:3f800000 g:3e8d2978 g:00000000 g:3f800000	t 0.93107325
+acoustic_heat_map	A	g:3d97ad78	v:4 g:00000000 g:3e97ad78 g:3f800000 g:3f800000	t 0.074061334
+acoustic_heat_map	A	g:3ba0f480	v:4 g:00000000 g:3ca0f480 g:3f800000 g:3f800000	t 0.004911959
+acoustic_heat_map	A	g:3f5baac7	v:4 g:3f800000 g:3f1154e4 g:00000000 g:3f800000	t 0.8580746
+acoustic_heat_map	A	g:3eac6eee	v:4 g:00000000 g:3f800000 g:3f272224 g:3f800000	t 0.33678383
+acoustic_heat_map	A	g:3f704c13	v:4 g:3f800000 g:3e7b3ed0 g:00000000 g:3f800000	t 0.9386608
+acoustic_heat_map	A	g:3f3101a1	v:4 g:3f440684 g:3f800000 g:00000000 g:3f800000	t 0.6914311
+acoustic_heat_map	A	g:3dd9a108	v:4 g:00000000 g:3ed9a108 g:3f800000 g:3f800000	t 0.106264174
+acoustic_heat_map	A	g:3f342dc1	v:4 g:3f50b704 g:3f800000 g:00000000 g:3f800000	t 0.70382315
+acoustic_heat_map	A	g:3c259e40	v:4 g:00000000 g:3d259e40 g:3f800000 g:3f800000	t 0.0101085305
+acoustic_heat_map	A	g:3ec18dc2	v:4 g:00000000 g:3f800000 g:3ef9c8f8 g:3f800000	t 0.37803465
+acoustic_heat_map	A	g:3e4e1394	v:4 g:00000000 g:3f4e1394 g:3f800000 g:3f800000	t 0.20124656
+acoustic_heat_map	A	g:3f5e4e47	v:4 g:3f800000 g:3f06c6e4 g:00000000 g:3f800000	t 0.8683819
+acoustic_heat_map	A	g:3f4152d1	v:4 g:3f800000 g:3f7ab4bc g:00000000 g:3f800000	t 0.7551699
+acoustic_heat_map	A	g:3f47c835	v:4 g:3f800000 g:3f60df2c g:00000000 g:3f800000	t 0.78039867
+acoustic_heat_map	A	g:3f7ff4cb	v:4 g:3f800000 g:3a335000 g:00000000 g:3f800000	t 0.999829
+acoustic_heat_map	A	g:3f6092b3	v:4 g:3f800000 g:3efb6a68 g:00000000 g:3f800000	t 0.87723845
+acoustic_heat_map	A	g:3f481135	v:4 g:3f800000 g:3f5fbb2c g:00000000 g:3f800000	t 0.78151256
+acoustic_heat_map	A	g:3f745141	v:4 g:3f800000 g:3e3aebf0 g:00000000 g:3f800000	t 0.95436484
+acoustic_heat_map	A	g:3db2b108	v:4 g:00000000 g:3eb2b108 g:3f800000 g:3f800000	t 0.08725172
+acoustic_heat_map	A	g:3edd111e	v:4 g:00000000 g:3f800000 g:3e8bbb88 g:3f800000	t 0.43177122
+acoustic_heat_map	A	g:3f4830bf	v:4 g:3f800000 g:3f5f3d04 g:00000000 g:3f800000	t 0.7819938
+acoustic_heat_map	A	g:3ee5665e	v:4 g:00000000 g:3f800000 g:3e54cd10 g:3f800000	t 0.44804662
+acoustic_heat_map	A	g:3f560cfb	v:4 g:3f800000 g:3f27cc14 g:00000000 g:3f800000	t 0.83613557
+acoustic_heat_map	A	g:3f24234d	v:4 g:3f108d34 g:3f800000 g:00000000 g:3f800000	t 0.64116365
+acoustic_heat_map	A	g:3f7fad7b	v:4 g:3f800000 g:3ba50a00 g:00000000 g:3f800000	t 0.99874085
+acoustic_heat_map	A	g:3e77bfb4	v:4 g:00000000 g:3f77bfb4 g:3f800000 g:3f800000	t 0.24194223
+acoustic_heat_map	A	g:3f569081	v:4 g:3f800000 g:3f25bdfc g:00000000 g:3f800000	t 0.83814245
+acoustic_heat_map	A	g:3f486f31	v:4 g:3f800000 g:3f5e433c g:00000000 g:3f800000	t 0.78294665
+acoustic_heat_map	A	g:3e21d834	v:4 g:00000000 g:3f21d834 g:3f800000 g:3f800000	t 0.15805131
+acoustic_heat_map	A	g:3e88736a	v:4 g:00000000 g:3f800000 g:3f6f192c g:3f800000	t 0.26650554
+acoustic_heat_map	A	g:3f74b603	v:4 g:3f800000 g:3e349fd0 g:00000000 g:3f800000	t 0.9559023
+acoustic_heat_map	A	g:3f4faa73	v:4 g:3f800000 g:3f415634 g:00000000 g:3f800000	t 0.8111946
+acoustic_heat_map	A	g:3d4d6150	v:4 g:00000000 g:3e4d6150 g:3f800000 g:3f800000	t 0.050141633
+acoustic_heat_map	A	g:3f34405b	v:4 g:3f51016c g:3f800000 g:00000000 g:3f800000	t 0.704107
+acoustic_heat_map	A	g:3e2e1914	v:4 g:00000000 g:3f2e1914 g:3f800000 g:3f800000	t 0.17001754
+acoustic_heat_map	A	g:3df799d8	v:4 g:00000000 g:3ef799d8 g:3f800000 g:3f800000	t 0.1208989
+acoustic_heat_map	A	g:3f42dded	v:4 g:3f800000 g:3f74884c g:00000000 g:3f800000	t 0.7611988
+acoustic_heat_map	A	g:3f1def79	v:4 g:3eef7bc8 g:3f800000 g:00000000 g:3f800000	t 0.6169353
+acoustic_heat_map	A	g:3f56e03f	v:4 g:3f800000 g:3f247f04 g:00000000 g:3f800000	t 0.8393592
+acoustic_heat_map	A	g:3dc312f8	v:4 g:00000000 g:3ec312f8 g:3f800000 g:3f800000	t 0.095251024
+AcousticVisParams::default	A	-	e:AcousticColorMode.Pressure v:4 g:3ec8b439 g:3f158106 g:3f6dd2f2 g:3f800000 g:3f800000	AcousticVisParams::default()
+DecayCurveParams::default	A	-	v:3 g:00000000 g:00000000 g:00000000 g:40400000 g:c2700000 g:3f800000 g:3f800000 i:100 v:4 g:00000000 g:3f800000 g:00000000 g:3f800000 v:4 g:3f800000 g:00000000 g:00000000 g:3f800000	DecayCurveParams::default()

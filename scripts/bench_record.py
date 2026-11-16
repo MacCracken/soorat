@@ -83,6 +83,10 @@ EXTRA = {
     # environment's CPU half and the BRDF LUT (M4 part b) have no Rust bench; M7's image-based lighting runs them at load.
     "env/face_mip_chain_128_srgb": "M4: a 128 × 128 sRGB face's CPU mip chain (decode, 7 box filters, encodes); no Rust bench",
     "pbr/brdf_lut_32x32_256": "M4 (`optics`): a 32 × 32 BRDF LUT at 256 samples a texel (prakash 2.15.2's integration); no Rust bench",
+    # The acoustic renderers (M5 part a, the `acoustics` profile) have no Rust bench.
+    "acoustic/ray_paths_64x8": "M5 (`acoustics`): 64 goonj ray paths of 8 bounces each, drawn as 512 lines; no Rust bench",
+    "acoustic/portal": "M5 (`acoustics`): one goonj portal drawn as 7 lines; no Rust bench",
+    "acoustic/coupled_decay_100": "M5 (`acoustics`): the default 100-step coupled decay curve (correctly rounded exp and log10); no Rust bench",
     # The render graph (M4 part c) has no Rust bench; a renderer orders its passes each frame.
     "render_graph/build_forward_with_effects": "M4: `forward_with_effects` built (7 passes, 8 dependencies) and dropped; no Rust bench",
     "render_graph/order_forward_with_effects": "M4: `execution_order` of `forward_with_effects` (7 passes); no Rust bench",

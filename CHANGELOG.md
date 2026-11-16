@@ -173,9 +173,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the search's scratch, copied names and freed memory. Extras `render_graph/build_forward_with_effects` and
     `render_graph/order_forward_with_effects` (`tests/render_graph.bcyr`).
 
+- **M5 part a: the acoustic types and line renderers** (`src/acoustic.cyr`; the new `acoustics` profile,
+  `src/acoustic_render.cyr` on goonj 2.3.2; ADR 0002 #29).
+  - `SrAcousticColorMode`, `SrAcousticVisParams`, `SrDecayCurveParams` and their defaults, and `sr_acoustic_heat_map`,
+    in `[lib]`, as Rust compiles them without the feature.
+  - `sr_ray_paths_to_lines`, `sr_portal_to_lines` and `sr_coupled_decay_to_lines` on goonj's Cyrius types (f64), drawn
+    into an `SrLineBatch`. Positions are computed in f64 and rounded once; the decay's exp and log10 are correctly
+    rounded, from `src/crmath_exp.cyr` (kimiya 2.0.1's, ~33 KB of tables, so in the profile only).
+  - 637 golden rows: `acoustic` 81 (A) and `acoustic_render` 556 (E, 410 accepted through `acoustic_render.e.tsv`), all
+    passing; `validate.py` re-derives each. The acoustic rows have their own replay, `tests/parity_acoustics.tcyr`.
+  - 20 of `acoustic_render.rs`'s 35 tests ported (`tests/acoustic_render.tcyr`), with Cyrius-only layout, NaN-band and
+    curve-range tests. Extras `acoustic/ray_paths_64x8`, `acoustic/portal` and `acoustic/coupled_decay_100`.
+  - goonj and hisab cost a binary ~329 KB; CI resolves `--features optics,physics-debug,acoustics`.
+
 - **M4 is complete.** The profiler and capabilities moved to M6: Rust soorat re-exports mabda 1.0's types for both, and
   mabda becomes a dependency there. mabda 4.2.0's profiler lacks pass timings and times an unbegun frame from clock
   zero, filed in mabda (ledger L24).
+
+### Fixed (M5)
+- Seven top-level byte buffers were declared `var g[N]`, which reserves N i64 slots, 8 × their N bytes: the colour
+  constants, identity matrix, full UV rect, sRGB decode table (`scripts/oracle/gen_tables.py`), cube faces, XZ quad
+  indices and the circle trig table. They are `u8[N]` now: 38,472 bytes less static data in every binary, which also
+  keeps the acoustics replay under the compiler's 128 KiB static-data advisory.
 
 ### Performance (M4)
 - `_sr_debug` checks sakshi's level before measuring its message, where it ran `strlen` on every call. DEBUG is off by

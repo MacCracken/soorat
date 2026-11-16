@@ -1,0 +1,230 @@
+# acoustic_render.cyr — the goonj half of Rust 1.2.0's src/acoustic_render.rs (M5 part a): ray paths, portals and
+# coupled decay curves drawn as lines. Part b adds the pressure slices, room modes and directivity balloons as meshes.
+#
+# **OPTIONAL**, as Rust gates it behind `acoustics`: bundled by the `[lib.acoustics]` profile after src/crmath_exp.cyr.
+# It includes goonj 2.3.2 itself, and hisab 3.5.0 before it (goonj's HVec3).
+#
+# **Inputs are goonj's Cyrius types** (plan §2.5, ADR 0002 #29): f64 where Rust goonj 1.4's were f32. A
+# RayVisualization (`soorat_ray_visualization_*`) holds a vec of RayPath, each a vec of RayBounce with 8 band energies
+# (`ray_bounce_energy_after`); a Portal and a CoupledDecay are goonj structs read through their accessors; an HVec3 is
+# three f64 (x, y, z).
+#
+# **Precision (D4 rule b, class E).** Rust computed in f32 from inputs goonj had already rounded to f32. Here every
+# position is computed in f64 from goonj's f64 values and rounded once to f32. The value Rust hands its colour lerp
+# (a ray segment's band-averaged energy, the decay's early fraction) is likewise computed in f64 and rounded once, and
+# the colour from it is Rust's f32 sequence (`1 − x`, then `Color::lerp`), as viz's heat maps are (M3). The decay's exp
+# and log10 are correctly rounded (src/crmath_exp.cyr), and its f32 constants (1e-10, 0.2, f32::EPSILON) are widened
+# exactly.
+
+include "lib/hisab.cyr"
+include "lib/goonj.cyr"
+
+# 0.2f32 and 1e-10f32, widened exactly; ln 10 correctly rounded (2.302585092994046).
+var _SR_AC_0_2: f64 = f32_to(0x3E4CCCCD);
+var _SR_AC_1E_10: f64 = f32_to(0x2EDBE6FF);
+var _SR_AC_LN10 = 0x40026BB1BBB55516;
+
+# The HVec3 v (three f64) rounded once to 3 f32 at out.
+fn _sr_hv32(v, out) {
+    var k = 0;
+    while (k < 3) {
+        var x: f64 = load64(v + k * 8);
+        store32(out + k * 4, f32_from(x));
+        k = k + 1;
+    }
+    return out;
+}
+
+# The energy a ray carries after bounce b: its 8 band energies averaged in f64 (summed in band order from −0, as
+# Rust's `Sum` starts), clamped to [0, 1], or 0 when the average isn't finite; rounded once to f32 bits.
+#must_use
+fn _sr_ray_energy(b): i64 {
+    var nz = 0x8000000000000000;
+    var s: f64 = nz;
+    var i = 0;
+    while (i < NUM_BANDS) {
+        var e: f64 = ray_bounce_energy_after(b, i);
+        s = s + e;
+        i = i + 1;
+    }
+    var nb: f64 = f64_from(NUM_BANDS);
+    var avg: f64 = s / nb;
+    var zero: f64 = 0.0;
+    var one: f64 = 1.0;
+    if (avg != avg || avg - avg != zero) { return 0; }
+    if (avg < zero) { avg = zero; }
+    if (avg > one) { avg = one; }
+    return f32_from(avg);
+}
+
+# Draws each ray path of ray_viz (a goonj RayVisualization) into batch: a line from the source to the first bounce,
+# then bounce to bounce, each coloured start_color.lerp(end_color, 1 − e) by the energy e the ray carries along it:
+# 1 for the first segment, then each bounce's band-averaged energy (_sr_ray_energy). 1, or 0 when an allocation
+# fails (the lines before it stay). Mirrors `ray_paths_to_lines`.
+fn sr_ray_paths_to_lines(ray_viz, start_color, end_color, batch): i64 {
+    _sr_debug("soorat::acoustic_render: building acoustic ray lines");
+    var paths = soorat_ray_visualization_paths(ray_viz);
+    if (paths == 0) { return 1; }
+    var src[16];
+    var prev[16];
+    var pt[16];
+    var col[16];
+    _sr_hv32(soorat_ray_visualization_source(ray_viz), &src);
+    var ok = 1;
+    var np = vec_len(paths);
+    var p = 0;
+    while (p < np) {
+        var bounces = ray_path_bounces(vec_get(paths, p));
+        var nb = 0;
+        if (bounces != 0) { nb = vec_len(bounces); }
+        memcpy(&prev, &src, 12);
+        var energy = _SR_C1;
+        var k = 0;
+        while (k < nb) {
+            var b = vec_get(bounces, k);
+            SrColor_lerp(start_color, end_color, _sr_f32_sub(_SR_C1, energy), &col);
+            _sr_hv32(ray_bounce_point(b), &pt);
+            if (SrLineBatch_line(batch, &prev, &pt, &col) == 0) { ok = 0; }
+            memcpy(&prev, &pt, 12);
+            energy = _sr_ray_energy(b);
+            k = k + 1;
+        }
+        p = p + 1;
+    }
+    return ok;
+}
+
+# Stores the f64 point (x, y, z) rounded once to 3 f32 at out.
+fn _sr_ac_pt(x: f64, y: f64, z: f64, out) {
+    store32(out, f32_from(x));
+    store32(out + 4, f32_from(y));
+    store32(out + 8, f32_from(z));
+    return out;
+}
+
+# Draws portal (a goonj Portal) into batch as a width × height rectangle centred on its position in the plane of its
+# normal (right and up from normal_to_basis), then an arrow arrow_length (f32 bits) along the normal with a head
+# 0.2 · arrow_length long: 7 lines, in Rust's order. The corners, tip and head are computed in f64 and rounded once.
+# 1, or 0 when an allocation fails. Mirrors `portal_to_lines`.
+fn sr_portal_to_lines(portal, color, arrow_length, batch): i64 {
+    var pos = Portal_position(portal);
+    var nv = Portal_normal(portal);
+    var p0: f64 = load64(pos);
+    var p1: f64 = load64(pos + 8);
+    var p2: f64 = load64(pos + 16);
+    var n0: f64 = load64(nv);
+    var n1: f64 = load64(nv + 8);
+    var n2: f64 = load64(nv + 16);
+    var bas[48];
+    _sr_normal_to_basis64(n0, n1, n2, &bas);
+    var r0: f64 = load64(&bas);
+    var r1: f64 = load64(&bas + 8);
+    var r2: f64 = load64(&bas + 16);
+    var u0: f64 = load64(&bas + 24);
+    var u1: f64 = load64(&bas + 32);
+    var u2: f64 = load64(&bas + 40);
+    var half: f64 = 0.5;
+    var wd: f64 = Portal_width(portal);
+    var ht: f64 = Portal_height(portal);
+    var hw: f64 = wd * half;
+    var hh: f64 = ht * half;
+    var c[64];
+    _sr_ac_pt((p0 - (r0 * hw)) - (u0 * hh), (p1 - (r1 * hw)) - (u1 * hh), (p2 - (r2 * hw)) - (u2 * hh), &c);
+    _sr_ac_pt((p0 + (r0 * hw)) - (u0 * hh), (p1 + (r1 * hw)) - (u1 * hh), (p2 + (r2 * hw)) - (u2 * hh), &c + 12);
+    _sr_ac_pt((p0 + (r0 * hw)) + (u0 * hh), (p1 + (r1 * hw)) + (u1 * hh), (p2 + (r2 * hw)) + (u2 * hh), &c + 24);
+    _sr_ac_pt((p0 - (r0 * hw)) + (u0 * hh), (p1 - (r1 * hw)) + (u1 * hh), (p2 - (r2 * hw)) + (u2 * hh), &c + 36);
+    var ok = SrLineBatch_line(batch, &c, &c + 12, color);
+    ok = ok & SrLineBatch_line(batch, &c + 12, &c + 24, color);
+    ok = ok & SrLineBatch_line(batch, &c + 24, &c + 36, color);
+    ok = ok & SrLineBatch_line(batch, &c + 36, &c, color);
+    var len: f64 = f32_to(arrow_length);
+    var t0: f64 = p0 + (n0 * len);
+    var t1: f64 = p1 + (n1 * len);
+    var t2: f64 = p2 + (n2 * len);
+    var hs: f64 = len * _SR_AC_0_2;
+    var b0: f64 = t0 - (n0 * hs);
+    var b1: f64 = t1 - (n1 * hs);
+    var b2: f64 = t2 - (n2 * hs);
+    var ctr[16];
+    var tip[16];
+    var arm[16];
+    _sr_ac_pt(p0, p1, p2, &ctr);
+    _sr_ac_pt(t0, t1, t2, &tip);
+    ok = ok & SrLineBatch_line(batch, &ctr, &tip, color);
+    _sr_ac_pt(b0 + (r0 * hs), b1 + (r1 * hs), b2 + (r2 * hs), &arm);
+    ok = ok & SrLineBatch_line(batch, &tip, &arm, color);
+    _sr_ac_pt(b0 - (r0 * hs), b1 - (r1 * hs), b2 - (r2 * hs), &arm);
+    ok = ok & SrLineBatch_line(batch, &tip, &arm, color);
+    return ok;
+}
+
+# Draws decay (a goonj CoupledDecay) into batch as a double-slope decay curve with params (an SrDecayCurveParams):
+# `steps` points over `time_range` seconds, x = origin.x + t · x_scale and y = origin.y − (dB / min(db_range, −1),
+# clamped to [0, 1]) · y_scale, where dB = 10 log10(max(E, 1e-10)) and E = a·e^(−t/τ_early) + (1 − a)·e^(−t/τ_late),
+# a = early_amplitude clamped to [0, 1], τ = RT60 / (6 ln 10) (f32::EPSILON for an RT60 ≤ 0). Each line is coloured
+# color_early.lerp(color_late, 1 − early fraction). Nothing for fewer than 2 steps or a time range ≤ 0. 1, or 0 when
+# an allocation fails. Mirrors `coupled_decay_to_lines`.
+#
+# UPSTREAM(L1): ganita:docs/development/issues/2026-11-09-correctly-rounded-exp-sin-cos-hypot.md
+#   call ganita's f64 exp and log10 once they are correctly rounded, and drop src/crmath_exp.cyr;
+#   parity: the coupled_decay_to_lines rows of tests/golden/acoustic_render.tsv (class E).
+fn sr_coupled_decay_to_lines(decay, params, batch): i64 {
+    var steps = load64(params + 32) & 0xFFFFFFFF;
+    var tr: f64 = f32_to(load32(params + 12));
+    var zero: f64 = 0.0;
+    var one: f64 = 1.0;
+    if (steps < 2 || tr <= zero) { return 1; }
+    var ox: f64 = f32_to(load32(params));
+    var oy: f64 = f32_to(load32(params + 4));
+    var oz: f64 = f32_to(load32(params + 8));
+    var dbr: f64 = f32_to(load32(params + 16));
+    var xs: f64 = f32_to(load32(params + 20));
+    var ys: f64 = f32_to(load32(params + 24));
+    var fs: f64 = f64_from(steps - 1);
+    var dt: f64 = tr / fs;
+    var six: f64 = 6.0;
+    var ln10: f64 = _SR_AC_LN10;
+    var dc: f64 = six * ln10;
+    var rte: f64 = CoupledDecay_rt60_early(decay);
+    var rtl: f64 = CoupledDecay_rt60_late(decay);
+    var tau_e: f64 = _SR_F32_EPS;
+    var tau_l: f64 = _SR_F32_EPS;
+    if (rte > zero) { tau_e = rte / dc; }
+    if (rtl > zero) { tau_l = rtl / dc; }
+    var ae: f64 = CoupledDecay_early_amplitude(decay);
+    if (ae < zero) { ae = zero; }
+    if (ae > one) { ae = one; }
+    var al: f64 = one - ae;
+    var neg1: f64 = 0.0 - one;
+    var dmin: f64 = dbr;
+    if (dbr != dbr || dbr > neg1) { dmin = neg1; }
+    var ten: f64 = 10.0;
+    var halfv: f64 = 0.5;
+    var prev[16];
+    var pt[16];
+    var col[16];
+    var ok = 1;
+    var i = 0;
+    while (i < steps) {
+        var fi: f64 = f64_from(i);
+        var t: f64 = fi * dt;
+        var xe: f64 = _sr_km_cr_exp((zero - t) / tau_e);
+        var xl: f64 = _sr_km_cr_exp((zero - t) / tau_l);
+        var ee: f64 = ae * xe;
+        var el: f64 = al * xl;
+        var et: f64 = _sr_max64(ee + el, _SR_AC_1E_10);
+        var lg: f64 = _sr_km_cr_log10(et);
+        var db: f64 = ten * lg;
+        var dn: f64 = db / dmin;
+        if (dn < zero) { dn = zero; }
+        if (dn > one) { dn = one; }
+        _sr_ac_pt(ox + (t * xs), oy - (dn * ys), oz, &pt);
+        var frac: f64 = halfv;
+        if (et > _SR_AC_1E_10) { frac = ee / et; }
+        SrColor_lerp(params + 40, params + 56, _sr_f32_sub(_SR_C1, f32_from(frac)), &col);
+        if (i > 0 && SrLineBatch_line(batch, &prev, &pt, &col) == 0) { ok = 0; }
+        memcpy(&prev, &pt, 12);
+        i = i + 1;
+    }
+    return ok;
+}

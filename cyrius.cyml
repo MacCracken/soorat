@@ -29,11 +29,13 @@ stdlib = ["string", "fmt", "alloc", "vec", "str", "syscalls", "io", "args", "mat
 # Optional dependencies, each behind a feature (ADR 0002 #9: Rust's Cargo features). A feature's code is a separate
 # file outside `[lib]`, bundled by its `[lib.<feature>]` profile (dist/soorat-<feature>.cyr) and including its
 # dependency itself; a consumer that wants it takes that bundle and declares the dependency (ranga's `spectral`).
-# The repository's tests use every feature, so CI resolves them all: `cyrius deps --features optics`.
+# The repository's tests use every feature, so CI resolves them all:
+# `cyrius deps --features optics,physics-debug,acoustics`.
 [features]
 default = []
 optics = ["prakash"]
 physics-debug = ["impetus"]
+acoustics = ["goonj"]
 
 # prakash 2.15.2 (`optics`): Color's spectral conversions (src/color_optics.cyr), and the BRDF LUT's split-sum
 # integration (src/pbr_optics.cyr). Its bundle is 1.19 MB, which is why it is optional.
@@ -49,6 +51,14 @@ optional = true
 git = "https://github.com/MacCracken/impetus.git"
 tag = "2.0.0"
 modules = ["dist/impetus-3d.cyr"]
+optional = true
+
+# goonj 2.3.2 (`acoustics`): the acoustic renderers draw its ray paths, pressure maps, room modes, portals, directivity
+# balloons and coupled decays (src/acoustic_render.cyr). It brings hisab 3.5.0 (HVec3).
+[deps.goonj]
+git = "https://github.com/MacCracken/goonj.git"
+tag = "2.3.2"
+modules = ["dist/goonj.cyr"]
 optional = true
 
 [test]
@@ -89,6 +99,7 @@ modules = [
     "src/env_cpu.cyr",
     "src/pbr_material.cyr",
     "src/render_graph.cyr",
+    "src/acoustic.cyr",
 ]
 
 # The `optics` feature's bundle, dist/soorat-optics.cyr: the library plus Color's prakash conversions, and
@@ -119,9 +130,46 @@ modules = [
     "src/env_cpu.cyr",
     "src/pbr_material.cyr",
     "src/render_graph.cyr",
+    "src/acoustic.cyr",
     "src/color_optics.cyr",
     "src/pbr_optics.cyr",
 ]
+
+# The `acoustics` feature's bundle, dist/soorat-acoustics.cyr: the library plus the acoustic renderers on goonj 2.3.2
+# (src/acoustic_render.cyr, which includes hisab and goonj), and the correctly rounded exp and log10 they need
+# (src/crmath_exp.cyr, ~33 KB of tables, which is why it is here and not in `[lib]`). goonj and hisab cost a binary
+# ~329 KB. A consumer takes this bundle and declares goonj.
+[lib.acoustics]
+modules = [
+    "src/error.cyr",
+    "src/log.cyr",
+    "src/mathx.cyr",
+    "src/crmath.cyr",
+    "src/tables_data.cyr",
+    "src/tables.cyr",
+    "src/math.cyr",
+    "src/layout.cyr",
+    "src/color.cyr",
+    "src/lights.cyr",
+    "src/lod.cyr",
+    "src/sprite.cyr",
+    "src/batch.cyr",
+    "src/text.cyr",
+    "src/ui.cyr",
+    "src/debug_geom.cyr",
+    "src/viz.cyr",
+    "src/primitives.cyr",
+    "src/terrain.cyr",
+    "src/animation.cyr",
+    "src/shadow_math.cyr",
+    "src/env_cpu.cyr",
+    "src/pbr_material.cyr",
+    "src/render_graph.cyr",
+    "src/acoustic.cyr",
+    "src/crmath_exp.cyr",
+    "src/acoustic_render.cyr",
+]
+
 
 # The `serde` bundle, dist/soorat-serde.cyr: the library plus Color's serde_json documents (src/json.cyr, on bayan).
 # Rust derives serde unconditionally; here it is opt-in because bayan costs every binary ~372 KB (ADR 0002 #19). A
@@ -152,6 +200,7 @@ modules = [
     "src/env_cpu.cyr",
     "src/pbr_material.cyr",
     "src/render_graph.cyr",
+    "src/acoustic.cyr",
     "src/json.cyr",
 ]
 
@@ -183,6 +232,7 @@ modules = [
     "src/env_cpu.cyr",
     "src/pbr_material.cyr",
     "src/render_graph.cyr",
+    "src/acoustic.cyr",
     "src/gltf.cyr",
 ]
 
@@ -213,5 +263,6 @@ modules = [
     "src/env_cpu.cyr",
     "src/pbr_material.cyr",
     "src/render_graph.cyr",
+    "src/acoustic.cyr",
     "src/debug_collider.cyr",
 ]

@@ -1,0 +1,90 @@
+# acoustic.bcyr — the acoustic renderers of M5 part a (the `acoustics` profile, goonj). Rust 1.2.0 has no bench for
+# them, so these are extras: 64 ray paths of 8 bounces each (512 lines), one portal, and the default 100-step decay
+# curve (200 correctly rounded exps and 100 log10s).
+
+include "tests/lib.cyr"
+include "src/crmath_exp.cyr"
+include "src/acoustic_render.cyr"
+
+var _sink = 0;
+
+# A goonj HVec3 from three f32 bit patterns, widened.
+fn hv(x, y, z): i64 { return hvec3_new(f32_to(x), f32_to(y), f32_to(z)); }
+
+# Runs the acoustic benches.
+fn main(): i64 {
+    alloc_init();
+    var paths = vec_new();
+    var p = 0;
+    while (p < 64) {
+        var bounces = vec_new();
+        var k = 0;
+        while (k < 8) {
+            var b = alloc(RB_SIZE);
+            memset(b, 0, RB_SIZE);
+            var xf: f64 = f64_from(p + k);
+            store64(b + RB_POINT, hvec3_new(xf, f64_from(k), f64_from(p)));
+            var j = 0;
+            while (j < NUM_BANDS) {
+                var e: f64 = f64_from(8 - k);
+                var eight: f64 = 9.0;
+                store64(b + RB_ENERGY + j * 8, e / eight);
+                j = j + 1;
+            }
+            vec_push(bounces, b);
+            k = k + 1;
+        }
+        var rp = alloc(RP_SIZE);
+        memset(rp, 0, RP_SIZE);
+        store64(rp + RP_BOUNCES, bounces);
+        vec_push(paths, rp);
+        p = p + 1;
+    }
+    var viz = soorat_ray_visualization_new(hv(0, 0, 0), paths);
+    var lb = SrLineBatch_new();
+    var b1 = bench_new("acoustic/ray_paths_64x8");
+    bench_batch_start(b1);
+    var i = 0;
+    while (i < 1000) {
+        SrLineBatch_clear(lb);
+        _sink = sr_ray_paths_to_lines(viz, SR_COLOR_GREEN, SR_COLOR_RED, lb);
+        i = i + 1;
+    }
+    bench_batch_stop(b1, 1000);
+    bench_report(b1);
+    var pos = hv(0, 0x3F800000, 0);
+    var nrm = hv(0x3F19999A, 0x3F4CCCCD, 0);
+    var portal = portal_new(pos, nrm, f32_to(0x40000000), f32_to(0x40400000));
+    var b2 = bench_new("acoustic/portal");
+    bench_batch_start(b2);
+    i = 0;
+    while (i < 100000) {
+        SrLineBatch_clear(lb);
+        _sink = sr_portal_to_lines(portal, SR_COLOR_WHITE, 0x3F800000, lb);
+        i = i + 1;
+    }
+    bench_batch_stop(b2, 100000);
+    bench_report(b2);
+    var dc = alloc(sizeof(CoupledDecay));
+    CoupledDecay_set_rt60_early(dc, f32_to(0x3F000000));
+    CoupledDecay_set_rt60_late(dc, f32_to(0x40000000));
+    CoupledDecay_set_early_amplitude(dc, f32_to(0x3F333333));
+    CoupledDecay_set_coupling_strength(dc, f32_to(0x3E99999A));
+    var dp[72];
+    SrDecayCurveParams_default(&dp);
+    var b3 = bench_new("acoustic/coupled_decay_100");
+    bench_batch_start(b3);
+    i = 0;
+    while (i < 2000) {
+        SrLineBatch_clear(lb);
+        _sink = sr_coupled_decay_to_lines(dc, &dp, lb);
+        i = i + 1;
+    }
+    bench_batch_stop(b3, 2000);
+    bench_report(b3);
+    SrLineBatch_drop(lb);
+    return 0;
+}
+
+var r = main();
+sys_exit_group(r);

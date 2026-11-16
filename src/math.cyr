@@ -63,7 +63,7 @@ fn _sr_mat4_set_identity(out) {
 
 # The 4×4 identity (column-major): a pointer to a static matrix, filled once at load. Read or copy it; never write
 # through it. Mirrors `IDENTITY_MAT4`.
-var _sr_identity_mat4_data[64];
+var _sr_identity_mat4_data: u8[64];
 var SR_IDENTITY_MAT4 = &_sr_identity_mat4_data;
 var _sr_identity_mat4_ready = _sr_mat4_set_identity(SR_IDENTITY_MAT4);
 
@@ -322,13 +322,11 @@ fn sr_compose_trs(t, r, s, out) {
     return out;
 }
 
-# A right/up basis for the direction n (3 f32), into right and up (3 f32 each): right = normalize(n × ref) and
-# up = normalize(right × n), where ref is +Y unless |n.y| ≥ 0.99 (or n.y is NaN), then +X, and each length is at
-# least f32::EPSILON. Mirrors `normal_to_basis`, whose tuple result is the two out pointers.
-fn sr_normal_to_basis(n, right, up) {
-    var n0: f64 = f32_to(load32(n));
-    var n1: f64 = f32_to(load32(n + 4));
-    var n2: f64 = f32_to(load32(n + 8));
+# The right/up basis of `normal_to_basis` for the direction (n0, n1, n2) in f64, unrounded, into out (6 f64: right,
+# then up): right = normalize(n × ref) and up = normalize(right × n), where ref is +Y unless |n.y| ≥ 0.99 (or n.y is
+# NaN), then +X, and each length is at least f32::EPSILON. sr_normal_to_basis rounds it once; the acoustic portal
+# (src/acoustic_render.cyr) builds its corners from it unrounded (class E).
+fn _sr_normal_to_basis64(n0: f64, n1: f64, n2: f64, out) {
     var zero: f64 = 0.0;
     var one: f64 = 1.0;
     var f0: f64 = one;
@@ -350,11 +348,33 @@ fn sr_normal_to_basis(n, right, up) {
     var uy: f64 = (r2 * n0) - (r0 * n2);
     var uz: f64 = (r0 * n1) - (r1 * n0);
     var ulen: f64 = _sr_max64(f64_sqrt(((ux * ux) + (uy * uy)) + (uz * uz)), _SR_F32_EPS);
-    store32(right, f32_from(r0));
-    store32(right + 4, f32_from(r1));
-    store32(right + 8, f32_from(r2));
-    store32(up, f32_from(ux / ulen));
-    store32(up + 4, f32_from(uy / ulen));
-    store32(up + 8, f32_from(uz / ulen));
+    store64(out, r0);
+    store64(out + 8, r1);
+    store64(out + 16, r2);
+    var u0: f64 = ux / ulen;
+    var u1: f64 = uy / ulen;
+    var u2: f64 = uz / ulen;
+    store64(out + 24, u0);
+    store64(out + 32, u1);
+    store64(out + 40, u2);
+    return out;
+}
+
+# A right/up basis for the direction n (3 f32), into right and up (3 f32 each): _sr_normal_to_basis64 of n, rounded
+# once. Mirrors `normal_to_basis`, whose tuple result is the two out pointers.
+fn sr_normal_to_basis(n, right, up) {
+    var n0: f64 = f32_to(load32(n));
+    var n1: f64 = f32_to(load32(n + 4));
+    var n2: f64 = f32_to(load32(n + 8));
+    var bas[48];
+    _sr_normal_to_basis64(n0, n1, n2, &bas);
+    var k = 0;
+    while (k < 3) {
+        var rk: f64 = load64(&bas + k * 8);
+        var uk: f64 = load64(&bas + 24 + k * 8);
+        store32(right + k * 4, f32_from(rk));
+        store32(up + k * 4, f32_from(uk));
+        k = k + 1;
+    }
     return right;
 }

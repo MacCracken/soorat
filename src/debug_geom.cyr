@@ -150,7 +150,7 @@ fn _sr_circle_step(segments): i64 {
 # _SR_TRIG_MAX: a circle or sphere drawn again with the same count reuses it (the values are the ones it would
 # compute). Not thread-safe: module state, as src/json.cyr's arena.
 var _SR_TRIG_MAX = 256;
-var _sr_trig_data[4112];
+var _sr_trig_data: u8[4112];
 var _sr_trig_n = 0 - 1;
 
 # The angle step · i in native f32, and its correctly rounded sin and cos, into the 2 words at out (sin, cos).

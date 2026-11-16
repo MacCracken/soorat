@@ -66,7 +66,7 @@ fn _sr_color_set(out, r, g, b, a) {
 # ── constants ────────────────────────────────────────────────────────────────────────
 # Seven static colours, 16 bytes each, filled once at load. Mirror `Color::WHITE` … `Color::CORNFLOWER_BLUE`.
 
-var _sr_color_consts[112];
+var _sr_color_consts: u8[112];
 var SR_COLOR_WHITE = &_sr_color_consts;
 var SR_COLOR_BLACK = &_sr_color_consts + 16;
 var SR_COLOR_RED = &_sr_color_consts + 32;

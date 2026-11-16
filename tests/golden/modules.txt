@@ -21,4 +21,6 @@ env
 pbr_material
 pbr_optics
 render_graph
+acoustic
+acoustic_render
 json

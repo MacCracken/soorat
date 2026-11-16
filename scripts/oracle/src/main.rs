@@ -19,6 +19,7 @@
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
+mod m_acoustic;
 mod m_anim;
 mod m_color;
 mod m_color_optics;
@@ -247,6 +248,8 @@ fn main() {
         m_env::material_module(),
         m_env::optics_module(),
         m_rg::module(),
+        m_acoustic::module(),
+        m_acoustic::render_module(),
         m_json::module(),
     ];
 

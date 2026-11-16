@@ -1,0 +1,262 @@
+# acoustic_render.tcyr — the ported tests of Rust 1.2.0's src/acoustic_render.rs for M5 part a: its 11 tests without
+# the `acoustics` feature (heat map, signed colour, normal basis, params), and the 9 for ray paths, portals and coupled
+# decays. Part b adds the 15 for pressure slices, room modes and directivity balloons. Cyrius-only tests check the
+# parameter layouts, a NaN band's energy, and the decay curve's ends. The golden rows (tests/golden/acoustic.tsv,
+# acoustic_render.tsv) are replayed by tests/parity.tcyr and tests/parity_acoustics.tcyr.
+
+include "tests/lib.cyr"
+include "src/crmath_exp.cyr"
+include "src/acoustic_render.cyr"
+include "tests/support.cyr"
+
+# A goonj HVec3 (f64) from three f32 bit patterns, widened.
+fn hv(x, y, z): i64 { return hvec3_new(f32_to(x), f32_to(y), f32_to(z)); }
+
+# A goonj RayBounce at (x, 0, 0) whose 8 band energies are all e (f32 bits), built by goonj's layout.
+fn bounce(x, z, e): i64 {
+    var b = alloc(RB_SIZE);
+    memset(b, 0, RB_SIZE);
+    store64(b + RB_POINT, hv(x, 0, z));
+    store64(b + RB_NORMAL, hv(0, 0x3F800000, 0));
+    var i = 0;
+    while (i < NUM_BANDS) {
+        store64(b + RB_ENERGY + i * 8, f32_to(e));
+        i = i + 1;
+    }
+    return b;
+}
+
+# A RayVisualization from the origin with one path of the n bounces at bs.
+fn one_path(bs, n): i64 {
+    var bounces = vec_new();
+    var i = 0;
+    while (i < n) {
+        vec_push(bounces, load64(bs + i * 8));
+        i = i + 1;
+    }
+    var p = alloc(RP_SIZE);
+    memset(p, 0, RP_SIZE);
+    store64(p + RP_BOUNCES, bounces);
+    var paths = vec_new();
+    vec_push(paths, p);
+    return soorat_ray_visualization_new(hv(0, 0, 0), paths);
+}
+
+# A goonj CoupledDecay (f32 bits, widened).
+fn decay(early, late, amp): i64 {
+    var d = alloc(sizeof(CoupledDecay));
+    CoupledDecay_set_rt60_early(d, f32_to(early));
+    CoupledDecay_set_rt60_late(d, f32_to(late));
+    CoupledDecay_set_early_amplitude(d, f32_to(amp));
+    CoupledDecay_set_coupling_strength(d, f32_to(0x3E99999A));
+    return d;
+}
+
+# 1 if vertex i of batch b has the colour c (4 f32 bits at c).
+fn vcolor_is(b, i, c): i64 { return memeq(load64(b) + i * 28 + 12, c, 16); }
+
+# The y of vertex i of batch b, as an f64.
+fn vy(b, i): f64 {
+    var y: f64 = f32_to(load32(load64(b) + i * 28 + 4));
+    return y;
+}
+
+# Runs the ported acoustic_render tests of part a and the Cyrius-only ones.
+fn main() {
+    alloc_init();
+    var c = alloc(16);
+    var right = alloc(16);
+    var up = alloc(16);
+    var n = alloc(16);
+
+    test_group("heat_map_endpoints");
+    sr_visualization_heat_map(0, c);
+    assert_eq(load32(c + 8), 0x3F800000, "cold is blue");
+    sr_visualization_heat_map(0x3F800000, c);
+    assert(load32(c) == 0x3F800000 && load32(c + 4) == 0, "hot is red");
+
+    test_group("heat_map_clamps");
+    sr_visualization_heat_map(0xBF800000, c);
+    assert_eq(load32(c + 8), 0x3F800000, "under → blue");
+    sr_visualization_heat_map(0x40000000, c);
+    assert_eq(load32(c), 0x3F800000, "over → red");
+
+    test_group("heat_map_gradient_smooth");
+    var inr = 1;
+    var i = 0;
+    while (i <= 100) {
+        var tf: f64 = f64_from(i);
+        var hundred: f64 = 100.0;
+        sr_visualization_heat_map(f32_from(tf / hundred), c);
+        var k = 0;
+        while (k < 3) {
+            var ch: f64 = t_f(c, k);
+            if (ch < 0.0 || ch > 1.0) { inr = 0; }
+            k = k + 1;
+        }
+        if (load32(c + 12) != 0x3F800000) { inr = 0; }
+        i = i + 1;
+    }
+    assert(inr == 1, "every channel in [0, 1], alpha 1");
+
+    test_group("signed_pressure_color_zero");
+    sr_signed_value_color(0, c);
+    assert(load32(c) == 0 && load32(c + 8) == 0, "zero → black");
+
+    test_group("signed_pressure_color_positive");
+    sr_signed_value_color(0x3F800000, c);
+    assert(load32(c) == 0x3F800000 && load32(c + 8) == 0, "+1 → red");
+
+    test_group("signed_pressure_color_negative");
+    sr_signed_value_color(0xBF800000, c);
+    assert(load32(c) == 0 && load32(c + 8) == 0x3F800000, "-1 → blue");
+
+    test_group("acoustic_heat_map_public");
+    sr_acoustic_heat_map(0x3F000000, c);
+    assert_eq(load32(c + 4), 0x3F800000, "0.5 → green 1");
+
+    test_group("normal_to_basis_z_forward");
+    t_set3(n, 0, 0, 0x3F800000);
+    sr_normal_to_basis(n, right, up);
+    var tol: f64 = 0.01;
+    var zero: f64 = 0.0;
+    assert(t_near(t_dot3(right, n), zero, tol) == 1 && t_near(t_dot3(up, n), zero, tol) == 1, "both ⟂ +Z");
+
+    test_group("normal_to_basis_y_up");
+    t_set3(n, 0, 0x3F800000, 0);
+    sr_normal_to_basis(n, right, up);
+    assert(t_near(t_dot3(right, n), zero, tol) == 1 && t_near(t_dot3(up, n), zero, tol) == 1, "both ⟂ +Y");
+
+    test_group("normal_to_basis_orthogonal");
+    t_set3(n, 0x3F13B646, 0x3F13B646, 0x3F13B646);
+    sr_normal_to_basis(n, right, up);
+    assert(t_near(t_dot3(right, up), zero, tol) == 1, "right ⟂ up");
+
+    test_group("acoustic_vis_params_default");
+    var vp[32];
+    SrAcousticVisParams_default(&vp);
+    assert(load64(&vp) == SR_ACOUSTIC_COLOR_MODE_PRESSURE && load32(&vp + 24) == 0x3F800000, "Pressure, alpha 1");
+
+    test_group("ray_first_segment_carries_full_energy");
+    var bs[16];
+    store64(&bs, bounce(0x3F800000, 0, 0x3F000000));
+    store64(&bs + 8, bounce(0x40000000, 0, 0));
+    var lb = SrLineBatch_new();
+    sr_ray_paths_to_lines(one_path(&bs, 2), SR_COLOR_GREEN, SR_COLOR_RED, lb);
+    assert_eq(SrLineBatch_line_count(lb), 2, "2 lines");
+    assert(vcolor_is(lb, 0, SR_COLOR_GREEN) == 1, "the first segment at full energy");
+    SrColor_lerp(SR_COLOR_GREEN, SR_COLOR_RED, 0x3F000000, c);
+    assert(vcolor_is(lb, 2, c) == 1, "the second at the first bounce's 0.5");
+    SrLineBatch_drop(lb);
+
+    test_group("ray_paths_empty");
+    lb = SrLineBatch_new();
+    sr_ray_paths_to_lines(soorat_ray_visualization_new(hv(0, 0, 0), vec_new()), SR_COLOR_GREEN, SR_COLOR_RED, lb);
+    assert_eq(SrLineBatch_is_empty(lb), 1, "nothing drawn");
+    SrLineBatch_drop(lb);
+
+    test_group("ray_paths_single_bounce");
+    store64(&bs, bounce(0x3F800000, 0, 0x3F666666));
+    lb = SrLineBatch_new();
+    sr_ray_paths_to_lines(one_path(&bs, 1), SR_COLOR_GREEN, SR_COLOR_RED, lb);
+    assert_eq(SrLineBatch_line_count(lb), 1, "1 line");
+    SrLineBatch_drop(lb);
+
+    test_group("ray_paths_multi_bounce");
+    var b3[24];
+    store64(&b3, bounce(0x3F800000, 0, 0x3F4CCCCD));
+    store64(&b3 + 8, bounce(0x3F800000, 0x3F800000, 0x3F19999A));
+    store64(&b3 + 16, bounce(0, 0x3F800000, 0x3ECCCCCD));
+    lb = SrLineBatch_new();
+    sr_ray_paths_to_lines(one_path(&b3, 3), SR_COLOR_GREEN, SR_COLOR_RED, lb);
+    assert_eq(SrLineBatch_line_count(lb), 3, "3 lines");
+    SrLineBatch_drop(lb);
+
+    test_group("portal_to_lines_basic");
+    lb = SrLineBatch_new();
+    sr_portal_to_lines(portal_new(hv(0, 0, 0), hv(0, 0, 0x3F800000), f32_to(0x40000000), f32_to(0x40400000)),
+        SR_COLOR_WHITE, 0x3F800000, lb);
+    assert_eq(SrLineBatch_line_count(lb), 7, "4 edges, the arrow and its head");
+    SrLineBatch_drop(lb);
+
+    test_group("portal_different_normal");
+    lb = SrLineBatch_new();
+    sr_portal_to_lines(portal_new(hv(0x40A00000, 0, 0), hv(0x3F800000, 0, 0), f32_to(0x3F800000), f32_to(0x40000000)),
+        SR_COLOR_RED, 0x3F000000, lb);
+    assert_eq(SrLineBatch_line_count(lb), 7, "7 lines");
+    SrLineBatch_drop(lb);
+
+    test_group("coupled_decay_basic");
+    var dp[72];
+    SrDecayCurveParams_default(&dp);
+    lb = SrLineBatch_new();
+    sr_coupled_decay_to_lines(decay(0x3F000000, 0x40000000, 0x3F333333), &dp, lb);
+    assert_eq(SrLineBatch_line_count(lb), 99, "100 steps → 99 lines");
+    SrLineBatch_drop(lb);
+
+    test_group("coupled_decay_zero_steps");
+    store64(&dp + 32, 0);
+    lb = SrLineBatch_new();
+    sr_coupled_decay_to_lines(decay(0x3F800000, 0x40000000, 0x3F000000), &dp, lb);
+    assert_eq(SrLineBatch_is_empty(lb), 1, "nothing drawn");
+    SrLineBatch_drop(lb);
+
+    test_group("coupled_decay_monotonic");
+    store64(&dp + 32, 50);
+    lb = SrLineBatch_new();
+    sr_coupled_decay_to_lines(decay(0x3F000000, 0x40000000, 0x3F333333), &dp, lb);
+    var nv = SrLineBatch_vertex_count(lb);
+    var oy: f64 = 0.0;
+    var eps6: f64 = 0.000001;
+    var slack: f64 = 0.001;
+    assert(t_near(vy(lb, 0), oy, eps6) == 1, "starts at 0 dB");
+    var mono = 1;
+    i = 0;
+    while (i + 1 < nv) {
+        var y0: f64 = vy(lb, i);
+        var y1: f64 = vy(lb, i + 1);
+        if (y1 > y0 + slack) { mono = 0; }
+        i = i + 2;
+    }
+    var last: f64 = vy(lb, nv - 1);
+    assert(mono == 1 && last < oy, "falls, and ends below 0 dB");
+    SrLineBatch_drop(lb);
+
+    # Cyrius-only: the parameter structs' layouts (src/acoustic.cyr's header).
+    test_group("acoustic_param_layouts");
+    assert(sizeof(SrAcousticVisParams) == 32 && sizeof(SrDecayCurveParams) == 72, "32 and 72 bytes");
+    SrDecayCurveParams_default(&dp);
+    assert(load32(&dp + 12) == 0x40400000 && load32(&dp + 16) == 0xC2700000 && load64(&dp + 32) == 100,
+        "3 s, -60 dB, 100 steps at their offsets");
+    assert(memeq(&dp + 40, SR_COLOR_GREEN, 16) == 1 && memeq(&dp + 56, SR_COLOR_RED, 16) == 1, "green, red");
+
+    # Cyrius-only: a NaN band makes the average NaN, so the next segment carries no energy (end colour), as Rust's does.
+    test_group("a_nan_band_carries_no_energy");
+    store64(&bs, bounce(0x3F800000, 0, 0x7FC00000));
+    store64(&bs + 8, bounce(0x40000000, 0, 0x3F000000));
+    lb = SrLineBatch_new();
+    sr_ray_paths_to_lines(one_path(&bs, 2), SR_COLOR_GREEN, SR_COLOR_RED, lb);
+    assert(vcolor_is(lb, 2, SR_COLOR_RED) == 1, "red after the NaN bounce");
+    SrLineBatch_drop(lb);
+
+    # Cyrius-only: the curve's x runs over [origin, origin + time_range · x_scale], and its last point is the full
+    # db_range down (an early RT60 short enough to fall 60 dB in 3 s).
+    test_group("the_decay_curve_spans_its_ranges");
+    SrDecayCurveParams_default(&dp);
+    lb = SrLineBatch_new();
+    sr_coupled_decay_to_lines(decay(0x3E4CCCCD, 0x3E99999A, 0x3F333333), &dp, lb);
+    nv = SrLineBatch_vertex_count(lb);
+    var x0: f64 = f32_to(load32(load64(lb)));
+    var xn: f64 = f32_to(load32(load64(lb) + (nv - 1) * 28));
+    var three: f64 = 3.0;
+    var minus1: f64 = -1.0;
+    assert(t_near(x0, oy, eps6) == 1 && t_near(xn, three, eps6) == 1, "x from 0 to 3");
+    assert(t_near(vy(lb, nv - 1), minus1, eps6) == 1, "y down to -1 (y_scale) at -60 dB");
+    SrLineBatch_drop(lb);
+
+    return assert_summary();
+}
+
+var exit_code = main();
+if (exit_code > 0) { exit_code = 1; }
+sys_exit_group(exit_code);

@@ -1039,3 +1039,53 @@ production stdlib leaves. So the PE binaries were built from a wrapper that incl
 `lib/overflow.cyr` and `lib/bayan.cyr` before the test file. `cyrius vet` is clean (8 dependencies, none untrusted or
 missing).
 
+## 6. M5: science visualization (part a, 2026-11-15)
+
+### 6.1 Part a: the acoustic types and line renderers, the `acoustics` profile
+
+| Module | Rows | Classes | Result |
+|---|---|---|---|
+| `acoustic` | 81 | A | identical: `acoustic_heat_map` over its edges, NaN, ±∞ and ±1 ulp around each band; both parameter defaults |
+| `acoustic_render` | 556 | E | all passing, replayed by tests/parity_acoustics.tcyr: 146 identical to Rust's f32 outputs, 410 accepted (E), all bit-identical to `validate.py`'s f64 reference |
+
+| Function | Rows | f64-once differs from Rust's f32 |
+|---|---|---|
+| `ray_paths_to_lines` | 213 | 90 (42.3 %): the band average, summed in f32 by Rust, and the f32 sums that overflow (8 × 3e38) |
+| `portal_to_lines` | 219 | 206 (94.1 %): corners, tip and head in f64, where Rust rounds every product and sum |
+| `coupled_decay_to_lines` | 124 | 114 (91.9 %): exp, log10 and the y scaling in f64 |
+
+- **goonj's inputs.** Rust read goonj 1.4.3's f32 structs; the port reads goonj 2.3.2's (plan §2.5). The oracle builds
+  Rust's from f32-representable values, and the harness builds goonj's from the same values widened exactly, so a
+  difference is the arithmetic, not the input. goonj has no constructors for a `RayBounce` or `RayPath` (its tracer
+  makes them), so the harness and tests build them by goonj's `RB_*` and `RP_*` layouts.
+- **The colour rule.** As viz's heat maps (M3): the value Rust passes to `Color::lerp` is computed in f64 and rounded
+  once, and the lerp is Rust's f32 sequence. A ray segment's energy is the band average from −0 (Rust's `Sum` starts
+  at −0), clamped, or 0 when not finite.
+- **Correctly rounded exp and log10.** The decay curve's class-E rows need them, and ganita's f64 tier isn't correctly
+  rounded (L1). `scripts/vendor_crmath.py` now writes a second file, `src/crmath_exp.cyr`: kimiya 2.0.1's `exp` and
+  `log10` with the 17 functions, 27 tables and 1 constant they reach that `src/crmath.cyr` doesn't hold. Its two
+  2,048-entry tables cost a binary 33 KB (127,792 → 161,120 bytes for a minimal core consumer), so only the
+  `acoustics` profile includes it, and `src/crmath.cyr` is unchanged. The script also follows `const`s now
+  (`_KM_INF`).
+- **Rust's own rows re-derive** with glibc's `expf`, `log10f` and `logf` modelled as correctly rounded or 1 ulp off,
+  per call and per step, as M4 modelled `powf`.
+- **goonj's cost.** A minimal consumer is 127,792 bytes, and 457,248 with goonj and hisab: about 329 KB. No name
+  clashes with soorat, prakash, impetus or bayan.
+- **Static data.** A test compile's static data counts against the compiler's 128 KiB advisory, a warning that fails
+  the gate. Measured with a known 128 KiB pad: `cyrius test`'s own leaves 18.7 KB, `src/crmath.cyr` 20.2 KB, goonj
+  and hisab 13.5 KB, `src/crmath_exp.cyr` 33.3 KB. And `src/debug_geom.cyr` 32.9 KB, for a 4,112-byte table: a
+  top-level bare `var g[N]` is N i64 slots (the Cyrius guide), and seven of soorat's byte buffers were declared that
+  way (colour constants, the identity matrix, the full UV rect, the sRGB decode table, the cube faces, the XZ quad,
+  the trig table), reserving 8 × their size. As `u8[N]` they save 38,472 bytes of static data in every binary. The
+  acoustics harness went from 134,296 bytes (a warning) to 95,832. With prakash, impetus and goonj compiled
+  together, a test compile is still 136,208, so the acoustic rows have their own harness. A production build with
+  every feature is under the advisory.
+
+### 6.2 Part a speed (`taskset -c 10 cyrius bench`; two runs agreed)
+
+| Bench (extra: no Rust twin) | Cyrius | Notes |
+|---|---|---|
+| `acoustic/ray_paths_64x8` | 80.5 µs | 512 lines, about 157 ns each: 8 vec reads, an f64 band average, two narrowings, the lerp and the append |
+| `acoustic/portal` | 320 ns | 7 lines from an f64 basis |
+| `acoustic/coupled_decay_100` | 31.3 µs | 100 steps, about 313 ns each: two correctly rounded exps and a log10 |
+

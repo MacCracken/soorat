@@ -43,7 +43,7 @@ var _SR_S64 = 0x42800000;
 
 # The full texture, (0, 0) to (1, 1): a pointer to a static rectangle, filled at load. Read or copy it. Mirrors
 # `UvRect::FULL`.
-var _sr_uv_full_data[16];
+var _sr_uv_full_data: u8[16];
 var SR_UV_RECT_FULL = &_sr_uv_full_data;
 
 # Writes (u_min, v_min, u_max, v_max) to out.

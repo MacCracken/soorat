@@ -1,16 +1,20 @@
-"""Vendors kimiya's correctly rounded f64 `sin` and `acos` into src/crmath.cyr (upstream ledger L1's stand-in).
+"""Vendors kimiya's correctly rounded f64 `sin` and `acos` into src/crmath.cyr, and `exp` and `log10` into
+src/crmath_exp.cyr (upstream ledger L1's stand-in).
 
 Port plan §5 ("correctly rounded stand-ins on paths parity checks") and §10 L1: ganita's f64 tier is not correctly
 rounded (its `acos` is up to 2 ulp from glibc's on 21.8 % of a dense [0, 1] grid, its `sin` 1 ulp on 2.6 %:
 port-parity §4.5), and slerp's class-E rows need the correctly rounded value (ADR 0002 #24). kimiya 2.0.1 has both,
 two-phase (Ziv) on MPFR-generated tables, from + − × ÷, `f64_sqrt` and integer bit operations only.
 
-This script copies the dependency closure of `_km_cr_sin` and `_km_cr_acos` (functions with their doc comments, and
-the tables of src/mathx_data.cyr they read) in kimiya's source order, renaming `_km_` → `_sr_km_` and `_KM_` →
-`_SR_KM_` so nothing collides with a consumer that includes kimiya too. Usage, from the repo root:
+This script copies the dependency closure of `_km_cr_sin` and `_km_cr_acos` (functions with their doc comments, the
+tables of src/mathx_data.cyr and the constants of src/mathx.cyr they read) in kimiya's source order, renaming `_km_` →
+`_sr_km_` and `_KM_` → `_SR_KM_` so nothing collides with a consumer that includes kimiya too. src/crmath_exp.cyr is
+the closure of `_km_cr_exp` and `_km_cr_log10` less what src/crmath.cyr already holds: the acoustic decay curve's class-E
+rows need them (M5), and only the `acoustics` profile includes it, because its tables cost a binary ~33 KB. Usage, from
+the repo root:
 
-    python3 -I -B scripts/vendor_crmath.py .            # write src/crmath.cyr from ../kimiya
-    python3 -I -B scripts/vendor_crmath.py . --check    # exit 1 when src/crmath.cyr differs from what ../kimiya gives
+    python3 -I -B scripts/vendor_crmath.py .            # write src/crmath.cyr and src/crmath_exp.cyr from ../kimiya
+    python3 -I -B scripts/vendor_crmath.py . --check    # exit 1 when either differs from what ../kimiya gives
 
 Without ../kimiya (CI checks out soorat alone), `--check` reports "unverified" and exits 0. Stdlib only.
 """
@@ -25,6 +29,8 @@ KIMIYA = os.path.join(os.path.dirname(ROOT), "kimiya")
 VERSION = "2.0.1"
 ROOTS = ["_km_cr_sin", "_km_cr_acos"]
 OUT = os.path.join(ROOT, "src", "crmath.cyr")
+EXP_ROOTS = ["_km_cr_exp", "_km_cr_log10"]
+EXP_OUT = os.path.join(ROOT, "src", "crmath_exp.cyr")
 
 
 def items(text, kind):
@@ -34,7 +40,7 @@ def items(text, kind):
     offs = [0]
     for ln in lines:
         offs.append(offs[-1] + len(ln) + 1)
-    pat = re.compile(r"^fn (\w+)\(" if kind == "fn" else r"^var (\w+)")
+    pat = re.compile({"fn": r"^fn (\w+)\(", "var": r"^var (\w+)", "const": r"^const (\w+)"}[kind])
     for i, ln in enumerate(lines):
         m = pat.match(ln)
         if not m:
@@ -75,26 +81,45 @@ def main():
         data = f.read()
     fns = items(src, "fn")
     dvars = items(data, "var")
-    seen, need, stack = set(), set(), list(ROOTS)
-    while stack:
-        name = stack.pop()
-        if name in seen:
-            continue
-        seen.add(name)
-        a, b = fns[name]
-        body = src[src.index("fn " + name + "(", a):b]
-        for ref in re.findall(r"\b(_[kK][mM]_\w+)\b", body):
-            if ref in fns and ref not in seen:
-                stack.append(ref)
-            elif ref in dvars:
-                need.add(ref)
-    order_fns = sorted(seen, key=lambda n: fns[n][0])
-    order_vars = sorted(need, key=lambda n: dvars[n][0])
+    consts = items(src, "const")
+
+    def closure(roots, have):
+        """The functions, tables and constants `roots` reach, less those in `have`, each in kimiya's order."""
+        seen, need, cneed, stack = set(), set(), set(), list(roots)
+        while stack:
+            name = stack.pop()
+            if name in seen:
+                continue
+            seen.add(name)
+            a, b = fns[name]
+            body = src[src.index("fn " + name + "(", a):b]
+            for ref in re.findall(r"\b(_[kK][mM]_\w+)\b", body):
+                if ref in fns and ref not in seen:
+                    stack.append(ref)
+                elif ref in dvars:
+                    need.add(ref)
+                elif ref in consts:
+                    cneed.add(ref)
+        return (sorted(seen - have, key=lambda n: fns[n][0]), sorted(need - have, key=lambda n: dvars[n][0]),
+                sorted(cneed - have, key=lambda n: consts[n][0]))
+
+    def render(head, order_fns, order_vars, order_consts):
+        body = "".join(data[dvars[n][0]:dvars[n][1]] + "\n" for n in order_vars)
+        if order_consts:
+            body += "# ── constants (kimiya src/mathx.cyr) ─────────────────────────────────────────────────\n\n"
+            body += "".join(src[consts[n][0]:consts[n][1]] + "\n" for n in order_consts)
+        body += "# ── functions (kimiya src/mathx.cyr) ─────────────────────────────────────────────────\n\n"
+        body += "".join(src[fns[n][0]:fns[n][1]] + "\n" for n in order_fns)
+        body = re.sub(r"\b_km_", "_sr_km_", body)
+        body = re.sub(r"\b_KM_", "_SR_KM_", body)
+        return ("\n".join(head) + body).rstrip("\n") + "\n"
+
     try:
         commit = subprocess.run(["git", "-C", KIMIYA, "rev-parse", "--short", VERSION], capture_output=True,
                                 text=True, check=True).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         commit = "unknown"
+    order_fns, order_vars, order_consts = closure(ROOTS, set())
     head = [
         "# crmath.cyr — correctly rounded f64 sin and acos, vendored from kimiya " + VERSION + " (tag " + VERSION + ", " + commit + ")",
         "# src/mathx.cyr and src/mathx_data.cyr. GENERATED by scripts/vendor_crmath.py: do not edit.",
@@ -110,26 +135,43 @@ def main():
         "# ── tables (kimiya src/mathx_data.cyr, generated there from MPFR 4.2.2) ──────────────",
         "",
     ]
-    body = "".join(data[dvars[n][0]:dvars[n][1]] + "\n" for n in order_vars)
-    body += "# ── functions (kimiya src/mathx.cyr) ─────────────────────────────────────────────────\n\n"
-    body += "".join(src[fns[n][0]:fns[n][1]] + "\n" for n in order_fns)
-    body = re.sub(r"\b_km_", "_sr_km_", body)
-    body = re.sub(r"\b_KM_", "_SR_KM_", body)
-    text = ("\n".join(head) + body).rstrip("\n") + "\n"
+    outs = [(OUT, render(head, order_fns, order_vars, order_consts), len(order_fns), len(order_vars))]
+    have = set(order_fns) | set(order_vars) | set(order_consts)
+    e_fns, e_vars, e_consts = closure(EXP_ROOTS, have)
+    e_head = [
+        "# crmath_exp.cyr — correctly rounded f64 exp and log10, vendored from kimiya " + VERSION + " (tag " + VERSION + ", " + commit + ")",
+        "# src/mathx.cyr and src/mathx_data.cyr. GENERATED by scripts/vendor_crmath.py: do not edit.",
+        "# Regenerate: python3 -I -B scripts/vendor_crmath.py .   (--check verifies this file against ../kimiya)",
+        "#",
+        "# The acoustic decay curve's class-E rows need the correctly rounded exp and log10 (M5); ganita's f64 tier is not",
+        "# correctly rounded (upstream ledger L1). `_sr_km_cr_exp(x)` and `_sr_km_cr_log10(x)` (f64 → f64) are kimiya's",
+        "# `_km_cr_exp` and `_km_cr_log10` renamed as src/crmath.cyr's are, with the " + str(len(e_fns)) + " functions, " + str(len(e_vars)) + " tables and",
+        "# " + str(len(e_consts)) + " constant(s) they reach that src/crmath.cyr doesn't hold. **Include src/crmath.cyr first** (it is in `[lib]`).",
+        "# Only the `acoustics` profile includes this file: its tables cost a binary about 33 KB.",
+        "",
+        "# ── tables (kimiya src/mathx_data.cyr, generated there from MPFR 4.2.2) ──────────────",
+        "",
+    ]
+    outs.append((EXP_OUT, render(e_head, e_fns, e_vars, e_consts), len(e_fns), len(e_vars)))
     if CHECK:
-        try:
-            with open(OUT, encoding="utf-8") as f:
-                old = f.read()
-        except FileNotFoundError:
-            old = None
-        if old != text:
-            print("vendor_crmath: src/crmath.cyr is stale (regenerate: python3 -I -B scripts/vendor_crmath.py .)")
+        bad = 0
+        for path, text, nf, nv in outs:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    old = f.read()
+            except FileNotFoundError:
+                old = None
+            if old != text:
+                print(f"vendor_crmath: {os.path.relpath(path, ROOT)} is stale (regenerate: python3 -I -B scripts/vendor_crmath.py .)")
+                bad += 1
+        if bad:
             return 1
-        print(f"vendor_crmath: ok (kimiya {VERSION}: {len(order_fns)} functions, {len(order_vars)} tables)")
+        print(f"vendor_crmath: ok (kimiya {VERSION}: {outs[0][2]} functions, {outs[0][3]} tables; exp: {outs[1][2]} functions, {outs[1][3]} tables)")
         return 0
-    with open(OUT, "w", encoding="utf-8") as f:
-        f.write(text)
-    print(f"wrote {OUT}: {len(order_fns)} functions, {len(order_vars)} tables, {text.count(chr(10))} lines")
+    for path, text, nf, nv in outs:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        print(f"wrote {path}: {nf} functions, {nv} tables, {text.count(chr(10))} lines")
     return 0
 
 

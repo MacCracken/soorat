@@ -1260,6 +1260,40 @@ fn _par_pbr(fp, fl): i64 {
     return 0;
 }
 
+# ── acoustic (src/acoustic.cyr: the core half of acoustic_render) ─────────────────────
+
+# Fills the got list for one `acoustic` row: the heat map and the two parameter structs' defaults.
+fn _par_acoustic(fp, fl): i64 {
+    if (_par_eq(fp, fl, "acoustic_heat_map") == 1) {
+        _par_got_g32s(sr_acoustic_heat_map(_par_in(0), _par_gr), 4);
+        return 1;
+    }
+    if (_par_eq(fp, fl, "AcousticVisParams::default") == 1) {
+        var u[32];
+        SrAcousticVisParams_default(&u);
+        if (load64(&u) == SR_ACOUSTIC_COLOR_MODE_PRESSURE) { _par_got_e("AcousticColorMode.Pressure"); }
+        else { _par_got_e("AcousticColorMode.Other"); }
+        _par_got_g32s(&u + 8, 4);
+        _par_got_g(load32(&u + 24));
+        return 1;
+    }
+    if (_par_eq(fp, fl, "DecayCurveParams::default") == 1) {
+        var d[72];
+        SrDecayCurveParams_default(&d);
+        _par_got_g32s(&d, 3);
+        var k = 12;
+        while (k < 28) {
+            _par_got_g(load32(&d + k));
+            k = k + 4;
+        }
+        _par_got_i(load64(&d + 32));
+        _par_got_g32s(&d + 40, 4);
+        _par_got_g32s(&d + 56, 4);
+        return 1;
+    }
+    return 0;
+}
+
 # ── render_graph (src/render_graph.cyr) ──────────────────────────────────────────────
 
 # The golden name of an SR_PASS_TYPE_* code's `PassType` variant.
@@ -1564,6 +1598,7 @@ fn _par_dispatch(mp, ml, fp, fl): i64 {
     if (_par_eq(mp, ml, "env") == 1) { return _par_env(fp, fl); }
     if (_par_eq(mp, ml, "pbr_material") == 1) { return _par_pbr(fp, fl); }
     if (_par_eq(mp, ml, "render_graph") == 1) { return _par_rg(fp, fl); }
+    if (_par_eq(mp, ml, "acoustic") == 1) { return _par_acoustic(fp, fl); }
     return 0;
 }
 
@@ -1610,7 +1645,7 @@ fn _par_module_done(mp, ml) {
 #must_use
 fn _par_skip(mp, ml): i64 {
     if (_par_eq(mp, ml, "color_optics") == 1 || _par_eq(mp, ml, "debug_collider") == 1) { return 1; }
-    if (_par_eq(mp, ml, "pbr_optics") == 1) { return 1; }
+    if (_par_eq(mp, ml, "pbr_optics") == 1 || _par_eq(mp, ml, "acoustic_render") == 1) { return 1; }
     return 0;
 }
 

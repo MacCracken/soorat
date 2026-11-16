@@ -623,6 +623,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "goonj"
+version = "1.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4eb85310dd2ba75608d343569c00f3517d4a0fee7bc043b2f607a3a640267608"
+dependencies = [
+ "hisab",
+ "serde",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
 name = "gpu-allocator"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1850,6 +1862,8 @@ version = "1.2.0"
 dependencies = [
  "bytemuck",
  "gltf",
+ "goonj",
+ "hisab",
  "image",
  "impetus",
  "mabda",
@@ -1867,6 +1881,8 @@ name = "soorat-oracle"
 version = "0.0.0"
 dependencies = [
  "bytemuck",
+ "goonj",
+ "hisab",
  "impetus",
  "prakash",
  "serde_json",

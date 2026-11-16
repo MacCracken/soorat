@@ -356,7 +356,7 @@ fn _sr_look_at64(pos, dir, up, m) {
 }
 
 # The six cube-face directions and up vectors (f32), +X, −X, +Y, −Y, +Z, −Z: Rust's table.
-var _sr_cube_faces_data[144];
+var _sr_cube_faces_data: u8[144];
 var _SR_CUBE_FACES = &_sr_cube_faces_data;
 var _sr_cube_faces_ready = _sr_cube_faces_init();
 fn _sr_cube_faces_init(): i64 {

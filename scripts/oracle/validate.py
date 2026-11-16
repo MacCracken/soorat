@@ -2495,6 +2495,227 @@ def lut_q8(v):
     return int(r) + (1 if v - r >= 0.5 else 0)
 
 
+# ── acoustic (M5 part a): the core rows exact (A); the renderers in f64 once (E) ─────────────────────────────────
+
+F32_0_2 = from_bits(0x3E4CCCCD)       # 0.2f32
+F32_1E_10 = from_bits(0x2EDBE6FF)     # 1e-10f32
+F32_CORNFLOWER = [from_bits(0x3EC8B439), from_bits(0x3F158106), from_bits(0x3F6DD2F2), 1.0]
+
+
+def fmin(a, b):
+    """Rust's f32::min / IEEE minNum: a NaN operand is ignored."""
+    if math.isnan(a):
+        return b
+    if math.isnan(b):
+        return a
+    return a if a <= b else b
+
+
+def lerp_color(a, b, t):
+    """`Color::lerp` in Rust's f32 sequence, t clamped first."""
+    t = clamp32(t, 0.0, 1.0)
+    return [r32(p + r32(r32(q - p) * t)) for p, q in zip(a, b)]
+
+
+def cr_exp(x):
+    """e^x correctly rounded to f64 (decimal at 60 digits)."""
+    if math.isnan(x):
+        return math.nan
+    if x > 710.0:
+        return math.inf
+    if x < -746.0:
+        return 0.0
+    with decimal.localcontext() as ctx:
+        ctx.prec = 60
+        return float(decimal.Decimal(x).exp())
+
+
+def cr_log10(x):
+    """log10(x) correctly rounded to f64 (decimal at 60 digits)."""
+    if math.isnan(x) or x < 0.0:
+        return math.nan
+    if x == 0.0:
+        return -math.inf
+    if math.isinf(x):
+        return math.inf
+    with decimal.localcontext() as ctx:
+        ctx.prec = 60
+        return float(decimal.Decimal(x).log10())
+
+
+CR_LN10 = 2.302585092994046   # ln 10 correctly rounded (0x40026BB1BBB55516)
+
+
+def ray_lines(src, paths, ca, cb, f32):
+    """`ray_paths_to_lines`' vertices: Rust's f32 band average (f32 true), or the f64 one rounded once (class E)."""
+    out = []
+    for path in paths:
+        prev, energy = src, 1.0
+        for p, e in path:
+            col = lerp_color(ca, cb, r32(1.0 - energy))
+            out += prev + col + p + col
+            prev = p
+            sm = -0.0
+            for x in e:
+                sm = r32(sm + x) if f32 else sm + x
+            avg = r32(sm / 8.0) if f32 else sm / 8.0
+            energy = r32(clamp32(avg, 0.0, 1.0)) if math.isfinite(avg) else 0.0
+    return out
+
+
+def portal_lines(pos, n, w, h, col, length, q):
+    """`portal_to_lines`' vertices: q = r32 is Rust's f32 sequence, q = ident the f64 formula (rounded once after)."""
+    bas = normal_to_basis(n, q)
+    rt, up = bas[0:3], bas[3:6]
+    hw, hh = q(w * 0.5), q(h * 0.5)
+    sr = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
+    cs = [[q(q(pos[i] + q(a * q(rt[i] * hw))) + q(b * q(up[i] * hh))) for i in range(3)] for a, b in sr]
+    tip = [q(pos[i] + q(n[i] * length)) for i in range(3)]
+    hs = q(length * F32_0_2)
+    back = [q(tip[i] - q(n[i] * hs)) for i in range(3)]
+    arm1 = [q(back[i] + q(rt[i] * hs)) for i in range(3)]
+    arm2 = [q(back[i] - q(rt[i] * hs)) for i in range(3)]
+    segs = [(cs[0], cs[1]), (cs[1], cs[2]), (cs[2], cs[3]), (cs[3], cs[0]), (pos, tip), (tip, arm1), (tip, arm2)]
+    return [r32(v) for a, b in segs for v in [*a, *col, *b, *col]]
+
+
+def decay_steps(dc_in, prm, q, ex, lg, ln10, only=None):
+    """`coupled_decay_to_lines`' per-step (point, colour) in Rust's f32 (q = r32) or f64 (q = ident), with the exp and
+    log10 callables `ex(i, k, x)` and `lg(i, x)` (step i) and ln 10 given; [] when nothing is drawn. With `only`, just
+    that step, as a one-element list."""
+    rte, rtl, ae0 = dc_in[0], dc_in[1], dc_in[2]
+    org, tr, dbr, xs, ys, steps, ce, cl = prm
+    if steps < 2 or tr <= 0.0:
+        return []
+    dt = q(tr / float(steps - 1))
+    dcn = q(6.0 * ln10)
+    tau_e = q(rte / dcn) if rte > 0.0 else F32_EPS
+    tau_l = q(rtl / dcn) if rtl > 0.0 else F32_EPS
+    ae = clamp32(ae0, 0.0, 1.0)
+    al = q(1.0 - ae)
+    dmin = fmin(dbr, -1.0)
+    out = []
+    for i in range(steps) if only is None else [only]:
+        t = q(i * dt)
+        ee = q(ae * ex(i, 0, q(-t / tau_e)))
+        el = q(al * ex(i, 1, q(-t / tau_l)))
+        et = fmax(q(ee + el), F32_1E_10)
+        db = q(10.0 * lg(i, et))
+        dn = clamp32(q(db / dmin), 0.0, 1.0)
+        pt = [r32(q(org[0] + q(t * xs))), r32(q(org[1] - q(dn * ys))), org[2]]
+        frac = q(ee / et) if et > F32_1E_10 else 0.5
+        out.append((pt, lerp_color(ce, cl, r32(1.0 - r32(frac)))))
+    return out
+
+
+def decay_vertices(steps):
+    out = []
+    for k in range(1, len(steps)):
+        out += steps[k - 1][0] + steps[k][1] + steps[k][0] + steps[k][1]
+    return out
+
+
+def expf_cr(x):
+    return r32(cr_exp(x))
+
+
+def log10f_cr(x):
+    return r32(cr_log10(x))
+
+
+def decay_rust_ok(dc_in, prm, want):
+    """Whether Rust's f32 curve explains `want` with glibc's expf, log10f and logf each within 1 ulp of correctly
+    rounded: the logf of 10 once for the curve, and per step its two expf and one log10f."""
+    for dl in (0, -1, 1):
+        ln10 = ulp_step(r32(math.log(10.0)), dl)
+        base = decay_steps(dc_in, prm, r32, lambda i, k, x: expf_cr(x), lambda i, x: log10f_cr(x), ln10)
+        if not base:
+            if not want:
+                return True
+            continue
+        n = len(base)
+        if len(want) != (n - 1) * 14:
+            continue
+        good = True
+        for i in range(n):
+            pt = want[(i - 1) * 14 + 7:(i - 1) * 14 + 10] if i > 0 else want[0:3]
+            col = want[(i - 1) * 14 + 10:(i - 1) * 14 + 14] if i > 0 else None
+            found = False
+            for d in [(a, b, c) for a in (0, -1, 1) for b in (0, -1, 1) for c in (0, -1, 1)]:
+                ex = lambda j, k, x, d=d, i=i: ulp_step(expf_cr(x), d[k] if j == i else 0)
+                lg = lambda j, x, d=d, i=i: ulp_step(log10f_cr(x), d[2] if j == i else 0)
+                st = decay_steps(dc_in, prm, r32, ex, lg, ln10, only=i)[0]
+                if same(st[0], pt) and (col is None or same(st[1], col)):
+                    found = True
+                    break
+            if not found:
+                good = False
+                break
+        if good:
+            return True
+    return False
+
+
+def check_acoustic():
+    """Re-derives every `acoustic` and `acoustic_render` row; returns (rows that differ, the acoustic_render.e.tsv
+    rows, {fn: (rows, differing)})."""
+    bad, erows, gains = 0, [], {}
+    path = os.path.join(GOLDEN, "acoustic.tsv")
+    if os.path.exists(path):
+        _, body = rows(path)
+        for fn, _cls, ins, outs, note in body:
+            want = g_values(outs)
+            if fn == "acoustic_heat_map":
+                ok = same(heat_map(g_values(ins)[0]), want)
+            elif fn == "AcousticVisParams::default":
+                ok = outs.startswith("e:AcousticColorMode.Pressure ") and same(want, F32_CORNFLOWER + [1.0])
+            elif fn == "DecayCurveParams::default":
+                ok = same(want, [0.0, 0.0, 0.0, 3.0, -60.0, 1.0, 1.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0]) \
+                    and i_values(outs) == [100]
+            else:
+                ok = False
+            if not ok:
+                bad += 1
+                print(f"acoustic: {fn} {note}: re-derived outputs differ from the corpus")
+    path = os.path.join(GOLDEN, "acoustic_render.tsv")
+    if not os.path.exists(path):
+        return bad, erows, gains
+    _, body = rows(path)
+    for fn, _cls, ins, outs, note in body:
+        rd, want = Rd(ins), g_values(outs)
+        if fn == "ray_paths_to_lines":
+            src = rd.gs()
+            paths = []
+            for _ in range(rd.i()):
+                paths.append([(rd.gs(), rd.gs()) for _ in range(rd.i())])
+            ca, cb = rd.gs(), rd.gs()
+            ok = same(ray_lines(src, paths, ca, cb, True), want)
+            once = ray_lines(src, paths, ca, cb, False)
+        elif fn == "portal_to_lines":
+            pos, n, w, h, col, ln = rd.gs(), rd.gs(), rd.g(), rd.g(), rd.gs(), rd.g()
+            ok = same(portal_lines(pos, n, w, h, col, ln, r32), want)
+            once = portal_lines(pos, n, w, h, col, ln, ident)
+        elif fn == "coupled_decay_to_lines":
+            dc_in = [rd.g(), rd.g(), rd.g(), rd.g()]
+            prm = (rd.gs(), rd.g(), rd.g(), rd.g(), rd.g(), rd.i(), rd.gs(), rd.gs())
+            ok = decay_rust_ok(dc_in, prm, want)
+            once = decay_vertices(decay_steps(dc_in, prm, ident, lambda i, k, x: cr_exp(x), lambda i, x: cr_log10(x),
+                                              CR_LN10))
+        else:
+            ok, once = False, None
+            print(f"acoustic_render: {fn}: no re-derivation in validate.py")
+        if not ok:
+            bad += 1
+            print(f"acoustic_render: {fn} {note}: re-derived f32 outputs differ from the corpus")
+            continue
+        n, d = gains.get(fn, (0, 0))
+        if not same(once, want):
+            erows.append(f"{fn}\t{ins}\t{g_tokens(outs, once)}\t{note}: f64 once vs Rust f32")
+            d += 1
+        gains[fn] = (n + 1, d)
+    return bad, erows, gains
+
+
 RG_TYPES = ["Shadow", "Geometry", "Ssao", "Bloom", "PostProcess", "Debug", "Ui", "Compute", "Custom"]
 
 
@@ -2742,6 +2963,11 @@ def main():
     failures += glbad
     abad, aerows, again = check_anim(plat)
     failures += abad
+    acbad, acerows, acgain = check_acoustic()
+    failures += acbad
+    sides_e.append(("acoustic_render.e.tsv", "class-E rows (ADR 0002 #4, #29, D4 rule b): Rust's formula in f64 from "
+                    "goonj's f64 inputs (exp and log10 correctly rounded), rounded once to f32, where that differs from "
+                    "Rust's f32 outputs", acerows))
     sides_e.append(("animation.e.tsv", "class-E rows (ADR 0002 #4, D4 rule b): Rust's formula in f64, rounded once to "
                     "f32, where that differs from Rust's f32 outputs", aerows))
     sides = sides_e + [
@@ -2801,6 +3027,8 @@ def main():
     print("gltf: " + ", ".join(f"{v} {k}" for k, v in sorted(gltally.items())) + " (refusals and panics are the oracle's)")
     for fn, (n, d) in sorted(shgain.items()):
         print(f"shadow {fn:<30} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
+    for fn, (n, d) in sorted(acgain.items()):
+        print(f"acoustic_render {fn:<27} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
     for fn, (n, d) in sorted(again.items()):
         print(f"animation {fn:<33} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
 

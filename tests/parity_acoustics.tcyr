@@ -1,0 +1,157 @@
+# parity_acoustics.tcyr — replays the `acoustics` feature's golden module, `acoustic_render` (src/acoustic_render.cyr,
+# goonj 2.3.2; M5 part a).
+#
+# It compiles what a consumer of dist/soorat-acoustics.cyr compiles: the library, src/crmath_exp.cyr and the renderers
+# on goonj and hisab. It is not part of tests/parity_features.tcyr because a test compile with prakash, impetus and
+# goonj together holds 136,208 bytes of static data (with `cyrius test`'s own leaves and the harness), over the
+# compiler's 128 KiB advisory, which is a warning and fails the gate (port-parity §6.1). CI resolves
+# `cyrius deps --features optics,physics-debug,acoustics`. Format and rules: scripts/oracle/README.md; the machinery:
+# tests/parity_core.cyr.
+#
+# A row's inputs are f32 (`g:`); goonj's types hold f64, so each value is widened exactly (plan §2.5, ADR 0002 #29).
+
+include "tests/lib.cyr"
+include "src/crmath_exp.cyr"
+include "src/acoustic_render.cyr"
+include "tests/ulp.cyr"
+
+alloc_init();
+
+include "tests/parity_core.cyr"
+
+# ── hooks ────────────────────────────────────────────────────────────────────────────
+
+# The Rust variant name of an `SR_ERR_*` code.
+#must_use
+fn _par_error_name(code): i64 {
+    return sr_error_name(code);
+}
+
+# The f32 at bits as an f64 (bits), widened exactly.
+#must_use
+fn _par_w(bits): i64 { return f32_to(bits); }
+
+# A goonj HVec3 of the 3 f32 at p, widened.
+#must_use
+fn _par_hv(p): i64 { return hvec3_new(_par_w(load32(p)), _par_w(load32(p + 4)), _par_w(load32(p + 8))); }
+
+# Reads a ray visualization from input token k on (m_acoustic.rs's layout) into a goonj RayVisualization, built by
+# goonj's RayBounce and RayPath layouts (RB_*, RP_*), as goonj's tracer builds them; returns the next token's index,
+# the visualization in *outw.
+fn _par_rays(k, outw): i64 {
+    var buf[64];
+    k = _par_in_g32s(k, &buf);
+    var src = _par_hv(&buf);
+    var paths = vec_new();
+    var np = _par_in(k);
+    k = k + 1;
+    var p = 0;
+    while (p < np) {
+        var nb = _par_in(k);
+        k = k + 1;
+        var bounces = vec_new();
+        var b = 0;
+        while (b < nb) {
+            k = _par_in_g32s(k, &buf);
+            var e[64];
+            k = _par_in_g32s(k, &e);
+            var rb = alloc(RB_SIZE);
+            memset(rb, 0, RB_SIZE);
+            store64(rb + RB_POINT, _par_hv(&buf));
+            store64(rb + RB_NORMAL, hvec3_new(0, 0, 0));
+            var j = 0;
+            while (j < NUM_BANDS) {
+                store64(rb + RB_ENERGY + j * 8, _par_w(load32(&e + j * 4)));
+                j = j + 1;
+            }
+            vec_push(bounces, rb);
+            b = b + 1;
+        }
+        var rp = alloc(RP_SIZE);
+        memset(rp, 0, RP_SIZE);
+        store64(rp + RP_BOUNCES, bounces);
+        vec_push(paths, rp);
+        p = p + 1;
+    }
+    store64(outw, soorat_ray_visualization_new(src, paths));
+    return k;
+}
+
+# Fills the got list for one `acoustic_render` row.
+fn _par_acoustic(fp, fl): i64 {
+    var lb = SrLineBatch_new();
+    if (lb == 0) { return 0 - 1; }
+    var done = 1;
+    if (_par_eq(fp, fl, "ray_paths_to_lines") == 1) {
+        var rvw[8];
+        var k = _par_rays(0, &rvw);
+        _par_in_g32s(_par_in_g32s(k, _par_ga), _par_gb);
+        sr_ray_paths_to_lines(load64(&rvw), _par_ga, _par_gb, lb);
+    } elif (_par_eq(fp, fl, "portal_to_lines") == 1) {
+        var kp = _par_in_g32s(_par_in_g32s(0, _par_ga), _par_gb);
+        var pt = portal_new(_par_hv(_par_ga), _par_hv(_par_gb), _par_w(_par_in(kp)), _par_w(_par_in(kp + 1)));
+        var kc = _par_in_g32s(kp + 2, _par_gc);
+        sr_portal_to_lines(pt, _par_gc, _par_in(kc), lb);
+    } elif (_par_eq(fp, fl, "coupled_decay_to_lines") == 1) {
+        var dc = alloc(sizeof(CoupledDecay));
+        CoupledDecay_set_rt60_early(dc, _par_w(_par_in(0)));
+        CoupledDecay_set_rt60_late(dc, _par_w(_par_in(1)));
+        CoupledDecay_set_early_amplitude(dc, _par_w(_par_in(2)));
+        CoupledDecay_set_coupling_strength(dc, _par_w(_par_in(3)));
+        var prm[80];
+        var ko = _par_in_g32s(4, &prm);
+        store32(&prm + 12, _par_in(ko));
+        store32(&prm + 16, _par_in(ko + 1));
+        store32(&prm + 20, _par_in(ko + 2));
+        store32(&prm + 24, _par_in(ko + 3));
+        store32(&prm + 28, 0);
+        store64(&prm + 32, _par_in(ko + 4));
+        _par_in_g32s(_par_in_g32s(ko + 5, &prm + 40), &prm + 56);
+        sr_coupled_decay_to_lines(dc, &prm, lb);
+    } else {
+        done = 0;
+    }
+    if (done == 1) { _par_got_g32s(load64(lb), SrLineBatch_vertex_count(lb) * 7); }
+    SrLineBatch_drop(lb);
+    return done;
+}
+
+fn _par_dispatch(mp, ml, fp, fl): i64 {
+    _par_got_n = 0;
+    if (_par_eq(mp, ml, "acoustic_render") == 1) { return _par_acoustic(fp, fl); }
+    return 0;
+}
+
+# No class-C rows here.
+#must_use
+fn _par_c_bound(fp, fl): i64 {
+    return 0 - 1;
+}
+
+#must_use
+fn _par_accepted(fp, fl, ip, il): i64 {
+    return 0;
+}
+
+#must_use
+fn _par_accepted_quiet(adr): i64 {
+    return 0;
+}
+
+fn _par_shadows(mp, ml, fp, fl, cls) {
+    return 0;
+}
+
+fn _par_module_done(mp, ml) {
+    return 0;
+}
+
+# Only the `acoustics` module: tests/parity.tcyr and tests/parity_features.tcyr replay the rest.
+#must_use
+fn _par_skip(mp, ml): i64 {
+    if (_par_eq(mp, ml, "acoustic_render") == 1) { return 0; }
+    return 1;
+}
+
+var exit_code = _par_main();
+sys_exit_group(exit_code);
