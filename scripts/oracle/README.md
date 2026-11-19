@@ -41,7 +41,7 @@ turn.
 | `constants` | M0 | 18 | public constants (`MAX_*`, `IDENTITY_MAT4`, the `Color` constants, `UvRect::FULL`) and the oracle's `MAX_SEGMENTS`, `MAX_QUADS`, `XZ_QUAD_INDICES`. `validate.py` checks the integers against the literals in `rust-old/src` |
 | `layout` | M0 | 19 | size and field offsets of every GPU-facing `#[repr(C)]` type (probe P1) |
 | `math` | M0 | 1,436 | `math_util` on probe P2's grid: `mul_mat4`, `normalize3`, `cross`, `perspective_90`, `look_at`, `compose_trs`, `normal_to_basis` and `flatten_mat4`. **Re-derived (Part 0b, 2026-11-18)**: class A, every output the correct value from `math_reference`. Rust 1.2.0 was wrong on 1,149 rows (ADR 0002 #32) |
-| `color` | M1 | 3,397 | `Color` without its `optics` half: every byte in `from_rgba8`; `to_rgba8` at every k/510 and every halfway point (Rust rounds half away from zero); the colour maps across and beyond their domain, each stop ± 1 ulp, ±0, ±∞, NaN (A, B) |
+| `color` | M1 | 3,439 | `Color` without its `optics` half: every byte in `from_rgba8`; `to_rgba8` at every k/510 and every halfway point (Rust rounds half away from zero); the colour maps across and beyond their domain, each stop ± 1 ulp, ±0, ±∞, NaN. **Re-derived (Part 0c, 2026-11-18)**: class A from `color_reference`, plus 42 emitted rows for the exact path of `src/crsum.cyr`. Rust 1.2.0 was wrong on 239 rows (ADR 0002 #33) |
 | `color_optics` | M1 | 1,704 | `Color`'s `optics` half (the oracle crate turns on soorat's `optics` feature and depends on prakash 1.2.0): `from_prakash` at f32 midpoints and the clamp's edges, `to_prakash`, `from_temperature` every 100 K, `from_wavelength` every 0.5 nm, `n:` for `None` (A). Replayed by tests/parity_features.tcyr |
 | `json` | M1 | 180 | serde_json 1.0.154 (rust-old's dev-dependency, at its version) reading `Color` documents: its own output for a colour grid, and hand-written ones for serde's derive semantics; `E:Deserialize` for a refusal (A). The three `Color::from_json_bayan_*` rows are pending (ADR 0002 #19) |
 | `lights` | M1 | 1,066 | the three light constructors and the light array; `GpuLight::spot`'s cone cosines are class C, and `lights.cr.tsv` holds the 28 rows where glibc's `cosf` misrounds (ADR 0002 #16) |
@@ -114,9 +114,14 @@ The **note** is a human rendering of the call, for review only; the harness igno
 without floating point: the f32 inputs as exact rationals (`fractions`), the formula's + − × ÷ exactly, and each
 output rounded once to f32 (ties to even) by integer arithmetic. `math` is the first: every output there is a
 rational z or z / √W, so `round_sqrt_f32` rounds √(z²/W) exactly, and the sign of an exact zero follows IEEE 754's
-rules. A row with a non-finite input follows IEEE 754's special-value rules. `--write` rewrites the module's outputs
-(the inputs and notes kept) and removes its retired side table; the check fails when a row differs from the
-reference. It also reports where the port's method (f64, rounded once) misses the reference: 0 of 15,638 for `math`.
+rules. A row with a non-finite input follows IEEE 754's special-value rules. `color` is the second (Rec. 709's exact
+luma weights, under ADR 0003's constants rule).
+
+`rederive_module` does the writing for every re-derived module. `--write` rewrites the module's outputs (the inputs
+and notes kept), appends its **emitted rows** and removes its retired side tables. The check fails when a row differs
+from the reference. An emitted row is one whose inputs `validate.py` builds, for a case the recorded grid misses: a
+tie, a cancellation, a signed zero. Its note starts `ADR 0003:`, and every write replaces it. `check_math` also
+reports where the port's method (f64, rounded once) misses the reference: 0 of 15,638 for `math`.
 
 **The modules not yet re-derived.** Python's floats are IEEE binary64, and an f64 `+ − × ÷ √` of two f32 values
 rounded once to f32 **is** the f32 operation (f64 carries more than 2·24 + 2 bits). So, for them, `validate.py`:

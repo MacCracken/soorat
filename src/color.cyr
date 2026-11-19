@@ -5,17 +5,21 @@
 # and 12 (an f32 field assignment from bits is a type warning under --bounds). The constants are pointers to static
 # colours (`SR_COLOR_WHITE`, …): read them, copy them, never write through them.
 #
-# **Precision (D4 rule a).** Colours are quantized outputs, so every function follows Rust's f32 sequence exactly,
-# one native f32 rounding per operation (helpers with `: f32` parameters, as ganita's tier; one helper per formula,
-# so lerp makes 4 calls rather than 12), with Rust's `clamp`, `round` and `as u8` (src/mathx.cyr): class A and B
-# rows at 0 ulp (tests/golden/color.tsv).
+# **Precision (ADR 0003, ADR 0002 #33).** Every output is the correct value: its formula's exact value, rounded once.
+# - `luminance` and `lerp` are sums of products that are exact in f64, rounded once through `_sr_cr_sum_f32`
+#   (src/crsum.cyr). Luminance takes Rec. 709's exact weights, (2126·r + 7152·g + 722·b) / 10,000.
+# - `to_rgba8` scales in f64 (exact) and rounds half away from zero, Rust's documented `round`.
+# - `from_rgba8`, the heat map and the signed map are exact in f32: one correctly rounded division, Sterbenz
+#   subtractions and scalings by 4.
+# Rust's f32 sequence was wrong on 239 of these rows (to_rgba8 97, luminance 71, lerp 71); tests/golden/color.tsv
+# holds the correct values (class A).
 #
 # The `optics` functions (`from_prakash`, `to_prakash`, `from_temperature`, `from_wavelength`) arrive with
 # prakash in M1 part b2; the serde round trip with bayan.
 
 struct SrColor { r: f32; g: f32; b: f32; a: f32; }
 
-# f32 bits used here: 0, 0.25, 0.5, 0.75, 1, −1, 255 and the Rec. 709 luma weights, from rustc.
+# f32 bits used here: 0, 0.25, 0.5, 0.75, 1, −1 and 255, from rustc; and the f64 constants of the exact paths.
 var _SR_C0 = 0;
 var _SR_C025 = 0x3E800000;
 var _SR_C05 = 0x3F000000;
@@ -23,22 +27,55 @@ var _SR_C075 = 0x3F400000;
 var _SR_C1 = 0x3F800000;
 var _SR_CM1 = 0xBF800000;
 var _SR_C255 = 0x437F0000;
-var _SR_LUMA_R = 0x3E59B3D0;   # 0.2126f32
-var _SR_LUMA_G = 0x3F371759;   # 0.7152f32
-var _SR_LUMA_B = 0x3D93DD98;   # 0.0722f32
+var _SR_COL_255: f64 = 255.0;
+var _SR_COL_HALF: f64 = 0.5;
+# Rec. 709's luma weights times 10,000 (exact), and the 10,000.
+var _SR_LUMA_NR: f64 = 2126.0;
+var _SR_LUMA_NG: f64 = 7152.0;
+var _SR_LUMA_NB: f64 = 722.0;
+var _SR_LUMA_K: f64 = 10000.0;
 
 # One lerp component, x + (y − x)·t: native f32 (typed parameters), one rounding per operation, Rust's sequence.
+# PART0(animation, acoustic_render): not the correct value (see `_sr_color_lerp1`). src/animation.cyr's linear tracks
+# and `_sr_color_lerp_f32seq` keep it until Part 0c re-derives those rows, recorded from Rust (ADR 0003).
 #must_use
 fn _sr_f32_lerp(x: f32, y: f32, t: f32): i64 {
     var r: f32 = x + ((y - x) * t);
     return r;
 }
 
-# (wr·r + wg·g) + wb·b in native f32, Rust's luminance sequence (the weights passed as f32 bits).
+# One lerp component, x + (y − x)·t for t in [0, 1] (f32 bits), correctly rounded: Rust's formula in f64 with an error
+# bound, and where that can't decide, x + y·t − x·t through `_sr_cr_sum3_f32` (each product exact in f64). A zero
+# result takes the formula's IEEE 754 sign (the f64 evaluation's, exact when the result is 0 because its operands
+# are). A non-finite x, y or t gives IEEE 754's special value.
 #must_use
-fn _sr_f32_luma(wr: f32, r: f32, wg: f32, g: f32, wb: f32, b: f32): i64 {
-    var s: f32 = ((wr * r) + (wg * g)) + (wb * b);
-    return s;
+fn _sr_color_lerp1(x, y, t): i64 {
+    var a: f64 = f32_to(x);
+    var b: f64 = f32_to(y);
+    var tt: f64 = f32_to(t);
+    var d: f64 = b - a;
+    var f: f64 = a + (d * tt);
+    var zero: f64 = 0.0;
+    var fin: f64 = (a - a) + ((b - b) + (tt - tt));   # 0 unless an operand is an infinity or a NaN
+    if (fin != zero) { return f32_from(f); }
+    # The fast path: f, Rust's formula in f64, is within 3u·(|b − a| + |f|) of the exact value (u = 2^-53, t ≤ 1),
+    # bounded here with 2^-50, 2.7 times that. When the whole interval rounds to one f32, that is the answer.
+    var ad: f64 = d;
+    if (ad < zero) { ad = zero - ad; }
+    var af: f64 = f;
+    if (af < zero) { af = zero - af; }
+    var err: f64 = (ad + af) * _SR_CRS_EPS;
+    var lo = f32_from(f - err);
+    if (err != zero) {
+        if (lo == f32_from(f + err)) { return lo; }
+    }
+    # The exact path: x + y·t − x·t, each product exact in f64.
+    var z0 = 0;
+    if (f == zero) { z0 = f32_from(f); }
+    var bt: f64 = b * tt;
+    var at: f64 = zero - (a * tt);
+    var one: f64 = 1.0;
+    return _sr_cr_sum3_f32(a, bt, at, one, z0);
 }
 
 # (r, g, b, a) / k in native f32, stored at out.
@@ -123,9 +160,25 @@ fn SrColor_to_array(c, out) {
     return out;
 }
 
-# One component as a byte: NaN → 0, else round(clamp(x, 0, 1) · 255) (the product rounded to f32 first).
+# One component as a byte: NaN → 0, else round(clamp(x, 0, 1) · 255), the product exact in f64 (24 + 8 bits) and
+# rounded half away from zero (Rust's documented `round`), so the byte is the correct one.
 #must_use
 fn _sr_color_q8(x): i64 {
+    if (_sr_f32_is_nan(x) == 1) { return 0; }
+    var v: f64 = f32_to(_sr_clamp32(x, _SR_C0, _SR_C1));
+    var p: f64 = v * _SR_COL_255;
+    var fl: f64 = f64_floor(p);
+    var k = f64_to(fl);
+    var fr: f64 = p - fl;
+    if (fr >= _SR_COL_HALF) { k = k + 1; }
+    return k;
+}
+
+# PART0(env): Rust's byte, round(clamp(x, 0, 1) · 255) with the product rounded to f32 first, which is not always the
+# correct byte (ADR 0002 #33). src/env_cpu.cyr's sRGB face encoding keeps it until Part 0c re-derives the `env` rows,
+# recorded from Rust (ADR 0003).
+#must_use
+fn _sr_color_q8_f32seq(x): i64 {
     if (_sr_f32_is_nan(x) == 1) { return 0; }
     return _sr_f32_to_u8(_sr_round32(ganita_f32_mul(_sr_clamp32(x, _SR_C0, _SR_C1), _SR_C255)));
 }
@@ -152,15 +205,59 @@ fn SrColor_to_wgpu(c, out) {
     return out;
 }
 
-# Rec. 709 luminance, (0.2126·r + 0.7152·g) + 0.0722·b in f32, as f32 bits. Mirrors `Color::luminance`.
+# Rec. 709 luminance, 0.2126·r + 0.7152·g + 0.0722·b with the standard's exact weights, correctly rounded, as f32
+# bits: (2126·r + 7152·g + 722·b) / 10,000, each product exact in f64, through `_sr_cr_sum_f32`. A zero takes the
+# formula's IEEE 754 sign; a non-finite component gives IEEE 754's special value. Mirrors `Color::luminance`.
 #must_use
 fn SrColor_luminance(c): i64 {
-    return _sr_f32_luma(_SR_LUMA_R, load32(c), _SR_LUMA_G, load32(c + 4), _SR_LUMA_B, load32(c + 8));
+    var r: f64 = f32_to(load32(c));
+    var g: f64 = f32_to(load32(c + 4));
+    var b: f64 = f32_to(load32(c + 8));
+    var tr: f64 = _SR_LUMA_NR * r;
+    var tg: f64 = _SR_LUMA_NG * g;
+    var tb: f64 = _SR_LUMA_NB * b;
+    var f: f64 = (tr + tg) + tb;
+    var zero: f64 = 0.0;
+    var fin: f64 = (r - r) + ((g - g) + (b - b));   # 0 unless a component is an infinity or a NaN
+    if (fin != zero) {
+        var fk: f64 = f / _SR_LUMA_K;
+        return f32_from(fk);
+    }
+    # The fast path inline (as _sr_cr_sum3_f32's): the f64 sum and its error bound.
+    var a0: f64 = tr;
+    if (a0 < zero) { a0 = zero - a0; }
+    var a1: f64 = tg;
+    if (a1 < zero) { a1 = zero - a1; }
+    var a2: f64 = tb;
+    if (a2 < zero) { a2 = zero - a2; }
+    var q: f64 = f / _SR_LUMA_K;
+    var aq: f64 = q;
+    if (aq < zero) { aq = zero - aq; }
+    var err: f64 = ((((a0 + a1) + a2) * _SR_CRS_EPS3) / _SR_LUMA_K) + (aq * _SR_CRS_EPS);
+    var lo = f32_from(q - err);
+    if (err != zero) {
+        if (lo == f32_from(q + err)) { return lo; }
+    }
+    var z0 = 0;
+    if (f == zero) { z0 = f32_from(f); }
+    return _sr_cr_sum3_f32(tr, tg, tb, _SR_LUMA_K, z0);
 }
 
 # The colour a + (b − a)·t per component, with t (f32 bits) clamped to [0, 1] first (a NaN t gives NaN
 # components, as Rust's does), into out. Mirrors `Color::lerp`.
 fn SrColor_lerp(a, b, t, out) {
+    var tc = _sr_clamp32(t, _SR_C0, _SR_C1);
+    var r = _sr_color_lerp1(load32(a), load32(b), tc);
+    var g = _sr_color_lerp1(load32(a + 4), load32(b + 4), tc);
+    var bl = _sr_color_lerp1(load32(a + 8), load32(b + 8), tc);
+    var al = _sr_color_lerp1(load32(a + 12), load32(b + 12), tc);
+    return _sr_color_set(out, r, g, bl, al);
+}
+
+# PART0(acoustic_render): Rust's lerp, a + (b − a)·t per component in its f32 sequence, which is up to 4 ulp off the
+# correct value (ADR 0002 #33), into out. src/acoustic_render.cyr's ray and decay colours keep it until Part 0c
+# re-derives the `acoustic_render` rows, recorded from Rust (ADR 0003).
+fn _sr_color_lerp_f32seq(a, b, t, out) {
     var tc = _sr_clamp32(t, _SR_C0, _SR_C1);
     var r = _sr_f32_lerp(load32(a), load32(b), tc);
     var g = _sr_f32_lerp(load32(a + 4), load32(b + 4), tc);

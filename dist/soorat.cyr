@@ -2789,6 +2789,259 @@ fn sr_normal_to_basis(n, right, up) {
     return right;
 }
 
+# --- crsum.cyr ---
+
+# crsum.cyr — the correctly rounded f32 of an exact sum (ADR 0003, Part 0c).
+#
+# A product of two f32 values (48 bits), or of an f32 and an integer below 2^29, is exact in f64. A formula that is a
+# sum of such products divided by a positive integer k therefore has an exact value S / k, which f64 evaluation only
+# approximates. Its rounding, a cancellation or an exact tie can each move the f32 result by an ulp: Rec. 709
+# luminance's weights over 10,000 put about 3 inputs in 10^5 exactly on an f32 midpoint.
+#
+# `_sr_cr_sum_f32` returns the correctly rounded f32 of S / k (ties to even), in two steps:
+# - **Fast path:** the f64 sum, with a rigorous error bound. When the whole interval rounds to one f32, that f32 is the
+#   answer.
+# - **Exact path:** the f64 candidate's midpoints with its neighbours, compared with S / k by the exact sign of
+#   S − k·m. k·m is exact (25 + 28 bits), and repeated error-free summation (Knuth's TwoSum, in VecSum passes)
+#   decides the sign.
+#
+# The terms are scratch: their slots are overwritten. This file uses `_sr_abs64`, so it follows src/math.cyr.
+
+var _SR_CRS_HALF: f64 = 0.5;
+var _SR_CRS_EPS: f64 = f32_to(0x26800000);     # 2^-50: 8 units of f64 rounding, the fast path's slack
+var _SR_CRS_TIGHT: f64 = f32_to(0x2B800000);   # 2^-40: the exact path's distillation target
+var _SR_CRS_EPS3: f64 = f32_to(0x27800000);    # 2^-48: _sr_cr_sum3_f32's slack on Σ|t| (16 times its sum's error)
+var _SR_CRS_FMAX: f64 = f32_to(0x7F7FFFFF);    # the largest f32
+var _SR_CRS_ULPMAX: f64 = f32_to(0x73000000);  # 2^103, its ulp: the value past it is 2^128 (an f32 infinity)
+
+# s = fl(a + b) and its exact error e = (a + b) − s (Knuth's TwoSum), at out and out + 8.
+fn _sr_two_sum(a: f64, b: f64, out) {
+    var s: f64 = a + b;
+    var bv: f64 = s - a;
+    var av: f64 = s - bv;
+    var e: f64 = (a - av) + (b - bv);
+    store64(out, s);
+    store64(out + 8, e);
+    return out;
+}
+
+# One VecSum pass over the n f64 at p: slot i takes fl(slot i−1 + slot i) and slot i−1 its exact error, so the exact
+# sum is unchanged and the last slot holds the running f64 sum.
+fn _sr_vec_sum(p, n) {
+    var ts[16];
+    var i = 1;
+    while (i < n) {
+        var a: f64 = load64(p + (i - 1) * 8);
+        var b: f64 = load64(p + i * 8);
+        _sr_two_sum(a, b, &ts);
+        store64(p + i * 8, load64(&ts));
+        store64(p + (i - 1) * 8, load64(&ts + 8));
+        i = i + 1;
+    }
+    return p;
+}
+
+# Σ|slot| over the first m f64 at p, in f64.
+fn _sr_abs_sum(p, m): f64 {
+    var r: f64 = 0.0;
+    var i = 0;
+    while (i < m) {
+        var a: f64 = _sr_abs64(load64(p + i * 8));
+        r = r + a;
+        i = i + 1;
+    }
+    return r;
+}
+
+# VecSum passes over the n f64 at p until every slot but the last is 0, or the last outweighs twice the others
+# together. Either way the last slot's sign is the exact sum's. The f64 Σ|others| is within n ulps of the exact one,
+# hence the factor 2. The cap is never reached on the sums here: each pass shrinks the errors by about 2^-53.
+fn _sr_distill(p, n) {
+    var zero: f64 = 0.0;
+    var pass = 0;
+    while (pass < 64) {
+        _sr_vec_sum(p, n);
+        var rest: f64 = _sr_abs_sum(p, n - 1);
+        var top: f64 = _sr_abs64(load64(p + (n - 1) * 8));
+        if (rest == zero) { return p; }
+        if (top > rest + rest) { return p; }
+        pass = pass + 1;
+    }
+    return p;
+}
+
+# VecSum passes over the n f64 at p until the others together are below 2^-40 of the last slot (or all 0), so the last
+# slot is the exact sum to within a relative 2^-39: far inside an f32 ulp.
+fn _sr_distill_tight(p, n) {
+    var zero: f64 = 0.0;
+    var pass = 0;
+    while (pass < 64) {
+        _sr_vec_sum(p, n);
+        var rest: f64 = _sr_abs_sum(p, n - 1);
+        var top: f64 = _sr_abs64(load64(p + (n - 1) * 8));
+        if (rest == zero) { return p; }
+        var bound: f64 = top * _SR_CRS_TIGHT;
+        if (rest < bound) { return p; }
+        pass = pass + 1;
+    }
+    return p;
+}
+
+# The sign (−1, 0 or 1) of the exact sum of the n f64 at p (n ≤ 8; the slots are overwritten).
+#must_use
+fn _sr_exact_sign(p, n): i64 {
+    _sr_distill(p, n);
+    var zero: f64 = 0.0;
+    var top: f64 = load64(p + (n - 1) * 8);
+    if (top > zero) { return 1; }
+    if (top < zero) { return 0 - 1; }
+    return 0;
+}
+
+# The f32 order of the bits b: an integer that increases with the value, both zeros at 0.
+#must_use
+fn _sr_f32_ord(b): i64 {
+    if (b < 0x80000000) { return b; }
+    return 0x80000000 - b;
+}
+
+# The f32 bits of the order o (the inverse of _sr_f32_ord; o = 0 gives +0).
+#must_use
+fn _sr_f32_unord(o): i64 {
+    if (o >= 0) { return o; }
+    return 0x80000000 - o;
+}
+
+# An f32 (bits) as an f64 for midpoint arithmetic: an infinity stands for ±2^128, the value rounding past the largest
+# f32 reaches.
+fn _sr_crs_val(b): f64 {
+    if ((b & 0x7FFFFFFF) == 0x7F800000) {
+        var big: f64 = _SR_CRS_FMAX + _SR_CRS_ULPMAX;
+        if (b == 0x7F800000) { return big; }
+        var nbig: f64 = 0.0 - big;
+        return nbig;
+    }
+    var v: f64 = f32_to(b);
+    return v;
+}
+
+# The sign of S − k·m, S the exact sum of the n f64 at p (left unchanged): scratch q (n + 1 slots) gets a copy and the
+# exact −k·m.
+#must_use
+fn _sr_crs_cmp(p, n, k: f64, m: f64, q): i64 {
+    var i = 0;
+    while (i < n) {
+        store64(q + i * 8, load64(p + i * 8));
+        i = i + 1;
+    }
+    var km: f64 = 0.0 - (k * m);
+    store64(q + n * 8, km);
+    return _sr_exact_sign(q, n + 1);
+}
+
+# Of two adjacent f32 (bits), the one with an even significand: ties go to it.
+#must_use
+fn _sr_crs_even(a, b): i64 {
+    if ((a & 1) == 0) { return a; }
+    return b;
+}
+
+# The f32 (bits) nearest S / k, ties to even. S is the exact sum of the n f64 at p, where n ≤ 6 and each term is exact
+# (a product of two f32 values, or of an f32 and an integer below 2^29). The slots are overwritten. k > 0 is an integer
+# below 2^28, as an f64. z0 is the result when S is exactly 0: its sign is the formula's, by IEEE 754's rules on the
+# caller's operations. A nonzero S / k that rounds to zero keeps its sign. Every term must be finite.
+#must_use
+fn _sr_cr_sum_f32(p, n, k: f64, z0): i64 {
+    var zero: f64 = 0.0;
+    var one: f64 = 1.0;
+    # The fast path: the f64 sum and a bound on its error.
+    var y: f64 = 0.0;
+    var mag: f64 = 0.0;
+    var nf: f64 = 0.0;
+    var i = 0;
+    while (i < n) {
+        var t: f64 = load64(p + i * 8);
+        var at: f64 = _sr_abs64(t);
+        y = y + t;
+        mag = mag + at;
+        nf = nf + one;
+        i = i + 1;
+    }
+    if (mag == zero) { return z0; }
+    var q: f64 = y / k;
+    var aq: f64 = _sr_abs64(q);
+    var err: f64 = ((mag * nf) * _SR_CRS_EPS) / k + aq * _SR_CRS_EPS;
+    var lo = f32_from(q - err);
+    var hi = f32_from(q + err);
+    if (lo == hi) { return lo; }
+    # The exact path. Distill the terms (the exact sum is kept) until the last slot is S to within 2^-39, then take
+    # the f32 nearest it and settle its two midpoints exactly.
+    _sr_distill_tight(p, n);
+    var s: f64 = load64(p + (n - 1) * 8);
+    var sk: f64 = s / k;
+    var c = f32_from(sk);
+    if ((c & 0x7FFFFFFF) == 0x7F800000) { c = c - 1; }   # an infinity: start from the largest f32
+    var oc = _sr_f32_ord(c);
+    var nx = _sr_f32_unord(oc + 1);
+    var pv = _sr_f32_unord(oc - 1);
+    var cv: f64 = _sr_crs_val(c);
+    var nv: f64 = _sr_crs_val(nx);
+    var pvv: f64 = _sr_crs_val(pv);
+    var mhi: f64 = (cv + nv) * _SR_CRS_HALF;
+    var mlo: f64 = (pvv + cv) * _SR_CRS_HALF;
+    var scratch[72];
+    var r = c;
+    var shi = _sr_crs_cmp(p, n, k, mhi, &scratch);
+    if (shi > 0) {
+        r = nx;
+    } elif (shi == 0) {
+        r = _sr_crs_even(c, nx);
+    } else {
+        var slo = _sr_crs_cmp(p, n, k, mlo, &scratch);
+        if (slo < 0) {
+            r = pv;
+        } elif (slo == 0) {
+            r = _sr_crs_even(pv, c);
+        }
+    }
+    if ((r & 0x7FFFFFFF) == 0) {
+        # A zero result takes the sign of S, or z0 when S is exactly 0.
+        var sg = _sr_crs_cmp(p, n, k, zero, &scratch);
+        if (sg > 0) { return 0; }
+        if (sg < 0) { return 0x80000000; }
+        return z0;
+    }
+    return r;
+}
+
+# `_sr_cr_sum_f32` for three terms (t0 + t1 + t2) / k, with the fast path straight-line in locals: the f64 sum's error
+# is at most 2^-52·Σ|t| / k + 2^-53·|q|, bounded here with 16 and 8 times the slack. Only an undecided interval builds
+# the term array for the exact path.
+#must_use
+fn _sr_cr_sum3_f32(t0: f64, t1: f64, t2: f64, k: f64, z0): i64 {
+    var zero: f64 = 0.0;
+    var a0: f64 = t0;
+    if (a0 < zero) { a0 = zero - a0; }
+    var a1: f64 = t1;
+    if (a1 < zero) { a1 = zero - a1; }
+    var a2: f64 = t2;
+    if (a2 < zero) { a2 = zero - a2; }
+    var mag: f64 = (a0 + a1) + a2;
+    if (mag == zero) { return z0; }
+    var q: f64 = ((t0 + t1) + t2) / k;
+    var aq: f64 = q;
+    if (aq < zero) { aq = zero - aq; }
+    var err: f64 = ((mag * _SR_CRS_EPS3) / k) + (aq * _SR_CRS_EPS);
+    var lo = f32_from(q - err);
+    var hi = f32_from(q + err);
+    if (lo == hi) { return lo; }
+    var terms[24];
+    store64(&terms, t0);
+    store64(&terms + 8, t1);
+    store64(&terms + 16, t2);
+    return _sr_cr_sum_f32(&terms, 3, k, z0);
+}
+
 # --- layout.cyr ---
 
 # layout.cyr — the GPU-facing `#[repr(C)]` types of Rust 1.2.0 (M1 part b): GENERATED by
@@ -2884,17 +3137,21 @@ struct SrInstanceData { model: SrM4; color: SrV4; }
 # and 12 (an f32 field assignment from bits is a type warning under --bounds). The constants are pointers to static
 # colours (`SR_COLOR_WHITE`, …): read them, copy them, never write through them.
 #
-# **Precision (D4 rule a).** Colours are quantized outputs, so every function follows Rust's f32 sequence exactly,
-# one native f32 rounding per operation (helpers with `: f32` parameters, as ganita's tier; one helper per formula,
-# so lerp makes 4 calls rather than 12), with Rust's `clamp`, `round` and `as u8` (src/mathx.cyr): class A and B
-# rows at 0 ulp (tests/golden/color.tsv).
+# **Precision (ADR 0003, ADR 0002 #33).** Every output is the correct value: its formula's exact value, rounded once.
+# - `luminance` and `lerp` are sums of products that are exact in f64, rounded once through `_sr_cr_sum_f32`
+#   (src/crsum.cyr). Luminance takes Rec. 709's exact weights, (2126·r + 7152·g + 722·b) / 10,000.
+# - `to_rgba8` scales in f64 (exact) and rounds half away from zero, Rust's documented `round`.
+# - `from_rgba8`, the heat map and the signed map are exact in f32: one correctly rounded division, Sterbenz
+#   subtractions and scalings by 4.
+# Rust's f32 sequence was wrong on 239 of these rows (to_rgba8 97, luminance 71, lerp 71); tests/golden/color.tsv
+# holds the correct values (class A).
 #
 # The `optics` functions (`from_prakash`, `to_prakash`, `from_temperature`, `from_wavelength`) arrive with
 # prakash in M1 part b2; the serde round trip with bayan.
 
 struct SrColor { r: f32; g: f32; b: f32; a: f32; }
 
-# f32 bits used here: 0, 0.25, 0.5, 0.75, 1, −1, 255 and the Rec. 709 luma weights, from rustc.
+# f32 bits used here: 0, 0.25, 0.5, 0.75, 1, −1 and 255, from rustc; and the f64 constants of the exact paths.
 var _SR_C0 = 0;
 var _SR_C025 = 0x3E800000;
 var _SR_C05 = 0x3F000000;
@@ -2902,22 +3159,55 @@ var _SR_C075 = 0x3F400000;
 var _SR_C1 = 0x3F800000;
 var _SR_CM1 = 0xBF800000;
 var _SR_C255 = 0x437F0000;
-var _SR_LUMA_R = 0x3E59B3D0;   # 0.2126f32
-var _SR_LUMA_G = 0x3F371759;   # 0.7152f32
-var _SR_LUMA_B = 0x3D93DD98;   # 0.0722f32
+var _SR_COL_255: f64 = 255.0;
+var _SR_COL_HALF: f64 = 0.5;
+# Rec. 709's luma weights times 10,000 (exact), and the 10,000.
+var _SR_LUMA_NR: f64 = 2126.0;
+var _SR_LUMA_NG: f64 = 7152.0;
+var _SR_LUMA_NB: f64 = 722.0;
+var _SR_LUMA_K: f64 = 10000.0;
 
 # One lerp component, x + (y − x)·t: native f32 (typed parameters), one rounding per operation, Rust's sequence.
+# PART0(animation, acoustic_render): not the correct value (see `_sr_color_lerp1`). src/animation.cyr's linear tracks
+# and `_sr_color_lerp_f32seq` keep it until Part 0c re-derives those rows, recorded from Rust (ADR 0003).
 #must_use
 fn _sr_f32_lerp(x: f32, y: f32, t: f32): i64 {
     var r: f32 = x + ((y - x) * t);
     return r;
 }
 
-# (wr·r + wg·g) + wb·b in native f32, Rust's luminance sequence (the weights passed as f32 bits).
+# One lerp component, x + (y − x)·t for t in [0, 1] (f32 bits), correctly rounded: Rust's formula in f64 with an error
+# bound, and where that can't decide, x + y·t − x·t through `_sr_cr_sum3_f32` (each product exact in f64). A zero
+# result takes the formula's IEEE 754 sign (the f64 evaluation's, exact when the result is 0 because its operands
+# are). A non-finite x, y or t gives IEEE 754's special value.
 #must_use
-fn _sr_f32_luma(wr: f32, r: f32, wg: f32, g: f32, wb: f32, b: f32): i64 {
-    var s: f32 = ((wr * r) + (wg * g)) + (wb * b);
-    return s;
+fn _sr_color_lerp1(x, y, t): i64 {
+    var a: f64 = f32_to(x);
+    var b: f64 = f32_to(y);
+    var tt: f64 = f32_to(t);
+    var d: f64 = b - a;
+    var f: f64 = a + (d * tt);
+    var zero: f64 = 0.0;
+    var fin: f64 = (a - a) + ((b - b) + (tt - tt));   # 0 unless an operand is an infinity or a NaN
+    if (fin != zero) { return f32_from(f); }
+    # The fast path: f, Rust's formula in f64, is within 3u·(|b − a| + |f|) of the exact value (u = 2^-53, t ≤ 1),
+    # bounded here with 2^-50, 2.7 times that. When the whole interval rounds to one f32, that is the answer.
+    var ad: f64 = d;
+    if (ad < zero) { ad = zero - ad; }
+    var af: f64 = f;
+    if (af < zero) { af = zero - af; }
+    var err: f64 = (ad + af) * _SR_CRS_EPS;
+    var lo = f32_from(f - err);
+    if (err != zero) {
+        if (lo == f32_from(f + err)) { return lo; }
+    }
+    # The exact path: x + y·t − x·t, each product exact in f64.
+    var z0 = 0;
+    if (f == zero) { z0 = f32_from(f); }
+    var bt: f64 = b * tt;
+    var at: f64 = zero - (a * tt);
+    var one: f64 = 1.0;
+    return _sr_cr_sum3_f32(a, bt, at, one, z0);
 }
 
 # (r, g, b, a) / k in native f32, stored at out.
@@ -3002,9 +3292,25 @@ fn SrColor_to_array(c, out) {
     return out;
 }
 
-# One component as a byte: NaN → 0, else round(clamp(x, 0, 1) · 255) (the product rounded to f32 first).
+# One component as a byte: NaN → 0, else round(clamp(x, 0, 1) · 255), the product exact in f64 (24 + 8 bits) and
+# rounded half away from zero (Rust's documented `round`), so the byte is the correct one.
 #must_use
 fn _sr_color_q8(x): i64 {
+    if (_sr_f32_is_nan(x) == 1) { return 0; }
+    var v: f64 = f32_to(_sr_clamp32(x, _SR_C0, _SR_C1));
+    var p: f64 = v * _SR_COL_255;
+    var fl: f64 = f64_floor(p);
+    var k = f64_to(fl);
+    var fr: f64 = p - fl;
+    if (fr >= _SR_COL_HALF) { k = k + 1; }
+    return k;
+}
+
+# PART0(env): Rust's byte, round(clamp(x, 0, 1) · 255) with the product rounded to f32 first, which is not always the
+# correct byte (ADR 0002 #33). src/env_cpu.cyr's sRGB face encoding keeps it until Part 0c re-derives the `env` rows,
+# recorded from Rust (ADR 0003).
+#must_use
+fn _sr_color_q8_f32seq(x): i64 {
     if (_sr_f32_is_nan(x) == 1) { return 0; }
     return _sr_f32_to_u8(_sr_round32(ganita_f32_mul(_sr_clamp32(x, _SR_C0, _SR_C1), _SR_C255)));
 }
@@ -3031,15 +3337,59 @@ fn SrColor_to_wgpu(c, out) {
     return out;
 }
 
-# Rec. 709 luminance, (0.2126·r + 0.7152·g) + 0.0722·b in f32, as f32 bits. Mirrors `Color::luminance`.
+# Rec. 709 luminance, 0.2126·r + 0.7152·g + 0.0722·b with the standard's exact weights, correctly rounded, as f32
+# bits: (2126·r + 7152·g + 722·b) / 10,000, each product exact in f64, through `_sr_cr_sum_f32`. A zero takes the
+# formula's IEEE 754 sign; a non-finite component gives IEEE 754's special value. Mirrors `Color::luminance`.
 #must_use
 fn SrColor_luminance(c): i64 {
-    return _sr_f32_luma(_SR_LUMA_R, load32(c), _SR_LUMA_G, load32(c + 4), _SR_LUMA_B, load32(c + 8));
+    var r: f64 = f32_to(load32(c));
+    var g: f64 = f32_to(load32(c + 4));
+    var b: f64 = f32_to(load32(c + 8));
+    var tr: f64 = _SR_LUMA_NR * r;
+    var tg: f64 = _SR_LUMA_NG * g;
+    var tb: f64 = _SR_LUMA_NB * b;
+    var f: f64 = (tr + tg) + tb;
+    var zero: f64 = 0.0;
+    var fin: f64 = (r - r) + ((g - g) + (b - b));   # 0 unless a component is an infinity or a NaN
+    if (fin != zero) {
+        var fk: f64 = f / _SR_LUMA_K;
+        return f32_from(fk);
+    }
+    # The fast path inline (as _sr_cr_sum3_f32's): the f64 sum and its error bound.
+    var a0: f64 = tr;
+    if (a0 < zero) { a0 = zero - a0; }
+    var a1: f64 = tg;
+    if (a1 < zero) { a1 = zero - a1; }
+    var a2: f64 = tb;
+    if (a2 < zero) { a2 = zero - a2; }
+    var q: f64 = f / _SR_LUMA_K;
+    var aq: f64 = q;
+    if (aq < zero) { aq = zero - aq; }
+    var err: f64 = ((((a0 + a1) + a2) * _SR_CRS_EPS3) / _SR_LUMA_K) + (aq * _SR_CRS_EPS);
+    var lo = f32_from(q - err);
+    if (err != zero) {
+        if (lo == f32_from(q + err)) { return lo; }
+    }
+    var z0 = 0;
+    if (f == zero) { z0 = f32_from(f); }
+    return _sr_cr_sum3_f32(tr, tg, tb, _SR_LUMA_K, z0);
 }
 
 # The colour a + (b − a)·t per component, with t (f32 bits) clamped to [0, 1] first (a NaN t gives NaN
 # components, as Rust's does), into out. Mirrors `Color::lerp`.
 fn SrColor_lerp(a, b, t, out) {
+    var tc = _sr_clamp32(t, _SR_C0, _SR_C1);
+    var r = _sr_color_lerp1(load32(a), load32(b), tc);
+    var g = _sr_color_lerp1(load32(a + 4), load32(b + 4), tc);
+    var bl = _sr_color_lerp1(load32(a + 8), load32(b + 8), tc);
+    var al = _sr_color_lerp1(load32(a + 12), load32(b + 12), tc);
+    return _sr_color_set(out, r, g, bl, al);
+}
+
+# PART0(acoustic_render): Rust's lerp, a + (b − a)·t per component in its f32 sequence, which is up to 4 ulp off the
+# correct value (ADR 0002 #33), into out. src/acoustic_render.cyr's ray and decay colours keep it until Part 0c
+# re-derives the `acoustic_render` rows, recorded from Rust (ADR 0003).
+fn _sr_color_lerp_f32seq(a, b, t, out) {
     var tc = _sr_clamp32(t, _SR_C0, _SR_C1);
     var r = _sr_f32_lerp(load32(a), load32(b), tc);
     var g = _sr_f32_lerp(load32(a + 4), load32(b + 4), tc);
@@ -6764,7 +7114,7 @@ fn _sr_gl_u8f(b): i64 { return f32_from(f64_from(b & 0xFF)); }
 # linear_to_srgb's pow correctly rounded (about 270 ns).
 #must_use
 fn _sr_srgb_byte_direct(l): i64 {
-    return _sr_color_q8(_sr_linear_to_srgb(l));
+    return _sr_color_q8_f32seq(_sr_linear_to_srgb(l));
 }
 
 # The 255 encode thresholds: entry k (1 … 255) is the smallest non-negative f32 (bits) whose sRGB byte is at least k.
@@ -6831,7 +7181,7 @@ fn sr_face_encode(enc, texels, n, out): i64 {
             store8(q, _sr_srgb_byte(load32(t)));
             store8(q + 1, _sr_srgb_byte(load32(t + 4)));
             store8(q + 2, _sr_srgb_byte(load32(t + 8)));
-            store8(q + 3, _sr_color_q8(load32(t + 12)));
+            store8(q + 3, _sr_color_q8_f32seq(load32(t + 12)));
         }
         k = k + 1;
     }

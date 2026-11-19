@@ -72,7 +72,7 @@ fn _sr_gl_u8f(b): i64 { return f32_from(f64_from(b & 0xFF)); }
 # linear_to_srgb's pow correctly rounded (about 270 ns).
 #must_use
 fn _sr_srgb_byte_direct(l): i64 {
-    return _sr_color_q8(_sr_linear_to_srgb(l));
+    return _sr_color_q8_f32seq(_sr_linear_to_srgb(l));
 }
 
 # The 255 encode thresholds: entry k (1 … 255) is the smallest non-negative f32 (bits) whose sRGB byte is at least k.
@@ -139,7 +139,7 @@ fn sr_face_encode(enc, texels, n, out): i64 {
             store8(q, _sr_srgb_byte(load32(t)));
             store8(q + 1, _sr_srgb_byte(load32(t + 4)));
             store8(q + 2, _sr_srgb_byte(load32(t + 8)));
-            store8(q + 3, _sr_color_q8(load32(t + 12)));
+            store8(q + 3, _sr_color_q8_f32seq(load32(t + 12)));
         }
         k = k + 1;
     }

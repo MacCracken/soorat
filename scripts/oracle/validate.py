@@ -5,7 +5,7 @@
     python3 -I -B scripts/oracle/validate.py . --write   # rewrite the re-derived modules' rows and the side tables
 
 **The oracle is correctness** (ADR 0003): an expected output is its formula's exact value, rounded once, never
-Rust's output. A re-derived module (today `math`, by `math_reference`) has its outputs computed without floating
+Rust's output. A re-derived module (today `math` and `color`, by their `*_reference`) has its outputs computed without floating
 point, from exact rationals, and rounded by integer arithmetic; `--write` writes them into the module's rows.
 
 The modules not yet re-derived still hold the outputs the deleted Rust generator recorded. For them, Python's
@@ -394,48 +394,63 @@ def math_reference(fn, ins):
     raise KeyError(fn)
 
 
-MATH_HEAD = [
-    "# soorat golden corpus, format 1: math",
-    "# expected: the correct value (ADR 0003): each output is its formula's exact value rounded once to f32 (ties to "
-    "even), by scripts/oracle/validate.py's math_reference; inputs: probe P2's grid",
-    "# regenerate: python3 -I -B scripts/oracle/validate.py . --write (never patch a row)",
-    "# columns: fn<TAB>class<TAB>inputs<TAB>outputs<TAB>note (tokens: scripts/oracle/README.md)",
-]
+EMITTED = "ADR 0003: "   # the note prefix of a row emitted here (its inputs built in Python), not recorded from Rust
 
 
-def check_math():
-    """tests/golden/math.tsv against the correctness reference: every output must be math_reference's. --write
-    rewrites the outputs (the inputs, the sequence structure and the notes are kept) and removes the retired
-    math.e.tsv. Also reports where the port's method (the formula in f64, rounded once) misses the reference."""
-    path = os.path.join(GOLDEN, "math.tsv")
+def rederive_module(module, expected, derive, extra=()):
+    """A re-derived module (ADR 0003): every row of tests/golden/<module>.tsv gets the outputs `derive(fn, ins, outs)`
+    returns (its correct values, as a token list), class A; the inputs and notes are kept. `extra` rows (fn, inputs,
+    an output template, a note starting EMITTED) replace the previously emitted ones at the end of the file. --write writes the file and
+    removes the module's retired side tables (.e.tsv, .cr.tsv, .r.tsv); the check fails on any difference, or on a
+    side table still present. Returns the failure count."""
+    path = os.path.join(GOLDEN, f"{module}.tsv")
     _, body = rows(path)
-    failures, misses, n_out = 0, 0, 0
-    out_rows = []
-    for fn, _cls, ins, outs, note in body:
-        x = g_values(ins)
-        ref = math_reference(fn, x)
-        out_rows.append(f"{fn}\tA\t{ins}\t{g_tokens(outs, ref)}\t{note}")
-        once = [r32(v) for v in evaluate(fn, x, ident)]
-        n_out += len(ref)
-        misses += sum(1 for a, b in zip(once, ref) if not same([a], [b]))
-    text = "\n".join(MATH_HEAD + [f"# rows: {len(out_rows)}"] + out_rows) + "\n"
-    e_path = os.path.join(GOLDEN, "math.e.tsv")
+    body = [r for r in body if not r[4].startswith(EMITTED)] + [[fn, "A", ins, outs, note] for fn, ins, outs, note in extra]
+    out_rows = [f"{fn}\tA\t{ins}\t{derive(fn, ins, outs)}\t{note}" for fn, _cls, ins, outs, note in body]
+    head = [f"# soorat golden corpus, format 1: {module}",
+            f"# expected: the correct value (ADR 0003): {expected}",
+            "# regenerate: python3 -I -B scripts/oracle/validate.py . --write (never patch a row)",
+            "# columns: fn<TAB>class<TAB>inputs<TAB>outputs<TAB>note (tokens: scripts/oracle/README.md)",
+            f"# rows: {len(out_rows)}"]
+    text = "\n".join(head + out_rows) + "\n"
+    sides = [os.path.join(GOLDEN, module + ext) for ext in (".e.tsv", ".cr.tsv", ".r.tsv")]
+    failures = 0
     if WRITE:
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)
         print(f"wrote {path} ({len(out_rows)} rows)")
-        if os.path.exists(e_path):
-            os.remove(e_path)
-            print(f"removed {e_path} (retired by ADR 0003: the rows hold the correct value)")
+        for s in sides:
+            if os.path.exists(s):
+                os.remove(s)
+                print(f"removed {s} (retired by ADR 0003: the rows hold the correct value)")
     else:
         with open(path, encoding="utf-8") as f:
             if f.read() != text:
                 failures += 1
-                print("math.tsv: outputs differ from the correctness reference (run with --write)")
-        if os.path.exists(e_path):
-            failures += 1
-            print("math.e.tsv: retired by ADR 0003 (run with --write)")
-    print(f"math: {len(out_rows)} rows, {n_out} outputs from the correctness reference; the port's method (f64, "
+                print(f"{module}.tsv: outputs differ from the correctness reference (run with --write)")
+        for s in sides:
+            if os.path.exists(s):
+                failures += 1
+                print(f"{os.path.basename(s)}: retired by ADR 0003 (run with --write)")
+    return failures
+
+
+def check_math():
+    """tests/golden/math.tsv against math_reference (rederive_module). Also reports where the port's method (the
+    formula in f64, rounded once) misses the reference."""
+    failures = rederive_module(
+        "math", "each output is its formula's exact value rounded once to f32 (ties to even), by "
+        "scripts/oracle/validate.py's math_reference; inputs: probe P2's grid",
+        lambda fn, ins, outs: g_tokens(outs, math_reference(fn, g_values(ins))))
+    _, body = rows(os.path.join(GOLDEN, "math.tsv"))
+    misses, n_out = 0, 0
+    for fn, _cls, ins, _outs, _note in body:
+        x = g_values(ins)
+        ref = math_reference(fn, x)
+        once = [r32(v) for v in evaluate(fn, x, ident)]
+        n_out += len(ref)
+        misses += sum(1 for a, b in zip(once, ref) if not same([a], [b]))
+    print(f"math: {len(body)} rows, {n_out} outputs from the correctness reference; the port's method (f64, "
           f"rounded once) misses it on {misses}")
     return failures
 
@@ -535,43 +550,205 @@ def f64_bits_tokens(tokens):
     return [int(t[2:], 16) for t in tokens.split(" ") if t.startswith("f:")]
 
 
-def check_color():
-    """Re-derives every `color` row; returns the number of rows that differ."""
-    path = os.path.join(GOLDEN, "color.tsv")
-    if not os.path.exists(path):
-        return 0
-    _, body = rows(path)
-    bad = 0
-    for fn, _cls, ins, outs, note in body:
-        x = g_values(ins)
-        if fn == "Color::from_rgba8":
-            ok = same([r32(b / F32_255) for b in i_values(ins)], g_values(outs))
-        elif fn == "Color::from_hex":
-            h = i_values(ins)[0]
-            ok = same([r32(((h >> sh) & 0xFF) / F32_255) for sh in (24, 16, 8, 0)], g_values(outs))
-        elif fn == "Color::to_rgba8":
-            ok = [to_u8(c) for c in x] == i_values(outs)
-        elif fn == "Color::to_wgpu":
-            ok = [struct.unpack("<Q", struct.pack("<d", c))[0] for c in x] == f64_bits_tokens(outs)
-        elif fn == "Color::luminance":
-            lum = r32(r32(r32(LUMA[0] * x[0]) + r32(LUMA[1] * x[1])) + r32(LUMA[2] * x[2]))
-            ok = same([lum], g_values(outs))
-        elif fn == "Color::lerp":
-            a, b, t = x[0:4], x[4:8], clamp32(x[8], 0.0, 1.0)
-            ok = same([r32(p + r32(r32(q - p) * t)) for p, q in zip(a, b)], g_values(outs))
-        elif fn == "visualization_heat_map":
-            ok = same(heat_map(x[0]), g_values(outs))
-        elif fn == "signed_value_color":
-            ok = same(signed_color(x[0]), g_values(outs))
-        elif fn == "Color::default":
-            ok = same([1.0, 1.0, 1.0, 1.0], g_values(outs))
+# ── color: the correctness reference (ADR 0003) ───────────────────────────────────────
+# Each output is its formula's exact value, rounded once (ties to even), with exact arithmetic as for `math`.
+# - Constants a standard defines take their exact value: Rec. 709's luma weights are 0.2126, 0.7152 and 0.0722
+#   exactly (Rust's f32 weights are 1-ulp approximations of them). 255 and the heat map's 0.25 stops are exact.
+# - to_rgba8 is round(clamp(c, 0, 1) · 255) with the product exact, half away from zero (`round`, the documented
+#   rounding); NaN → 0.
+# - clamp keeps a -0 and a NaN, as `f32::clamp` defines; a NaN `t` makes lerp's outputs NaN.
+# A component with a non-finite input follows IEEE 754's special-value rules (the f64 evaluation, which gives
+# them exactly: every such output is NaN, infinite or zero).
+
+LUMA_709 = (_Q(2126, 10000), _Q(7152, 10000), _Q(722, 10000))
+
+
+def _zclamp(x, lo, hi):
+    """`f32::clamp` of a non-NaN f32 x to exact bounds: lo below, hi above, else x exactly (a -0 kept; an infinity
+    clamps)."""
+    if x < float(lo[0]):
+        return lo
+    if x > float(hi[0]):
+        return hi
+    return _z(x)
+
+
+def _finite(*vs):
+    return not any(math.isnan(v) or math.isinf(v) for v in vs)
+
+
+def _ref_heat_map(t):
+    t = _Z0 if math.isnan(t) else _zclamp(t, _Z0, _Z1)
+    q4 = (_Q(1, 4), 0)
+    if t[0] < _Q(1, 4):
+        return [0.0, _out(_zdiv(t, q4)), 1.0, 1.0]
+    if t[0] < _Q(1, 2):
+        s = _zdiv(_zsub(t, q4), q4)
+        return [0.0, 1.0, _out(_zsub(_Z1, s)), 1.0]
+    if t[0] < _Q(3, 4):
+        return [_out(_zdiv(_zsub(t, (_Q(1, 2), 0)), q4)), 1.0, 0.0, 1.0]
+    s = _zdiv(_zsub(t, (_Q(3, 4), 0)), q4)
+    return [1.0, _out(_zsub(_Z1, s)), 0.0, 1.0]
+
+
+def _ref_lerp(a, b, t):
+    if math.isnan(t):
+        return [math.nan] * 4
+    tz = _zclamp(t, _Z0, _Z1)
+    out = []
+    for p, q in zip(a, b):
+        if not _finite(p, q):
+            v = r32(p + (q - p) * float(tz[0]))
+            if not (math.isnan(v) or math.isinf(v) or v == 0.0):
+                raise ValueError("color reference: lerp with a non-finite input gave an inexact output")
+            out.append(v)
         else:
-            ok = False
-            print(f"color: {fn}: no re-derivation in validate.py")
-        if not ok:
-            bad += 1
-            print(f"color: {fn} {note}: re-derived outputs differ from the corpus")
-    return bad
+            out.append(_out(_zadd(_z(p), _zmul(_zsub(_z(q), _z(p)), tz))))
+    return out
+
+
+def _ref_to_u8(c):
+    if math.isnan(c):
+        return 0
+    v = _Q(1) if c > 1.0 else _Q(0) if c < 0.0 else _Q(c)   # clamp (an infinity clamps)
+    return math.floor(v * 255 + _Q(1, 2))                    # half away from zero, v >= 0
+
+
+def color_reference(fn, ins, outs):
+    """The correct outputs of one `color` row, as its output token list (`outs` gives the structure)."""
+    x = g_values(ins)
+    if fn in ("Color::from_rgba8", "Color::from_hex"):
+        if fn == "Color::from_hex":
+            h = i_values(ins)[0]
+            k = [(h >> sh) & 0xFF for sh in (24, 16, 8, 0)]
+        else:
+            k = i_values(ins)
+        return g_tokens(outs, [_out((_Q(b, 255), 0)) for b in k])
+    if fn == "Color::to_rgba8":
+        return "v:4 " + " ".join(f"i:{_ref_to_u8(c)}" for c in x)
+    if fn == "Color::to_wgpu":
+        return " ".join("f:%016x" % struct.unpack("<Q", struct.pack("<d", c))[0] for c in x)
+    if fn == "Color::luminance":
+        if not _finite(*x[0:3]):
+            v = r32(((2126.0 * x[0] + 7152.0 * x[1]) + 722.0 * x[2]) / 10000.0)
+            if not (math.isnan(v) or math.isinf(v)):
+                raise ValueError("color reference: luminance with a non-finite input gave a finite output")
+            return g_tokens(outs, [v])
+        w = [(c, 0) for c in LUMA_709]
+        z = [_z(c) for c in x[0:3]]
+        return g_tokens(outs, [_out(_zadd(_zadd(_zmul(w[0], z[0]), _zmul(w[1], z[1])), _zmul(w[2], z[2])))])
+    if fn == "Color::lerp":
+        return g_tokens(outs, _ref_lerp(x[0:4], x[4:8], x[8]))
+    if fn == "visualization_heat_map":
+        return g_tokens(outs, _ref_heat_map(x[0]))
+    if fn == "signed_value_color":
+        return g_tokens(outs, signed_color(x[0]))          # copies and negations only: exact
+    if fn == "Color::default":
+        return g_tokens(outs, [1.0, 1.0, 1.0, 1.0])
+    raise KeyError(fn)
+
+
+def _gt(v):
+    return "g:%08x" % bits(v)
+
+
+def _next32(x, k=1):
+    """The f32 k steps above x on the ordered line."""
+    b = bits(x)
+    o = b if b < 0x80000000 else 0x80000000 - b
+    o += k
+    return from_bits(o if o >= 0 else 0x80000000 - o)
+
+
+def _lum_exact(c):
+    z = [_z(v) for v in c]
+    w = [(q, 0) for q in LUMA_709]
+    return _zadd(_zadd(_zmul(w[0], z[0]), _zmul(w[1], z[1])), _zmul(w[2], z[2]))
+
+
+def _mid_dist(z):
+    """|S - m| / ulp for the exact value z and its nearest f32 midpoint (0 at a tie), as a Fraction."""
+    v = z[0]
+    if v == 0:
+        return _Q(1)
+    r = _out(z)
+    a, b = (r, _next32(r)) if _Q(r) <= v else (_next32(r, -1), r)
+    m = (_Q(a) + _Q(b)) / 2
+    return abs(v - m) / (_Q(b) - _Q(a))
+
+
+def color_extra_rows():
+    """Emitted `color` rows (ADR 0003) for what the recorded grid misses: the exact path of `_sr_cr_sum_f32`
+    (src/crsum.cyr). Luminance at exact f32 midpoints and within 2^-12 ulp of one (a seeded search), cancellations,
+    signed zeros, subnormal and largest results, special values; lerp at constructed ties (t = 1/2 and 1/4 between
+    adjacent f32 values, even and odd significands), cancellations, signed zeros, subnormals and special values."""
+    out = []
+    rnd = __import__("random").Random(20261118)
+    ties, near = [], []
+    while len(ties) < 6 or len(near) < 4:
+        c = [r32(rnd.random()) for _ in range(3)]
+        f = (2126.0 * c[0] + 7152.0 * c[1]) + 722.0 * c[2]
+        y = f / 10000.0
+        r = r32(y)
+        nb = _next32(r) if y > r else _next32(r, -1)
+        m = (r + nb) / 2
+        if abs(y - m) > abs(nb - r) * 2.0 ** -11:
+            continue
+        d = _mid_dist(_lum_exact(c))
+        if d == 0 and len(ties) < 6:
+            ties.append(c)
+        elif 0 < d < _Q(1, 2 ** 12) and len(near) < 4:
+            near.append(c)
+    tiny = from_bits(1)
+    fmax = from_bits(0x7F7FFFFF)
+    lum = [(c, "a tie") for c in ties] + [([-v for v in c], "a negative tie") for c in ties[:3]]
+    lum += [(c, "within 2^-12 ulp of a midpoint") for c in near]
+    lum += [([0.0, 0.0, 0.0], "all +0"), ([-0.0, -0.0, -0.0], "all -0: -0"), ([-0.0, 0.0, -0.0], "mixed zeros: +0"),
+            ([7152.0 * 2.0 ** -20, -2126.0 * 2.0 ** -20, 0.0], "an exact cancellation: +0"),
+            ([tiny, 0.0, 0.0], "0.2126 of the least subnormal: +0"),
+            ([-tiny, 0.0, 0.0], "its negative: -0"), ([3 * tiny, 0.0, 0.0], "0.6378 of it: the least subnormal"),
+            ([tiny, -tiny, 0.0], "-0.5026 of it: minus the least subnormal"),
+            ([fmax, fmax, fmax], "the largest f32 in every channel"), ([fmax, 0.0, 0.0], "0.2126 of the largest"),
+            ([math.nan, 0.0, 0.0], "NaN"), ([math.inf, 0.0, 0.0], "+inf"), ([math.inf, -math.inf, 0.0], "inf - inf")]
+    for c, what in lum:
+        ins = "v:4 " + " ".join(_gt(v) for v in c + [1.0])
+        out.append(("Color::luminance", ins, "g:00000000", EMITTED + what))
+    one = 1.0
+    lerps = [
+        ([one, 3.0, 0.75, _next32(0.5)], [_next32(one), _next32(3.0), _next32(0.75), _next32(0.5, 2)], 0.5,
+         "ties at t = 1/2 between adjacent f32 values (the lower one even, even, even, odd)"),
+        ([_next32(one), _next32(3.0), -0.75, -_next32(0.5)], [_next32(one, 2), _next32(3.0, 2), -_next32(0.75), -_next32(0.5, 2)],
+         0.5, "ties at t = 1/2 (odd significands; negatives)"),
+        ([one, -one, 0.75, 5.0], [_next32(one, 2), -_next32(one, 2), _next32(0.75, 2), _next32(5.0, 2)], 0.25,
+         "ties at t = 1/4"),
+        ([one, one, 0.75, 0.75], [_next32(one), _next32(one), _next32(0.75), _next32(0.75)],
+         float(_Q(1, 2) - _Q(1, 2 ** 25)), "just below a tie (t = 1/2 - 2^-25)"),
+        ([one, 0.75, -0.0, -0.0], [-one, -0.25, -one, -0.0], 0.5,
+         "1 to -1 (an exact cancellation: +0), 0.75 to -0.25, -0 to -1, -0 to -0 (+0)"),
+        ([-0.0, 0.0, -0.0, -0.0], [-one, -0.0, 5.0, -0.0], 0.0, "t = 0: -0, +0, +0 and +0"),
+        ([tiny, -tiny, tiny, 0.0], [2 * tiny, -2 * tiny, 3 * tiny, tiny], 0.5,
+         "subnormals: 1.5 of the least (a tie), its negative, 2 exactly, 1/2 (a tie with 0)"),
+        ([fmax, -fmax, fmax, 1.0], [fmax, fmax, _next32(fmax, -1), 2.0], 0.5,
+         "the largest f32: itself, an exact 0, a tie below it, 1.5"),
+        ([math.inf, 1.0, math.nan, 1.0], [1.0, math.inf, 0.0, 2.0], 0.5, "inf - inf, +inf, NaN, 1.5"),
+        ([1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], math.nan, "t = NaN"),
+    ]
+    for i in range(6):
+        a = [r32(rnd.uniform(-1, 1)) for _ in range(4)]
+        b = [r32(rnd.uniform(-1, 1)) for _ in range(4)]
+        lerps.append((a, b, r32(rnd.random()), f"mixed signs, seeded {i}"))
+    for a, b, tt, what in lerps:
+        ins = "v:4 " + " ".join(_gt(v) for v in a) + " v:4 " + " ".join(_gt(v) for v in b) + " " + _gt(tt)
+        out.append(("Color::lerp", ins, "v:4 g:00000000 g:00000000 g:00000000 g:00000000", EMITTED + what))
+    return out
+
+
+def check_color():
+    """tests/golden/color.tsv against color_reference (rederive_module)."""
+    return rederive_module(
+        "color", "each output is its formula's exact value rounded once (ties to even), by scripts/oracle/"
+        "validate.py's color_reference: Rec. 709's exact luma weights; to_rgba8 rounds half away from zero",
+        color_reference, color_extra_rows())
 
 
 # ── lights: copies, and the spot cones' cos correctly rounded (ADR 0002 #16) ──────────

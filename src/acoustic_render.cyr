@@ -87,7 +87,7 @@ fn sr_ray_paths_to_lines(ray_viz, start_color, end_color, batch): i64 {
         var k = 0;
         while (k < nb) {
             var b = vec_get(bounces, k);
-            SrColor_lerp(start_color, end_color, _sr_f32_sub(_SR_C1, energy), &col);
+            _sr_color_lerp_f32seq(start_color, end_color, _sr_f32_sub(_SR_C1, energy), &col);
             _sr_hv32(ray_bounce_point(b), &pt);
             if (SrLineBatch_line(batch, &prev, &pt, &col) == 0) { ok = 0; }
             memcpy(&prev, &pt, 12);
@@ -226,7 +226,7 @@ fn sr_coupled_decay_to_lines(decay, params, batch): i64 {
         _sr_ac_pt(ox + (t * xs), oy - (dn * ys), oz, &pt);
         var frac: f64 = halfv;
         if (et > _SR_AC_1E_10) { frac = ee / et; }
-        SrColor_lerp(params + 40, params + 56, _sr_f32_sub(_SR_C1, f32_from(frac)), &col);
+        _sr_color_lerp_f32seq(params + 40, params + 56, _sr_f32_sub(_SR_C1, f32_from(frac)), &col);
         if (i > 0 && SrLineBatch_line(batch, &prev, &pt, &col) == 0) { ok = 0; }
         memcpy(&prev, &pt, 12);
         i = i + 1;

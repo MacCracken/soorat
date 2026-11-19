@@ -1,0 +1,250 @@
+# crsum.cyr — the correctly rounded f32 of an exact sum (ADR 0003, Part 0c).
+#
+# A product of two f32 values (48 bits), or of an f32 and an integer below 2^29, is exact in f64. A formula that is a
+# sum of such products divided by a positive integer k therefore has an exact value S / k, which f64 evaluation only
+# approximates. Its rounding, a cancellation or an exact tie can each move the f32 result by an ulp: Rec. 709
+# luminance's weights over 10,000 put about 3 inputs in 10^5 exactly on an f32 midpoint.
+#
+# `_sr_cr_sum_f32` returns the correctly rounded f32 of S / k (ties to even), in two steps:
+# - **Fast path:** the f64 sum, with a rigorous error bound. When the whole interval rounds to one f32, that f32 is the
+#   answer.
+# - **Exact path:** the f64 candidate's midpoints with its neighbours, compared with S / k by the exact sign of
+#   S − k·m. k·m is exact (25 + 28 bits), and repeated error-free summation (Knuth's TwoSum, in VecSum passes)
+#   decides the sign.
+#
+# The terms are scratch: their slots are overwritten. This file uses `_sr_abs64`, so it follows src/math.cyr.
+
+var _SR_CRS_HALF: f64 = 0.5;
+var _SR_CRS_EPS: f64 = f32_to(0x26800000);     # 2^-50: 8 units of f64 rounding, the fast path's slack
+var _SR_CRS_TIGHT: f64 = f32_to(0x2B800000);   # 2^-40: the exact path's distillation target
+var _SR_CRS_EPS3: f64 = f32_to(0x27800000);    # 2^-48: _sr_cr_sum3_f32's slack on Σ|t| (16 times its sum's error)
+var _SR_CRS_FMAX: f64 = f32_to(0x7F7FFFFF);    # the largest f32
+var _SR_CRS_ULPMAX: f64 = f32_to(0x73000000);  # 2^103, its ulp: the value past it is 2^128 (an f32 infinity)
+
+# s = fl(a + b) and its exact error e = (a + b) − s (Knuth's TwoSum), at out and out + 8.
+fn _sr_two_sum(a: f64, b: f64, out) {
+    var s: f64 = a + b;
+    var bv: f64 = s - a;
+    var av: f64 = s - bv;
+    var e: f64 = (a - av) + (b - bv);
+    store64(out, s);
+    store64(out + 8, e);
+    return out;
+}
+
+# One VecSum pass over the n f64 at p: slot i takes fl(slot i−1 + slot i) and slot i−1 its exact error, so the exact
+# sum is unchanged and the last slot holds the running f64 sum.
+fn _sr_vec_sum(p, n) {
+    var ts[16];
+    var i = 1;
+    while (i < n) {
+        var a: f64 = load64(p + (i - 1) * 8);
+        var b: f64 = load64(p + i * 8);
+        _sr_two_sum(a, b, &ts);
+        store64(p + i * 8, load64(&ts));
+        store64(p + (i - 1) * 8, load64(&ts + 8));
+        i = i + 1;
+    }
+    return p;
+}
+
+# Σ|slot| over the first m f64 at p, in f64.
+fn _sr_abs_sum(p, m): f64 {
+    var r: f64 = 0.0;
+    var i = 0;
+    while (i < m) {
+        var a: f64 = _sr_abs64(load64(p + i * 8));
+        r = r + a;
+        i = i + 1;
+    }
+    return r;
+}
+
+# VecSum passes over the n f64 at p until every slot but the last is 0, or the last outweighs twice the others
+# together. Either way the last slot's sign is the exact sum's. The f64 Σ|others| is within n ulps of the exact one,
+# hence the factor 2. The cap is never reached on the sums here: each pass shrinks the errors by about 2^-53.
+fn _sr_distill(p, n) {
+    var zero: f64 = 0.0;
+    var pass = 0;
+    while (pass < 64) {
+        _sr_vec_sum(p, n);
+        var rest: f64 = _sr_abs_sum(p, n - 1);
+        var top: f64 = _sr_abs64(load64(p + (n - 1) * 8));
+        if (rest == zero) { return p; }
+        if (top > rest + rest) { return p; }
+        pass = pass + 1;
+    }
+    return p;
+}
+
+# VecSum passes over the n f64 at p until the others together are below 2^-40 of the last slot (or all 0), so the last
+# slot is the exact sum to within a relative 2^-39: far inside an f32 ulp.
+fn _sr_distill_tight(p, n) {
+    var zero: f64 = 0.0;
+    var pass = 0;
+    while (pass < 64) {
+        _sr_vec_sum(p, n);
+        var rest: f64 = _sr_abs_sum(p, n - 1);
+        var top: f64 = _sr_abs64(load64(p + (n - 1) * 8));
+        if (rest == zero) { return p; }
+        var bound: f64 = top * _SR_CRS_TIGHT;
+        if (rest < bound) { return p; }
+        pass = pass + 1;
+    }
+    return p;
+}
+
+# The sign (−1, 0 or 1) of the exact sum of the n f64 at p (n ≤ 8; the slots are overwritten).
+#must_use
+fn _sr_exact_sign(p, n): i64 {
+    _sr_distill(p, n);
+    var zero: f64 = 0.0;
+    var top: f64 = load64(p + (n - 1) * 8);
+    if (top > zero) { return 1; }
+    if (top < zero) { return 0 - 1; }
+    return 0;
+}
+
+# The f32 order of the bits b: an integer that increases with the value, both zeros at 0.
+#must_use
+fn _sr_f32_ord(b): i64 {
+    if (b < 0x80000000) { return b; }
+    return 0x80000000 - b;
+}
+
+# The f32 bits of the order o (the inverse of _sr_f32_ord; o = 0 gives +0).
+#must_use
+fn _sr_f32_unord(o): i64 {
+    if (o >= 0) { return o; }
+    return 0x80000000 - o;
+}
+
+# An f32 (bits) as an f64 for midpoint arithmetic: an infinity stands for ±2^128, the value rounding past the largest
+# f32 reaches.
+fn _sr_crs_val(b): f64 {
+    if ((b & 0x7FFFFFFF) == 0x7F800000) {
+        var big: f64 = _SR_CRS_FMAX + _SR_CRS_ULPMAX;
+        if (b == 0x7F800000) { return big; }
+        var nbig: f64 = 0.0 - big;
+        return nbig;
+    }
+    var v: f64 = f32_to(b);
+    return v;
+}
+
+# The sign of S − k·m, S the exact sum of the n f64 at p (left unchanged): scratch q (n + 1 slots) gets a copy and the
+# exact −k·m.
+#must_use
+fn _sr_crs_cmp(p, n, k: f64, m: f64, q): i64 {
+    var i = 0;
+    while (i < n) {
+        store64(q + i * 8, load64(p + i * 8));
+        i = i + 1;
+    }
+    var km: f64 = 0.0 - (k * m);
+    store64(q + n * 8, km);
+    return _sr_exact_sign(q, n + 1);
+}
+
+# Of two adjacent f32 (bits), the one with an even significand: ties go to it.
+#must_use
+fn _sr_crs_even(a, b): i64 {
+    if ((a & 1) == 0) { return a; }
+    return b;
+}
+
+# The f32 (bits) nearest S / k, ties to even. S is the exact sum of the n f64 at p, where n ≤ 6 and each term is exact
+# (a product of two f32 values, or of an f32 and an integer below 2^29). The slots are overwritten. k > 0 is an integer
+# below 2^28, as an f64. z0 is the result when S is exactly 0: its sign is the formula's, by IEEE 754's rules on the
+# caller's operations. A nonzero S / k that rounds to zero keeps its sign. Every term must be finite.
+#must_use
+fn _sr_cr_sum_f32(p, n, k: f64, z0): i64 {
+    var zero: f64 = 0.0;
+    var one: f64 = 1.0;
+    # The fast path: the f64 sum and a bound on its error.
+    var y: f64 = 0.0;
+    var mag: f64 = 0.0;
+    var nf: f64 = 0.0;
+    var i = 0;
+    while (i < n) {
+        var t: f64 = load64(p + i * 8);
+        var at: f64 = _sr_abs64(t);
+        y = y + t;
+        mag = mag + at;
+        nf = nf + one;
+        i = i + 1;
+    }
+    if (mag == zero) { return z0; }
+    var q: f64 = y / k;
+    var aq: f64 = _sr_abs64(q);
+    var err: f64 = ((mag * nf) * _SR_CRS_EPS) / k + aq * _SR_CRS_EPS;
+    var lo = f32_from(q - err);
+    var hi = f32_from(q + err);
+    if (lo == hi) { return lo; }
+    # The exact path. Distill the terms (the exact sum is kept) until the last slot is S to within 2^-39, then take
+    # the f32 nearest it and settle its two midpoints exactly.
+    _sr_distill_tight(p, n);
+    var s: f64 = load64(p + (n - 1) * 8);
+    var sk: f64 = s / k;
+    var c = f32_from(sk);
+    if ((c & 0x7FFFFFFF) == 0x7F800000) { c = c - 1; }   # an infinity: start from the largest f32
+    var oc = _sr_f32_ord(c);
+    var nx = _sr_f32_unord(oc + 1);
+    var pv = _sr_f32_unord(oc - 1);
+    var cv: f64 = _sr_crs_val(c);
+    var nv: f64 = _sr_crs_val(nx);
+    var pvv: f64 = _sr_crs_val(pv);
+    var mhi: f64 = (cv + nv) * _SR_CRS_HALF;
+    var mlo: f64 = (pvv + cv) * _SR_CRS_HALF;
+    var scratch[72];
+    var r = c;
+    var shi = _sr_crs_cmp(p, n, k, mhi, &scratch);
+    if (shi > 0) {
+        r = nx;
+    } elif (shi == 0) {
+        r = _sr_crs_even(c, nx);
+    } else {
+        var slo = _sr_crs_cmp(p, n, k, mlo, &scratch);
+        if (slo < 0) {
+            r = pv;
+        } elif (slo == 0) {
+            r = _sr_crs_even(pv, c);
+        }
+    }
+    if ((r & 0x7FFFFFFF) == 0) {
+        # A zero result takes the sign of S, or z0 when S is exactly 0.
+        var sg = _sr_crs_cmp(p, n, k, zero, &scratch);
+        if (sg > 0) { return 0; }
+        if (sg < 0) { return 0x80000000; }
+        return z0;
+    }
+    return r;
+}
+
+# `_sr_cr_sum_f32` for three terms (t0 + t1 + t2) / k, with the fast path straight-line in locals: the f64 sum's error
+# is at most 2^-52·Σ|t| / k + 2^-53·|q|, bounded here with 16 and 8 times the slack. Only an undecided interval builds
+# the term array for the exact path.
+#must_use
+fn _sr_cr_sum3_f32(t0: f64, t1: f64, t2: f64, k: f64, z0): i64 {
+    var zero: f64 = 0.0;
+    var a0: f64 = t0;
+    if (a0 < zero) { a0 = zero - a0; }
+    var a1: f64 = t1;
+    if (a1 < zero) { a1 = zero - a1; }
+    var a2: f64 = t2;
+    if (a2 < zero) { a2 = zero - a2; }
+    var mag: f64 = (a0 + a1) + a2;
+    if (mag == zero) { return z0; }
+    var q: f64 = ((t0 + t1) + t2) / k;
+    var aq: f64 = q;
+    if (aq < zero) { aq = zero - aq; }
+    var err: f64 = ((mag * _SR_CRS_EPS3) / k) + (aq * _SR_CRS_EPS);
+    var lo = f32_from(q - err);
+    var hi = f32_from(q + err);
+    if (lo == hi) { return lo; }
+    var terms[24];
+    store64(&terms, t0);
+    store64(&terms + 8, t1);
+    store64(&terms + 16, t2);
+    return _sr_cr_sum_f32(&terms, 3, k, z0);
+}

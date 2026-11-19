@@ -32,6 +32,13 @@ may contain Rust. `rust-old/` stays until the port is finished.
      output type. Rational operations are exact (`fractions`); roots and transcendentals use high precision
      (`decimal`, ≥ 60 digits).
    - Where Rust's formula *is* the definition, the exact value of that formula is the expectation.
+   - **Constants** (clarified 2026-11-18, Part 0c):
+     - a constant that a standard or mathematics defines takes its exact value: Rec. 709's 0.2126, 0.7152 and
+       0.0722, π, the sRGB curve's constants. Its f32 rounding is precision Rust lost;
+     - a threshold the code chose is part of the function's definition, in its declared type: the 1e-10 zero
+       guard, the 0.99 switch, `f32::EPSILON`.
+     - The two readings give the same value on every `math` row. On luminance they differ by 1 ulp on 14 of
+       205 rows.
    - A non-numeric output (render-graph order, glTF and JSON readers, struct layout) follows its governing
      specification (glTF 2.0, RFC 8259, WGSL's layout rules), checked by an independent model.
 3. **Rust may be wrong.** Rust's outputs are never the expected value.

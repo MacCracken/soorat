@@ -23,10 +23,11 @@ We are porting **away from Rust to Cyrius**.
 
 - **Rust 1.2.0** (tag `1.2.0`) is frozen in `rust-old/` as the functionality reference.
 - **The Cyrius port (2.0.0) has M0–M5 ported: the whole CPU track** (last commit `3fee87b`, "handoff").
-  - **What "passing" means today is not yet correctness.** The corpus (29 golden modules, 26,975 rows) was recorded
-    from Rust by a Rust generator. After 0b, 22,466 rows still expect **Rust's outputs**. The other 4,509 expect the
-    correct value:
+  - **What "passing" means today is not yet correctness.** The corpus (29 golden modules, 27,017 rows) was recorded
+    from Rust by a Rust generator. After 0c's `color` bite, 19,069 rows still expect **Rust's outputs**. The other
+    7,948 expect the correct value:
     - the 1,436 `math` rows, re-derived (0b);
+    - the 3,439 `color` rows, re-derived (0c), 42 of them emitted;
     - 3,073 swapped in from side tables: 2,965 class E, 34 correctly rounded, 49 adopted (R) and 25 under ADR 0002
       #14.
     - So "all pass" means that the port reproduces Rust where no side table overrides it.
@@ -44,17 +45,19 @@ We are porting **away from Rust to Cyrius**.
   - P6/MB2-5 passes 8 of 8 with soorat's shaders;
   - P7 uploads, and reads back with `bytes_match=1`;
   - P8 runs 100,000 frames at a flat 109.9 MB RSS and 0 B a frame.
-- **Unfinished from 2026-11-18:** `scripts/probes/bundle/p12_mabda450/` (P12, mabda 4.5.0 as a `[deps.mabda]`
-  dependency). It has a `cyrius.cyml` and a resolved `cyrius.lock`, but **no test file**, so the binary and
-  static-data cost is not measured yet. That measurement is step 2 of M6.
-- **Uncommitted in this tree** (the maintainer commits):
-  - Part 0a, below: the three Rust crates deleted from `scripts/`, CI's `oracle-*` jobs removed, ADR 0003, and
-    `CLAUDE.md`, `scripts/oracle/README.md`, `scripts/render_ref/README.md`, the ADR index and this file updated;
-  - Part 0b: `validate.py`'s `math_reference` and `check_math`, `tests/golden/math.tsv` rewritten, `math.e.tsv`
-    deleted, `src/math.cyr`'s precision comment, ADR 0002 #32 (and #4's comparison), port-parity §2.1, `state.md`
-    and `CHANGELOG.md`;
-  - the P12 directory, the 4.5.0 probe logs (`p7-upload-450-*.log`, `p8-gpu-full-450-*.log`) and four re-run P6
-    logs.
+- **P12 is set up but not measured:** `scripts/probes/bundle/p12_mabda450/` (mabda 4.5.0 as a `[deps.mabda]`
+  dependency). It has its consumer, `tests/p12_mabda.tcyr`, committed in `c137b6f`. Its binary and static-data cost
+  is not recorded yet. That measurement is step 2 of M6.
+- **Committed by the maintainer:** Part 0a and 0b (`c137b6f`, `9b95cb5`).
+- **Uncommitted in this tree:** Part 0c's `color` bite.
+  - New: `src/crsum.cyr`, registered after `src/math.cyr` in every `[lib]` profile and in `tests/lib.cyr`.
+  - Changed:
+    - `src/color.cyr`, plus `src/env_cpu.cyr` and `src/acoustic_render.cyr`'s `PART0` calls;
+    - `validate.py`: `rederive_module`, `color_reference` and `color_extra_rows`;
+    - `tests/golden/color.tsv`;
+    - ADR 0002 #33, and ADR 0003's constants rule;
+    - port-parity §2.1 and §2.2, `state.md`, `CHANGELOG.md`, the oracle README and this file;
+    - the regenerated `dist/` bundles and the bench record.
 
 ## Part 0: correctness becomes the oracle (before M6)
 
@@ -89,6 +92,34 @@ This is large, so take small bites (CLAUDE.md, *Task Sizing*), each gated.
       geometry and animation re-derivations still call `normalize3`/`look_at` with `r32`.
 - **0c. The other numeric modules, a few per bite, in milestone order.** Where the port reproduces Rust's f32
   sequence (D4 rule a: `color`, the quantized outputs), change the port to the correct value wherever they differ.
+  - **`color`: done 2026-11-18.**
+    - Rust was wrong on 239 rows: `to_rgba8` on 97 (bytes off by 1), `luminance` on 71 (up to 2 ulp) and `lerp` on
+      71 (up to 4 ulp). This is ADR 0002 #33, with the table in port-parity §2.1.
+    - **ADR 0003's constants rule** came out of it. A standard's constants take their exact value, so Rec. 709's
+      weights are 2126/10000. A threshold the code chose (1e-10, 0.99) is a definition, in its declared type.
+    - **The port changed:** `to_rgba8` scales in f64. `luminance` and `lerp` go through the new `src/crsum.cyr`,
+      which gives the correctly rounded f32 of an exact sum of f64 products.
+    - **Why the helper:** f64 alone misses exact ties. Rec. 709's weights over 10,000 put about 3 luminances in
+      10^5 on an f32 midpoint.
+    - **42 emitted rows** (`ADR 0003:` notes) pin the helper's exact path: ties, cancellations, signed zeros,
+      subnormals, the largest f32 and special values.
+    - **Cost:** `color/lerp` 39 → 83 ns (79× Rust, **outside plan §11's 10–50× band**), `color/luminance` 11 → 29 ns
+      (38×). The maintainer decides whether the band moves or `lerp` needs more work.
+  - **Rust's colour path, kept by modules not yet re-derived** (the `PART0` markers), each to switch to the correct
+    function in its own bite:
+    - `env`: `_sr_color_q8_f32seq`, for the face bytes;
+    - `acoustic_render`: `_sr_color_lerp_f32seq`, for the ray and decay colours;
+    - `animation`: `_sr_f32_lerp`, for the linear tracks.
+  - **`math` is measured, not proven** (a follow-up for the maintainer):
+    - its f64 methods had 0 misses on 20,000 random inputs per function, beyond the corpus, but an exact value
+      within about 2^-29 ulp of a midpoint could still round wrong;
+    - `mul_mat4`, `cross` and the dot products are sums of exact products, so `_sr_cr_sum_f32` can make them
+      provably correct.
+  - **The pattern**, extending 0b's: a `<module>_reference`, and a `check_<module>` that calls
+    `rederive_module(module, expected, derive, extra)`; emitted rows for what the recorded grid misses; port
+    changes where the reference disagrees.
+  - **Next, in M1 order:** `lights` (its `.cr.tsv` folds in), `tables` (with 0d's `tables_data.cyr`) and
+    `color_optics`. Then M2's `sprite`, `text` and `debug`.
   - Class C rows (`.cr.tsv`) become ordinary rows whose value is correctly rounded.
   - Class R (`pbr_optics.r.tsv`, prakash 2.15.2's LUT) is checked against the LUT integral, not against either
     implementation.

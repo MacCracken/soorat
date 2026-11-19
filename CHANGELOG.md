@@ -22,6 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Rust 1.2.0 was wrong on 1,149 of the 1,436 rows: 4,493 of 15,638 outputs, by up to 796 ulp. Its `normalize3`
     and `normal_to_basis` return zeros for (1e30, 1e30, 1e30) (ADR 0002 #32).
   - The port was already correct on all 15,638 outputs, and needed no change.
+  - **`color` re-derived from correctness** (Part 0c). `tests/golden/color.tsv` comes from `validate.py`'s
+    `color_reference`, with Rec. 709's exact luma weights (ADR 0003's constants rule). Its 3,397 recorded rows are
+    class A, plus 42 emitted rows for ties, cancellations, signed zeros, subnormals and special values.
+  - Rust 1.2.0 was wrong on 239 of the recorded rows (ADR 0002 #33): `to_rgba8` on 97 (254 bytes off by 1),
+    `luminance` on 71 (up to 2 ulp) and `lerp` on 71 (up to 4 ulp).
+  - **The port's colours are now correct.**
+    - `to_rgba8` scales in f64 and rounds half away from zero.
+    - `luminance` and `lerp` round once through the new `src/crsum.cyr`, which gives the correctly rounded f32 of an
+      exact sum of f64 products (an f64 fast path with an error bound, and an exact path that settles ties by
+      error-free summation).
+  - Until their own modules are re-derived, `env`, `acoustic_render` and `animation` keep Rust's f32 colour path
+    (`PART0` markers).
 - **The Cyrius port begins** (2.0.0; plan `docs/development/soorat-port-plan.md`, ADRs 0001 and 0002).
   - **M0 step 1** ran 11 probes, recorded in `docs/development/port-parity.md` §1, with their sources in
     `scripts/probes/`.
@@ -35,6 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to crates.io**, so a future tag can't republish the frozen Rust crate.
 - `scripts/version-bump.sh` bumps `VERSION` only; `cyrius.cyml` reads it. `scripts/bench-history.sh`
   re-measures the oracle in `rust-old/`.
+
+### Performance
+- **Part 0c, `color`** (correctness costs time): `color/lerp` 39 → 83 ns, now 79× Rust, outside plan §11's 10–50×
+  band; `color/luminance` 11 → 29 ns, 38× Rust.
 
 ### Added
 - **The port's M0 machinery** (steps 3–8, 2026-11-15; port plan §4):

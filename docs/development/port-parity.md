@@ -538,7 +538,7 @@ Same dev box and toolchain as §1. Re-run: `cyrius test --bounds tests/parity.tc
 | Module | Rows | Classes | Result |
 |---|---|---|---|
 | `math` | 1,436 | A (since ADR 0003: the correct value) | **all 1,436 bit-identical to the correct value** (2026-11-18, Part 0b). Before: 287 identical to Rust, 1,149 accepted (E) |
-| `color` | 3,397 | A, B | all identical to Rust, including every −0 output. Re-run with class B held to exact bits: still all identical |
+| `color` | 3,439 | A (since ADR 0003: the correct value) | **all 3,439 bit-identical to the correct value** (2026-11-18, Part 0c): the 3,397 recorded rows and 42 emitted for the exact path. Before: all identical to Rust, which was wrong on 239 of them (classes A, B) |
 | `lights` | 1,066 | A; C (`GpuLight::spot`, bound 0) | 1,038 identical; the **28 spot rows where glibc's `cosf` misrounds** (28 of 2,016 cosines, 1.4 %) give the correctly rounded value, never glibc's |
 | `lod` | 770 | A | all identical, thresholds ± 1 ulp and NaN included |
 | `color_optics` | 1,704 | A | all identical, replayed by tests/parity_features.tcyr (the `optics` feature). Rust calls prakash 1.2.0 (glibc `powf`, `ln`); the port calls prakash 2.15.2: after narrowing to f32 the two agree on all 511 temperatures and 948 wavelengths |
@@ -563,6 +563,26 @@ Same dev box and toolchain as §1. Re-run: `cyrius test --bounds tests/parity.tc
 
 Rust's defects are ADR 0002 #32. The two gross ones are f32 overflow: x² of 1e30 is ∞ in f32, so the length is ∞ and every component divides to 0.
 
+**`color` against the correct value (ADR 0003, 2026-11-18).** `validate.py`'s `color_reference` derives each
+output exactly, as `math_reference` does, with Rec. 709's exact luma weights (ADR 0003's constants rule). Against it:
+
+| Function | Rows | Rust 1.2.0 wrong: rows | outputs | worst | The port before → after |
+|---|---|---|---|---|---|
+| `to_rgba8` | 259 | 97 | 254 bytes | 1 (byte) | Rust's sequence → exact f64 scale, half away from zero |
+| `luminance` | 205 | 71 | 71 | 2 ulp | Rust's sequence → `_sr_cr_sum_f32`, (2126·r + 7152·g + 722·b) / 10,000 |
+| `lerp` | 208 | 71 | 88 | 4 ulp | Rust's sequence → `_sr_cr_sum_f32` |
+| `from_rgba8`, `from_hex`, `to_wgpu`, heat map, signed map, default | 2,725 | 0 | 0 | 0 | unchanged: exact in f32 |
+
+**Why f64 alone isn't enough.** Rust's formulas evaluated in f64 and rounded once are right on every recorded
+`color` row. Beyond them, on 100,000 random colours in [0, 1], f64 luminance missed the correct value 3 times. Each
+miss was an **exact tie**: Rec. 709's weights over 10,000 make (2126·r + 7152·g + 722·b) / 10,000 land exactly on an
+f32 midpoint, and the f64 weights' error rounds it the wrong way. `src/crsum.cyr`'s `_sr_cr_sum_f32` settles those
+cases exactly. The 42 emitted rows (`ADR 0003:` notes) pin its exact path: 6 luminance ties and 3 negated, 4
+near-ties, the lerp ties at t = ½ and ¼, cancellations, signed zeros, subnormals, the largest f32 and special values.
+Over the same random tests, `math`'s functions (20,000 inputs each, 5,000 for `mul_mat4`) and `lerp` (50,000) showed
+no miss. So their f64 methods are measured correct, not proven: an exact value within about 2^-29 ulp of a midpoint
+could still round wrong.
+
 **Class E, by function** (before ADR 0003; `validate.py`): f64-once differs from Rust's f32 on `mul_mat4` and
 `compose_trs` 100 %, `look_at` 98.5 %, `normal_to_basis` 83.0 %, `cross` 73.5 %, `normalize3` 60.2 %, `perspective_90`
 53.2 % of their rows. The port reproduces the f64-once value on every one, so the corpus pins D4 rule b exactly (§5).
@@ -575,8 +595,8 @@ Rust's defects are ADR 0002 #32. The two gross ones are f32 overflow: x² of 1e3
 |---|---|---|---|---|
 | `color/from_hex` | 1.36 | 19.98 | 14.7× | 10–50× |
 | `color/from_rgba8` | 3.30 | 15.70 | 4.76× | 10–50× |
-| `color/lerp` | 1.05 | 38.92 | 36.9× | 10–50× |
-| `color/luminance` | 0.76 | 11.07 | 14.5× | 10–50× |
+| `color/lerp` | 1.05 | 38.92 → **83** (correctly rounded, ADR 0002 #33) | 36.9× → **79×** | 10–50×: **missed** since Part 0c |
+| `color/luminance` | 0.76 | 11.07 → **29** (correctly rounded, ADR 0002 #33) | 14.5× → **38×** | 10–50× |
 | `color/to_array` | 0.52 | 4.91 | 9.47× | 10–50× |
 | `vertex/bytemuck_cast_100` | 0.77 | 1.28 (`vertex/byte_view_100`) | 1.67× | — |
 

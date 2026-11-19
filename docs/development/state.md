@@ -40,7 +40,7 @@ Decisions: [ADR 0001](../adr/0001-cyrius-port-with-rust-oracle.md),
 | M5 part d: fluid renderers (`fluids`, pravash) | ✅ 2026-11-15 (below) |
 | M5 close: the gate on three targets; `em_render` to 2.1.0 (D7) | ✅ 2026-11-15: **M5 complete**, the CPU track done |
 | MB1–MB5 (mabda) | ✅ 2026-11-16 in mabda 4.3.0 and 4.3.1 |
-| Part 0 (ADR 0003): the corpus re-derived from correctness | 0a ✅ (Rust out of the test path), 0b ✅ (`math`) 2026-11-18; 0c–0f ☐ |
+| Part 0 (ADR 0003): the corpus re-derived from correctness | 0a ✅ (Rust out of the test path), 0b ✅ (`math`), 0c: `color` ✅ 2026-11-18; the rest of 0c, 0d–0f ☐ |
 | M6–M10 | ☐ (after Part 0: see [handoff.md](handoff.md)) |
 
 **M1.** 13,793 golden rows over nine modules pass:
@@ -178,10 +178,11 @@ so the cross-target builds use `--locked`.
   `src/crmath_ext.cyr` are vendored (`scripts/vendor_crmath.py`). `src/main.cyr` is still the scaffold's smoke program.
 - **Port machinery (M0):**
   - `scripts/oracle/`: `validate.py` (the correctness reference, ADR 0003), `gen_layout.py` and `gen_tables.py`. The
-    Rust generator that recorded the corpus is deleted. `tests/golden/` holds 29 modules, 26,975 rows, and 3,048
+    Rust generator that recorded the corpus is deleted. `tests/golden/` holds 29 modules, 27,017 rows, and 3,048
     side-table rows: 2,965 class E (`*.e.tsv`), 34 correctly rounded (`*.cr.tsv`) and 49 adopted
     (`pbr_optics.r.tsv`), with the glTF fixtures in `tests/golden/gltf/`. Re-derived from correctness so far:
-    `math` (1,436 rows); the rest still expect the Rust-recorded outputs (Part 0, handoff.md);
+    `math` (1,436 rows) and `color` (3,439, 42 of them emitted); the rest still expect the Rust-recorded outputs
+    (Part 0, handoff.md);
   - `tests/parity.tcyr` with `parity_core.cyr`, `ulp.cyr` and the generated `layout_probe.cyr`: the replay;
   - `scripts/render_ref/`: the class-G scene definitions. The Rust renderer is deleted, and its renders in
     `tests/golden/render/` are not an oracle (ADR 0003);
@@ -193,8 +194,8 @@ so the cross-target builds use `--locked`.
 - **Cyrius:**
   - `cyrius test` and `cyrius test --bounds` pass with zero warnings: 32 test files, among them 26 of ported tests
     (316 Rust tests), the smoke test, and the five parity replays (core, features, acoustics, thermo, fluids). Of the
-    26,975 rows, 26,968 pass (3,073 of them accepted: E 2,965, cr 34, R 49, ADR #14 25; the 1,436 `math` rows are
-    class A against the correct value); 7 are pending (3 constants of
+    27,017 rows, 27,010 pass (3,073 of them accepted: E 2,965, cr 34, R 49, ADR #14 25; the 1,436 `math` and 3,439
+    `color` rows are class A against the correct value); 7 are pending (3 constants of
     later milestones, 4 bayan rows);
   - `cyrius audit` exits 0; `cyrius distlib --check` is current; `cyrius vet` is clean;
   - at M5's close, all five parity harnesses and the M5 renderer tests gave the same outcome for every row on x86_64
