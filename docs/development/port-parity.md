@@ -537,7 +537,7 @@ Same dev box and toolchain as §1. Re-run: `cyrius test --bounds tests/parity.tc
 
 | Module | Rows | Classes | Result |
 |---|---|---|---|
-| `math` | 1,436 | E (7 functions), A (`flatten_mat4`) | 287 identical to Rust; **1,149 accepted (E)**, each bit-identical to Rust's formula in f64 rounded once |
+| `math` | 1,436 | A (since ADR 0003: the correct value) | **all 1,436 bit-identical to the correct value** (2026-11-18, Part 0b). Before: 287 identical to Rust, 1,149 accepted (E) |
 | `color` | 3,397 | A, B | all identical to Rust, including every −0 output. Re-run with class B held to exact bits: still all identical |
 | `lights` | 1,066 | A; C (`GpuLight::spot`, bound 0) | 1,038 identical; the **28 spot rows where glibc's `cosf` misrounds** (28 of 2,016 cosines, 1.4 %) give the correctly rounded value, never glibc's |
 | `lod` | 770 | A | all identical, thresholds ± 1 ulp and NaN included |
@@ -547,9 +547,25 @@ Same dev box and toolchain as §1. Re-run: `cyrius test --bounds tests/parity.tc
 | `layout` | 19 | A | all identical, measured on the compiled structs (`tests/layout_probe.cyr`) |
 | `constants` | 9 of 18 | A | identical; the other 9 arrive with their modules |
 
-**Class E, by function** (`validate.py`): f64-once differs from Rust's f32 on `mul_mat4` and `compose_trs` 100 %,
-`look_at` 98.5 %, `normal_to_basis` 83.0 %, `cross` 73.5 %, `normalize3` 60.2 %, `perspective_90` 53.2 % of their
-rows. The port reproduces the f64-once value on every one, so the corpus pins D4 rule b exactly (§5).
+**`math` against the correct value (ADR 0003, 2026-11-18).** `validate.py`'s `math_reference` derives every output exactly (rational arithmetic, each output z or z / √W with z and W rational, rounded once to f32 by integer arithmetic). Its rounding was checked on 23,015 values with a known f32 (f64 values across every binade, the subnormals, exact midpoints, the overflow threshold) and on √1 … √2999. Against it:
+
+| Function | Rows | Outputs | Rust 1.2.0 wrong: rows | outputs | worst (ulp) | The port (f64, rounded once) wrong |
+|---|---|---|---|---|---|---|
+| `mul_mat4` | 200 | 3,200 | 200 | 1,593 | 796 | 0 |
+| `look_at` | 203 | 3,248 | 200 | 1,240 | 254 | 0 |
+| `compose_trs` | 200 | 3,200 | 200 | 709 | 160 | 0 |
+| `normal_to_basis` | 206 | 1,236 | 171 | 393 | all zeros (1e30 input) | 0 |
+| `cross` | 200 | 600 | 147 | 216 | 76 | 0 |
+| `normalize3` | 206 | 618 | 124 | 208 | all zeros (1e30 input) | 0 |
+| `perspective_90` | 201 | 3,216 | 107 | 134 | 1 | 0 |
+| `flatten_mat4` | 20 | 320 | 0 | 0 | 0 | 0 |
+| **total** | **1,436** | **15,638** | **1,149** | **4,493** | | **0** |
+
+Rust's defects are ADR 0002 #32. The two gross ones are f32 overflow: x² of 1e30 is ∞ in f32, so the length is ∞ and every component divides to 0.
+
+**Class E, by function** (before ADR 0003; `validate.py`): f64-once differs from Rust's f32 on `mul_mat4` and
+`compose_trs` 100 %, `look_at` 98.5 %, `normal_to_basis` 83.0 %, `cross` 73.5 %, `normalize3` 60.2 %, `perspective_90`
+53.2 % of their rows. The port reproduces the f64-once value on every one, so the corpus pins D4 rule b exactly (§5).
 
 ### 2.2 Speed
 

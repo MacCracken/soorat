@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
-"""soorat golden corpus: independent re-derivation of the rows, and the class-E rows.
+"""soorat golden corpus: the correctness reference, and the re-derivation of the rows not yet converted.
 
-    python3 -I -B scripts/oracle/validate.py .           # recompute every math row; exit 1 on any difference
-    python3 -I -B scripts/oracle/validate.py . --write   # also (re)write tests/golden/math.e.tsv
+    python3 -I -B scripts/oracle/validate.py .           # check every row; exit 1 on any difference
+    python3 -I -B scripts/oracle/validate.py . --write   # rewrite the re-derived modules' rows and the side tables
 
-Python's floats are IEEE binary64, and an f64 operation on two f32 values rounded once to f32 IS the f32
-operation for + - * / and sqrt (f64 carries more than 2·24 + 2 bits). So:
+**The oracle is correctness** (ADR 0003): an expected output is its formula's exact value, rounded once, never
+Rust's output. A re-derived module (today `math`, by `math_reference`) has its outputs computed without floating
+point, from exact rationals, and rounded by integer arithmetic; `--write` writes them into the module's rows.
+
+The modules not yet re-derived still hold the outputs the deleted Rust generator recorded. For them, Python's
+floats are IEEE binary64, and an f64 operation on two f32 values rounded once to f32 IS the f32 operation for
++ - * / and sqrt (f64 carries more than 2·24 + 2 bits). So:
 
 * **Rust's rows** are re-derived bit for bit by evaluating each formula in f64 with every intermediate rounded to
-  f32 (`r32`), in Rust's order, independently of the Rust generator.
+  f32 (`r32`), in Rust's order.
 * **Class E** (port plan §5, D4 rule b, ADR 0002 #4): the same formula evaluated in f64 without intermediate
-  rounding, with the f32 inputs widened exactly and the f32 constants (`1e-10f32`, `f32::EPSILON`, `0.99f32`)
-  widened exactly, then rounded ONCE to f32. Where that differs from Rust's outputs, the row goes into
-  `tests/golden/math.e.tsv`, which the harness compares the port against bit for bit.
+  rounding, with the f32 inputs and constants widened exactly, then rounded ONCE to f32. Where that differs from
+  Rust's outputs, the row goes into `tests/golden/<module>.e.tsv`, which the harness compares the port against.
 
 Also checks `constants.tsv` against the literals in rust-old/src, and the format of every module file.
 Stdlib only.
@@ -166,6 +170,274 @@ def evaluate(fn, ins, q):
     if fn == "flatten_mat4":
         return list(ins[0:16])
     raise KeyError(fn)
+
+
+# ── math: the correctness reference (ADR 0003) ───────────────────────────────────────
+# The expected outputs of the `math` rows. No floating-point operation is used: every input f32 is an exact rational,
+# every + - x / is exact (`Fraction`), and each output is rounded once to f32, correctly (ties to even), by integer
+# arithmetic. Every output of these functions is either a rational z or z / sqrt(W) for rationals z and W > 0, so
+# rounding never needs an approximation of a root:
+# - normalize3(v) = v / sqrt(A), A = |v|^2.
+# - look_at: f = d / sqrt(A); c = f x up = (d x up) / sqrt(A), so s = c / |c| = e / sqrt(B), e = d x up, B = |e|^2;
+#   u = s x f = (e x d) / sqrt(A·B); the translations are (e·pos) / sqrt(B), ((e x d)·pos) / sqrt(A·B), (d·pos) / sqrt(A).
+# - normal_to_basis: right = r / sqrt(R), r = n x ref; up = (r x n) / sqrt(|r x n|^2) (or the EPS-clamped forms).
+# A positive scale never changes a sign, so the sign of an exact zero follows IEEE 754's rules applied to the scaled
+# components (x + (-x) = +0, (-0) + (-0) = -0, a product's sign is the xor). The guards compare exact values with the
+# function's own constants (1e-10f32, f32::EPSILON, 0.99f32): the constants are the definition, not a computation.
+# A row with a non-finite input follows IEEE 754's special-value rules, which the f64 evaluation gives exactly: NaN
+# propagates, and the only other outputs such a row has are zeros and infinities (0 / EPS where `max` drops a NaN
+# length), each exact.
+
+from fractions import Fraction as _Q
+
+_Q_1E_10 = _Q(F32_1E_10)
+_Q_EPS = _Q(F32_EPS)
+_Q_0_99 = _Q(F32_0_99)
+
+
+def _z(x):
+    """An f32 (as a float) as an exact value with its IEEE sign: (Fraction, sign bit)."""
+    return (_Q(x), 1 if math.copysign(1.0, x) < 0 else 0)
+
+
+_Z0 = (_Q(0), 0)
+_Z1 = (_Q(1), 0)
+
+
+def _zadd(a, b):
+    v = a[0] + b[0]
+    if v != 0:
+        return (v, 1 if v < 0 else 0)
+    return (v, 1 if a[0] == 0 and b[0] == 0 and a[1] and b[1] else 0)
+
+
+def _zneg(a):
+    return (-a[0], 1 - a[1])
+
+
+def _zsub(a, b):
+    return _zadd(a, _zneg(b))
+
+
+def _zmul(a, b):
+    return (a[0] * b[0], a[1] ^ b[1])
+
+
+def _zdiv(a, b):
+    return (a[0] / b[0], a[1] ^ b[1])
+
+
+def _zcross(a, b):
+    return [_zsub(_zmul(a[1], b[2]), _zmul(a[2], b[1])),
+            _zsub(_zmul(a[2], b[0]), _zmul(a[0], b[2])),
+            _zsub(_zmul(a[0], b[1]), _zmul(a[1], b[0]))]
+
+
+def _zdot(a, b):
+    return _zadd(_zadd(_zmul(a[0], b[0]), _zmul(a[1], b[1])), _zmul(a[2], b[2]))
+
+
+def _qsq(v):
+    """|v|^2 = (x^2 + y^2) + z^2, exact."""
+    return v[0][0] * v[0][0] + v[1][0] * v[1][0] + v[2][0] * v[2][0]
+
+
+def round_sqrt_f32(t, neg):
+    """(-1)^neg · sqrt(t), t >= 0 a Fraction, rounded once to the nearest f32 (ties to even): exact integer
+    arithmetic, subnormals and overflow to infinity included."""
+    if t == 0:
+        return -0.0 if neg else 0.0
+    n, d = t.numerator, t.denominator
+    et = n.bit_length() - d.bit_length()        # floor(log2 t) is et or et - 1
+    if (n if et >= 0 else n << -et) < (d << et if et >= 0 else d):
+        et -= 1
+    qe = max(et >> 1, -126) - 23                 # the quantum of the result's binade: 2^qe
+    s = t / (_Q(4) ** qe)                         # t / 4^qe
+    k = math.isqrt(s.numerator // s.denominator)  # floor(sqrt(t) / 2^qe)
+    lhs, rhs = 4 * s, (2 * k + 1) ** 2            # sqrt(t)/2^qe against k + 1/2
+    if lhs > rhs or (lhs == rhs and k & 1):
+        k += 1
+    mag = _Q(k) * (_Q(2) ** qe)
+    if mag >= 2 ** 128:
+        return -math.inf if neg else math.inf
+    x = float(mag)
+    assert _Q(x) == mag and r32(x) == x, (t, x)
+    return -x if neg else x
+
+
+def _out(z, w=None):
+    """An exact output z (rational) or z / sqrt(w) (w > 0), correctly rounded to f32."""
+    if z[0] == 0:
+        return -0.0 if z[1] else 0.0
+    t = z[0] * z[0] if w is None else z[0] * z[0] / w
+    return round_sqrt_f32(t, z[1])
+
+
+def _ref_normalize3(v):
+    a = _qsq(v)
+    if a < _Q_1E_10 * _Q_1E_10:                  # sqrt(a) < 1e-10f32: the Z-up fallback
+        return [0.0, 0.0, 1.0]
+    return [_out(c, a) for c in v]
+
+
+def _ref_look_at(pos, d, up):
+    a = _qsq(d)
+    if a < _Q_1E_10 * _Q_1E_10:
+        fz, wf = [_Z0, _Z0, _Z1], _Q(1)
+    else:
+        fz, wf = d, a
+    cz = _zcross(fz, up)                          # c = cz / sqrt(wf)
+    b = _qsq(cz)
+    if b < _Q_1E_10 * _Q_1E_10 * wf:             # |c| < 1e-10f32
+        sz, ws = [_Z0, _Z0, _Z1], _Q(1)
+    else:
+        sz, ws = cz, b                            # s = c / |c| = cz / sqrt(b)
+    uz, wu = _zcross(sz, fz), ws * wf             # u = s x f
+    o = [None] * 16
+    for i in range(3):
+        o[4 * i] = _out(sz[i], ws)
+        o[4 * i + 1] = _out(uz[i], wu)
+        o[4 * i + 2] = _out(_zneg(fz[i]), wf)
+        o[4 * i + 3] = 0.0
+    o[12] = _out(_zneg(_zdot(sz, pos)), ws)
+    o[13] = _out(_zneg(_zdot(uz, pos)), wu)
+    o[14] = _out(_zdot(fz, pos), wf)
+    o[15] = 1.0
+    return o
+
+
+def _ref_mul_mat4(a, b):
+    r = [0.0] * 16
+    for col in range(4):
+        for row in range(4):
+            s = _Z0                               # Rust's `let mut sum = 0.0`
+            for k in range(4):
+                s = _zadd(s, _zmul(a[k * 4 + row], b[col * 4 + k]))
+            r[col * 4 + row] = _out(s)
+    return r
+
+
+def _ref_perspective_90(near, far):
+    diff = _zsub(near, far)
+    if abs(diff[0]) < _Q_1E_10:
+        return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+    nf = _zdiv(_Z1, diff)
+    return [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, _out(_zmul(far, nf)), -1.0,
+            0.0, 0.0, _out(_zmul(_zmul(near, far), nf)), 0.0]
+
+
+def _ref_compose_trs(t, r, s):
+    x, y, z, w = r
+    two = (_Q(2), 0)
+
+    def one_minus(p, q):
+        return _zsub(_Z1, _zmul(two, _zadd(_zmul(p, p), _zmul(q, q))))
+
+    def twice(p, q, sign):
+        m = _zmul(p[0], p[1]), _zmul(q[0], q[1])
+        return _zmul(two, _zadd(m[0], m[1]) if sign > 0 else _zsub(m[0], m[1]))
+
+    rot = [one_minus(y, z), twice((x, y), (w, z), 1), twice((x, z), (w, y), -1),
+           twice((x, y), (w, z), -1), one_minus(x, z), twice((y, z), (w, x), 1),
+           twice((x, z), (w, y), 1), twice((y, z), (w, x), -1), one_minus(x, y)]
+    o = []
+    for c in range(3):
+        o += [_out(_zmul(s[c], rot[3 * c + i])) for i in range(3)] + [0.0]
+    return o + [None, None, None, 1.0]            # the translation is copied as bits by the caller
+
+
+def _ref_normal_to_basis(n):
+    rf = [_Z0, _Z1, _Z0] if abs(n[1][0]) < _Q_0_99 else [_Z1, _Z0, _Z0]
+    rz = _zcross(n, rf)
+    big_r = _qsq(rz)
+    if big_r >= _Q_EPS * _Q_EPS:                  # rlen = max(sqrt(R), EPS) = sqrt(R)
+        rightz, wr = rz, big_r
+    else:
+        rightz, wr = [_zdiv(c, (_Q_EPS, 0)) for c in rz], _Q(1)
+    vz = _zcross(rightz, n)                       # right x n = vz / sqrt(wr)
+    qv = _qsq(vz)
+    if qv >= _Q_EPS * _Q_EPS * wr:                # ulen = max(|right x n|, EPS) = |right x n|
+        upz, wup = vz, qv
+    else:
+        upz, wup = [_zdiv(c, (_Q_EPS, 0)) for c in vz], wr
+    return [_out(c, wr) for c in rightz] + [_out(c, wup) for c in upz]
+
+
+def math_reference(fn, ins):
+    """The correctly rounded outputs of one `math` row (ADR 0003), from its f32 inputs."""
+    if any(math.isnan(v) or math.isinf(v) for v in ins):
+        if fn not in ("normalize3", "normal_to_basis"):
+            raise ValueError(f"math reference: {fn} has no special-value rule for a non-finite input")
+        out = [r32(v) for v in evaluate(fn, ins, ident)]
+        if not all(math.isnan(v) or v == 0.0 or math.isinf(v) for v in out):
+            raise ValueError(f"math reference: {fn} with a non-finite input gave an inexact output")
+        return out
+    z = [_z(v) for v in ins]
+    if fn == "mul_mat4":
+        return _ref_mul_mat4(z[0:16], z[16:32])
+    if fn == "normalize3":
+        return _ref_normalize3(z[0:3])
+    if fn == "cross":
+        return [_out(c) for c in _zcross(z[0:3], z[3:6])]
+    if fn == "perspective_90":
+        return _ref_perspective_90(z[0], z[1])
+    if fn == "look_at":
+        return _ref_look_at(z[0:3], z[3:6], z[6:9])
+    if fn == "compose_trs":
+        o = _ref_compose_trs(z[0:3], z[3:7], z[7:10])
+        o[12:15] = ins[0:3]
+        return o
+    if fn == "normal_to_basis":
+        return _ref_normal_to_basis(z[0:3])
+    if fn == "flatten_mat4":
+        return list(ins[0:16])                    # a copy, bit for bit
+    raise KeyError(fn)
+
+
+MATH_HEAD = [
+    "# soorat golden corpus, format 1: math",
+    "# expected: the correct value (ADR 0003): each output is its formula's exact value rounded once to f32 (ties to "
+    "even), by scripts/oracle/validate.py's math_reference; inputs: probe P2's grid",
+    "# regenerate: python3 -I -B scripts/oracle/validate.py . --write (never patch a row)",
+    "# columns: fn<TAB>class<TAB>inputs<TAB>outputs<TAB>note (tokens: scripts/oracle/README.md)",
+]
+
+
+def check_math():
+    """tests/golden/math.tsv against the correctness reference: every output must be math_reference's. --write
+    rewrites the outputs (the inputs, the sequence structure and the notes are kept) and removes the retired
+    math.e.tsv. Also reports where the port's method (the formula in f64, rounded once) misses the reference."""
+    path = os.path.join(GOLDEN, "math.tsv")
+    _, body = rows(path)
+    failures, misses, n_out = 0, 0, 0
+    out_rows = []
+    for fn, _cls, ins, outs, note in body:
+        x = g_values(ins)
+        ref = math_reference(fn, x)
+        out_rows.append(f"{fn}\tA\t{ins}\t{g_tokens(outs, ref)}\t{note}")
+        once = [r32(v) for v in evaluate(fn, x, ident)]
+        n_out += len(ref)
+        misses += sum(1 for a, b in zip(once, ref) if not same([a], [b]))
+    text = "\n".join(MATH_HEAD + [f"# rows: {len(out_rows)}"] + out_rows) + "\n"
+    e_path = os.path.join(GOLDEN, "math.e.tsv")
+    if WRITE:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        print(f"wrote {path} ({len(out_rows)} rows)")
+        if os.path.exists(e_path):
+            os.remove(e_path)
+            print(f"removed {e_path} (retired by ADR 0003: the rows hold the correct value)")
+    else:
+        with open(path, encoding="utf-8") as f:
+            if f.read() != text:
+                failures += 1
+                print("math.tsv: outputs differ from the correctness reference (run with --write)")
+        if os.path.exists(e_path):
+            failures += 1
+            print("math.e.tsv: retired by ADR 0003 (run with --write)")
+    print(f"math: {len(out_rows)} rows, {n_out} outputs from the correctness reference; the port's method (f64, "
+          f"rounded once) misses it on {misses}")
+    return failures
 
 
 # ── corpus I/O ───────────────────────────────────────────────────────────────────────
@@ -3503,25 +3775,8 @@ def cube_ref():
 
 def main():
     failures = 0
-    head, body = rows(os.path.join(GOLDEN, "math.tsv"))
-    plat = head[1].split("libm: ")[-1]
-    e_rows = []
-    gains = {}
-    for fn, cls, ins, outs, note in body:
-        x = g_values(ins)
-        want = g_values(outs)
-        rust = [r32(v) for v in evaluate(fn, x, r32)]
-        if not same(rust, want):
-            failures += 1
-            print(f"math: {fn} {note}: re-derived f32 outputs differ from the corpus")
-            continue
-        if cls == "E":
-            once = [r32(v) for v in evaluate(fn, x, ident)]
-            n, d = gains.get(fn, (0, 0))
-            if not same(once, want):
-                e_rows.append(f"{fn}\t{ins}\t{g_tokens(outs, once)}\t{note}: f64 once vs Rust f32")
-                d += 1
-            gains[fn] = (n + 1, d)
+    plat = rows(os.path.join(GOLDEN, "lights.tsv"))[0][1].split("libm: ")[-1]
+    failures += check_math()
 
     failures += check_color()
     failures += check_lod()
@@ -3620,8 +3875,6 @@ def main():
                 failures += 1
                 print(f"constants: {name} = {outs[2:]} in the corpus, {val} in rust-old/src")
 
-    for fn, (n, d) in sorted(gains.items()):
-        print(f"math {fn:<16} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
     print("gltf: " + ", ".join(f"{v} {k}" for k, v in sorted(gltally.items())) + " (refusals and panics are the oracle's)")
     for fn, (n, d) in sorted(shgain.items()):
         print(f"shadow {fn:<30} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
@@ -3634,27 +3887,6 @@ def main():
     for fn, (n, d) in sorted(again.items()):
         print(f"animation {fn:<33} class E rows {n:4d}: f64-once differs from Rust's f32 on {d:4d} ({100 * d / n:5.1f} %)")
 
-    e_path = os.path.join(GOLDEN, "math.e.tsv")
-    e_text = "\n".join([
-        "# soorat class-E rows (ADR 0002 #4, D4 rule b), format 1: math",
-        f"# recorded: soorat 1.2.0 (rust-old/, oracle feature); libm: {plat}. Rust's formula in f64, rounded once to f32. Generated by scripts/oracle/validate.py; do not edit.",
-        "# regenerate: python3 -I -B scripts/oracle/validate.py . --write",
-        "# columns: fn<TAB>inputs<TAB>outputs<TAB>note (fn, inputs: the golden row's, byte for byte; outputs: the f64 evaluation rounded once)",
-        f"# rows: {len(e_rows)}",
-    ] + e_rows) + "\n"
-    if WRITE:
-        with open(e_path, "w", encoding="utf-8") as f:
-            f.write(e_text)
-        print(f"wrote {e_path} ({len(e_rows)} rows)")
-    else:
-        try:
-            with open(e_path, encoding="utf-8") as f:
-                if f.read() != e_text:
-                    failures += 1
-                    print("math.e.tsv: stale (run with --write)")
-        except FileNotFoundError:
-            failures += 1
-            print("math.e.tsv: missing (run with --write)")
     print("validate:", "ok" if failures == 0 else f"{failures} failure(s)")
     return 1 if failures else 0
 

@@ -24,8 +24,11 @@ We are porting **away from Rust to Cyrius**.
 - **Rust 1.2.0** (tag `1.2.0`) is frozen in `rust-old/` as the functionality reference.
 - **The Cyrius port (2.0.0) has M0–M5 ported: the whole CPU track** (last commit `3fee87b`, "handoff").
   - **What "passing" means today is not yet correctness.** The corpus (29 golden modules, 26,975 rows) was recorded
-    from Rust by a Rust generator. 22,753 rows expect **Rust's outputs**. The other 4,222 expect the correct value,
-    swapped in from side tables: 4,114 class E, 34 correctly rounded, 49 adopted (R) and 25 under ADR 0002 #14.
+    from Rust by a Rust generator. After 0b, 22,466 rows still expect **Rust's outputs**. The other 4,509 expect the
+    correct value:
+    - the 1,436 `math` rows, re-derived (0b);
+    - 3,073 swapped in from side tables: 2,965 class E, 34 correctly rounded, 49 adopted (R) and 25 under ADR 0002
+      #14.
     - So "all pass" means that the port reproduces Rust where no side table overrides it.
     - Probe P2 found Rust's f32 matrix math correctly rounded on only 37–78 % of its outputs.
     - Re-deriving the corpus from correctness is **Part 0** below, and it comes before M6.
@@ -47,6 +50,9 @@ We are porting **away from Rust to Cyrius**.
 - **Uncommitted in this tree** (the maintainer commits):
   - Part 0a, below: the three Rust crates deleted from `scripts/`, CI's `oracle-*` jobs removed, ADR 0003, and
     `CLAUDE.md`, `scripts/oracle/README.md`, `scripts/render_ref/README.md`, the ADR index and this file updated;
+  - Part 0b: `validate.py`'s `math_reference` and `check_math`, `tests/golden/math.tsv` rewritten, `math.e.tsv`
+    deleted, `src/math.cyr`'s precision comment, ADR 0002 #32 (and #4's comparison), port-parity §2.1, `state.md`
+    and `CHANGELOG.md`;
   - the P12 directory, the 4.5.0 probe logs (`p7-upload-450-*.log`, `p8-gpu-full-450-*.log`) and four re-run P6
     logs.
 
@@ -59,15 +65,28 @@ This is large, so take small bites (CLAUDE.md, *Task Sizing*), each gated.
     `scripts/render_ref/{Cargo.toml,Cargo.lock,src/}` (the Rust renderer) and `scripts/probes/rust/` (the M0
     probes, whose results are in port-parity.md). They are recoverable from `3fee87b`.
   - Removed the gate's `cargo run` step and CI's six `oracle-*` jobs. `rust-old/` is untouched.
-- **0b. The reference model and the comparison rule, on one module end to end: `math`** (1,436 rows).
-  - In `scripts/oracle/validate.py`, derive each output exactly: `fractions.Fraction` for + − × ÷, and `decimal` at
-    ≥ 60 digits for √. Round once to f32 (ties to even).
-  - Rewrite `math.tsv`'s outputs from it, keeping the inputs, and fold `math.e.tsv` into the rows.
-  - The harness compares bit for bit.
-  - List every row where Rust's recorded output differs: those are Rust defects, so add an ADR 0002 row.
-  - Measure where the port's f64-once method misses the correctly rounded value. Either fix the port or record a
-    bound in plan §5 before accepting it (ADR 0003 #6).
-  - Retire the "re-derive Rust's f32 sequence" path in validate.py as a source of expectations.
+- **0b. `math`, end to end: done 2026-11-18.**
+  - `validate.py`'s `math_reference` derives every output with no floating point.
+    - The f32 inputs are exact `Fraction`s.
+    - Every output is a rational z or z / √W.
+    - `round_sqrt_f32` rounds √(z²/W) to f32 by integer arithmetic.
+    - The sign of an exact zero follows IEEE 754's rules, and the two NaN-input rows follow its special-value
+      rules.
+    - The rounding was checked on 23,015 values with a known f32.
+  - `validate.py . --write` rewrote `math.tsv`'s outputs (inputs and notes kept) as class A, and removed
+    `math.e.tsv`. The check fails when a row differs from the reference.
+  - **Rust 1.2.0 was wrong on 1,149 of the 1,436 rows** (4,493 of 15,638 outputs, by up to 796 ulp). Its
+    `normalize3` and `normal_to_basis` of (1e30, 1e30, 1e30) return zeros. This is ADR 0002 #32, with the
+    per-function table in port-parity §2.1.
+  - **The port's f64-once method is correctly rounded on all 15,638 outputs**, so no port change and no bound were
+    needed. The harness shows ulp 0 on every `math` output.
+  - **The pattern for 0c:**
+    - write a `<module>_reference` and a `check_<module>` like `check_math`;
+    - `--write` the rows;
+    - measure Rust and the port against it;
+    - record Rust's defects as an ADR 0002 row and the table in port-parity;
+    - then delete the module's Rust-emulation path in `validate.py`, once no other module uses it. Today the shadow,
+      geometry and animation re-derivations still call `normalize3`/`look_at` with `r32`.
 - **0c. The other numeric modules, a few per bite, in milestone order.** Where the port reproduces Rust's f32
   sequence (D4 rule a: `color`, the quantized outputs), change the port to the correct value wherever they differ.
   - Class C rows (`.cr.tsv`) become ordinary rows whose value is correctly rounded.

@@ -40,7 +40,7 @@ turn.
 |---|---|---|---|
 | `constants` | M0 | 18 | public constants (`MAX_*`, `IDENTITY_MAT4`, the `Color` constants, `UvRect::FULL`) and the oracle's `MAX_SEGMENTS`, `MAX_QUADS`, `XZ_QUAD_INDICES`. `validate.py` checks the integers against the literals in `rust-old/src` |
 | `layout` | M0 | 19 | size and field offsets of every GPU-facing `#[repr(C)]` type (probe P1) |
-| `math` | M0 | 1,436 | `math_util` on probe P2's grid: `mul_mat4`, `normalize3`, `cross`, `perspective_90`, `look_at`, `compose_trs`, `normal_to_basis` (class E) and `flatten_mat4` (class A). `math.e.tsv`: 1,149 rows where f64-once differs |
+| `math` | M0 | 1,436 | `math_util` on probe P2's grid: `mul_mat4`, `normalize3`, `cross`, `perspective_90`, `look_at`, `compose_trs`, `normal_to_basis` and `flatten_mat4`. **Re-derived (Part 0b, 2026-11-18)**: class A, every output the correct value from `math_reference`. Rust 1.2.0 was wrong on 1,149 rows (ADR 0002 #32) |
 | `color` | M1 | 3,397 | `Color` without its `optics` half: every byte in `from_rgba8`; `to_rgba8` at every k/510 and every halfway point (Rust rounds half away from zero); the colour maps across and beyond their domain, each stop ± 1 ulp, ±0, ±∞, NaN (A, B) |
 | `color_optics` | M1 | 1,704 | `Color`'s `optics` half (the oracle crate turns on soorat's `optics` feature and depends on prakash 1.2.0): `from_prakash` at f32 midpoints and the clamp's edges, `to_prakash`, `from_temperature` every 100 K, `from_wavelength` every 0.5 nm, `n:` for `None` (A). Replayed by tests/parity_features.tcyr |
 | `json` | M1 | 180 | serde_json 1.0.154 (rust-old's dev-dependency, at its version) reading `Color` documents: its own output for a colour grid, and hand-written ones for serde's derive semantics; `E:Deserialize` for a refusal (A). The three `Color::from_json_bayan_*` rows are pending (ADR 0002 #19) |
@@ -110,8 +110,16 @@ The **note** is a human rendering of the call, for review only; the harness igno
 
 ## `validate.py`
 
-Python's floats are IEEE binary64, and an f64 `+ − × ÷ √` of two f32 values rounded once to f32 **is** the f32
-operation (f64 carries more than 2·24 + 2 bits). So `validate.py`:
+**The correctness reference** (ADR 0003). For a re-derived module, `validate.py` computes the expected outputs
+without floating point: the f32 inputs as exact rationals (`fractions`), the formula's + − × ÷ exactly, and each
+output rounded once to f32 (ties to even) by integer arithmetic. `math` is the first: every output there is a
+rational z or z / √W, so `round_sqrt_f32` rounds √(z²/W) exactly, and the sign of an exact zero follows IEEE 754's
+rules. A row with a non-finite input follows IEEE 754's special-value rules. `--write` rewrites the module's outputs
+(the inputs and notes kept) and removes its retired side table; the check fails when a row differs from the
+reference. It also reports where the port's method (f64, rounded once) misses the reference: 0 of 15,638 for `math`.
+
+**The modules not yet re-derived.** Python's floats are IEEE binary64, and an f64 `+ − × ÷ √` of two f32 values
+rounded once to f32 **is** the f32 operation (f64 carries more than 2·24 + 2 bits). So, for them, `validate.py`:
 - re-derives Rust's f32 rows bit for bit, by evaluating each formula with every intermediate rounded to f32, in
   Rust's order. That checks the generator without Rust;
 - derives the class-E outputs: the same formula with the f32 inputs and constants widened exactly, no
@@ -119,7 +127,7 @@ operation (f64 carries more than 2·24 + 2 bits). So `validate.py`:
 
 It re-derives every module's rows but `layout`'s (gen_layout.py checks those), the glTF documents from their fixture
 bytes; checks `constants` against `rust-old/src`; and writes the side tables:
-- class E, Rust's formula in f64 rounded once where that differs from Rust's f32 outputs: `math.e.tsv`,
+- class E, Rust's formula in f64 rounded once where that differs from Rust's f32 outputs:
   `primitives.e.tsv`, `viz.e.tsv`, `terrain.e.tsv`, `animation.e.tsv`, `shadow.e.tsv`, `acoustic_render.e.tsv`,
   `thermo_render.e.tsv` and `fluid_render.e.tsv` (their exp, log10, sin, cos and acos correctly rounded by `decimal`),
   each a fresh token list, since an f32 overflow can change an output's length;

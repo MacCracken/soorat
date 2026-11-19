@@ -2408,11 +2408,12 @@ fn _sr_srgb8_decode(b): i64 {
 # out pointer the caller owns. Every input is read before any output is written, so an out pointer may be one of
 # the inputs. An f32 scalar is passed as its bits.
 #
-# **Precision (D4 rule b, ADR 0002 #4).** Each function evaluates Rust's formula in Rust's order, but in f64: the
-# f32 inputs and constants are widened exactly, nothing is rounded along the way, and each output is rounded once
-# to f32. Where that differs from Rust's f32 result (1,149 of the 1,416 `math` rows), the Cyrius value is the more
-# accurate one, and tests/golden/math.e.tsv holds it (class E, compared bit for bit). Everywhere else it equals
-# Rust's. Values that Rust only copies (the translation column, `flatten`) are copied as bits.
+# **Precision (ADR 0002 #4, #32; ADR 0003).** Each function evaluates Rust's formula in Rust's order, but in f64:
+# the f32 inputs and constants are widened exactly, nothing is rounded along the way, and each output is rounded
+# once to f32. That is the correctly rounded value on all 15,638 outputs of tests/golden/math.tsv, whose rows hold
+# the correct value (the formula's exact value rounded once; class A, compared bit for bit). Rust 1.2.0's f32
+# arithmetic is wrong on 1,149 of those 1,436 rows (ADR 0002 #32). Values that Rust only copies (the translation
+# column, `flatten`) are copied as bits.
 #
 # **Speed.** Straight-line f64 locals, each input widened once: the loop form of mul_mat4 took 294 ns a call, this
 # one 115 ns (tests/math.bcyr; docs/benchmarks-rust-v-cyrius.md has the current numbers).

@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **The oracle is correctness, not Rust** ([ADR 0003](docs/adr/0003-correctness-is-the-oracle.md), 2026-11-18).
+  `rust-old/` stays the functionality reference: never edited, kept until the port is finished. Its outputs are
+  never the expected value, and a disagreement with the correct value is a Rust defect (an ADR 0002 row). This
+  supersedes the oracle wording of the entries below.
+  - **No Rust in the test path.** Deleted the Rust corpus generator (`scripts/oracle/{Cargo.toml,Cargo.lock,src/}`),
+    the Rust renderer (`scripts/render_ref/{Cargo.toml,Cargo.lock,src/}`) and the Rust M0 probes
+    (`scripts/probes/rust/`), about 12,900 lines of Rust. Also removed the gate's `cargo run` step and CI's six
+    `oracle-*` jobs.
+  - **`math` re-derived from correctness** (Part 0b). `tests/golden/math.tsv`'s outputs are now each formula's exact
+    value rounded once to f32, computed by `validate.py`'s `math_reference` with no floating point. All 1,436 rows
+    are class A, and `math.e.tsv` is removed.
+  - Rust 1.2.0 was wrong on 1,149 of the 1,436 rows: 4,493 of 15,638 outputs, by up to 796 ulp. Its `normalize3`
+    and `normal_to_basis` return zeros for (1e30, 1e30, 1e30) (ADR 0002 #32).
+  - The port was already correct on all 15,638 outputs, and needed no change.
 - **The Cyrius port begins** (2.0.0; plan `docs/development/soorat-port-plan.md`, ADRs 0001 and 0002).
   - **M0 step 1** ran 11 probes, recorded in `docs/development/port-parity.md` §1, with their sources in
     `scripts/probes/`.
