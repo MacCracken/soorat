@@ -40,7 +40,7 @@ Decisions: [ADR 0001](../adr/0001-cyrius-port-with-rust-oracle.md),
 | M5 part d: fluid renderers (`fluids`, pravash) | ✅ 2026-11-15 (below) |
 | M5 close: the gate on three targets; `em_render` to 2.1.0 (D7) | ✅ 2026-11-15: **M5 complete**, the CPU track done |
 | MB1–MB5 (mabda) | ✅ 2026-11-16 in mabda 4.3.0 and 4.3.1 |
-| Part 0 (ADR 0003): the corpus re-derived from correctness | 0a ✅ (Rust out of the test path), 0b ✅ (`math`), 0c: `color` and `lights` ✅ 2026-11-18; the rest of 0c, 0d–0f ☐ |
+| Part 0 (ADR 0003): the corpus re-derived from correctness | 0a ✅ (Rust out of the test path), 0b ✅ (`math`), 0c: `color`, `lights` and `tables` ✅ 2026-11-18; the rest of 0c, 0d–0f ☐ |
 | M6–M10 | ☐ (after Part 0: see [handoff.md](handoff.md)) |
 
 **M1.** 13,793 golden rows over nine modules pass:
@@ -178,11 +178,11 @@ so the cross-target builds use `--locked`.
   `src/crmath_ext.cyr` are vendored (`scripts/vendor_crmath.py`). `src/main.cyr` is still the scaffold's smoke program.
 - **Port machinery (M0):**
   - `scripts/oracle/`: `validate.py` (the correctness reference, ADR 0003), `gen_layout.py` and `gen_tables.py`. The
-    Rust generator that recorded the corpus is deleted. `tests/golden/` holds 29 modules, 27,028 rows, and 3,020
-    side-table rows: 2,965 class E (`*.e.tsv`), 6 correctly rounded (`*.cr.tsv`) and 49 adopted
+    Rust generator that recorded the corpus is deleted. `tests/golden/` holds 29 modules, 27,072 rows, and 3,017
+    side-table rows: 2,965 class E (`*.e.tsv`), 3 correctly rounded (`*.cr.tsv`) and 49 adopted
     (`pbr_optics.r.tsv`), with the glTF fixtures in `tests/golden/gltf/`. Re-derived from correctness so far:
-    `math` (1,436 rows), `color` (3,439, 42 of them emitted) and `lights` (1,077, 11 emitted); the rest still expect
-    the Rust-recorded outputs
+    `math` (1,436 rows), `color` (3,439, 42 of them emitted), `lights` (1,077, 11 emitted) and `tables` (5,259, 44
+    emitted); the rest still expect the Rust-recorded outputs
     (Part 0, handoff.md);
   - `tests/parity.tcyr` with `parity_core.cyr`, `ulp.cyr` and the generated `layout_probe.cyr`: the replay;
   - `scripts/render_ref/`: the class-G scene definitions. The Rust renderer is deleted, and its renders in
@@ -195,8 +195,8 @@ so the cross-target builds use `--locked`.
 - **Cyrius:**
   - `cyrius test` and `cyrius test --bounds` pass with zero warnings: 32 test files, among them 26 of ported tests
     (316 Rust tests), the smoke test, and the five parity replays (core, features, acoustics, thermo, fluids). Of the
-    27,028 rows, 27,021 pass (3,045 of them accepted: E 2,965, cr 6, R 49, ADR #14 25; the 1,436 `math`, 3,439
-    `color` and 1,077 `lights` rows are class A against the correct value); 7 are pending (3 constants of
+    27,072 rows, 27,065 pass (3,042 of them accepted: E 2,965, cr 3, R 49, ADR #14 25; the 1,436 `math`, 3,439
+    `color`, 1,077 `lights` and 5,259 `tables` rows are class A against the correct value); 7 are pending (3 constants of
     later milestones, 4 bayan rows);
   - `cyrius audit` exits 0; `cyrius distlib --check` is current; `cyrius vet` is clean;
   - at M5's close, all five parity harnesses and the M5 renderer tests gave the same outcome for every row on x86_64

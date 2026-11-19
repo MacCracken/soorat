@@ -4,14 +4,22 @@
 # as they are in Rust.
 # - **f16 ⇄ f32** is bit manipulation, IEEE 754 binary16 with round to nearest even: class A
 #   (tests/golden/tables.tsv).
-# - **sRGB** (IEC 61966-2-1) follows Rust's f32 sequence (D4 rule a) around one `powf`. Rust's is host glibc's,
-#   which misrounds 3 of the corpus's 5,108 sRGB rows by 1 ulp. ganita's f32 `pow` widens, computes and narrows,
-#   and is correctly rounded on all of them: class C, bound 0, against tests/golden/tables.cr.tsv (ADR 0002 #16).
+# - **sRGB** (IEC 61966-2-1) is the standard's curve with its exact constants, correctly rounded to f32 (ADR 0003,
+#   ADR 0002 #35). The constants are knees 0.04045 and 0.0031308, slope 12.92, offset 0.055, scale 1.055, and
+#   exponents 12/5 and 5/12.
+#   - Rust's f32 constants, its `1.0 / 2.4` and its f32 steps were wrong on 3,255 of the 5,108 recorded sRGB rows,
+#     by up to 7 ulp.
+#   - The port works in f64. The knees compare exactly (no f32 lies between a knee and its nearest f64). The linear
+#     pieces are one correctly rounded quotient of exact products, which narrows without double rounding. Each power
+#     is ganita's f64 `pow`, narrowed once.
+#   - Probe P14 checks the narrowing for every f32 argument, and `_SR_SRGB_EXC` corrects the arguments where narrowing
+#     the f64 is wrong.
 #   UPSTREAM(L8): cyrius:docs/development/issues/2026-11-15-f32-returns-consts-and-f16.md
 #     call the stdlib's f16 pair once it ships, and drop _sr_f16_to_f32 / _sr_f32_to_f16; parity: the
 #     `f16_to_f32` and `f32_to_f16` rows of tests/golden/tables.tsv (class A).
-# - **The sRGB-byte decode table** (`_SR_SRGB8_DECODE`, 256 f32) is generated from the oracle's own values by
-#   scripts/oracle/gen_tables.py, into src/tables_data.cyr (port plan §6.2).
+# - **The sRGB-byte decode table** (`_SR_SRGB8_DECODE`, 256 f32) is the decode of each byte's exact value b / 255,
+#   correctly rounded. scripts/oracle/gen_tables.py generates it from tests/golden/tables.tsv's row into
+#   src/tables_data.cyr (port plan §6.2). Rust rounds b / 255 to f32 first, so 214 of its 256 entries were wrong.
 
 # f32 bits of the sRGB constants and 2⁻²⁴ (from rustc; `1.0 / 2.4` as Rust folds it in f32).
 var _SR_SRGB_KNEE = 0x3D25AEE6;     # 0.040_45f32
@@ -22,6 +30,7 @@ var _SR_SRGB_1_055 = 0x3F870A3D;
 var _SR_SRGB_2_4 = 0x4019999A;
 var _SR_SRGB_INV_2_4 = 0x3ED55555;  # 1.0f32 / 2.4f32
 var _SR_F16_SUB_UNIT = 0x33800000;  # 2⁻²⁴, the smallest subnormal half
+var _SR_C255_T = 0x437F0000;        # 255.0f32
 
 # IEEE 754 binary16 h (its 16 bits) → binary32 bits: a subnormal is mant × 2⁻²⁴ (exact), an infinity or NaN keeps
 # its sign and payload, a normal half rebiases its exponent. Mirrors `environment::f16_to_f32`.
@@ -71,6 +80,76 @@ fn _sr_f32_to_f16(v): i64 {
     return sign | _sr_f16_round((e << 23) | mant, 13);
 }
 
+# The sRGB standard's constants as f64. Only the knees need to be the nearest f64 to their decimals: they decide a
+# branch, and no f32 lies between a knee and that f64. The rest of the arithmetic uses the exact integers.
+var _SR_SRGB_KNEE64: f64 = 4045.0 / 100000.0;
+var _SR_SRGB_LKNEE64: f64 = 31308.0 / 10000000.0;
+var _SR_SRGB_EXP_DEC: f64 = 12.0 / 5.0;           # the nearest f64 to 12/5 (2.4 is exactly 12/5)
+var _SR_SRGB_EXP_ENC: f64 = 5.0 / 12.0;           # the nearest f64 to 5/12
+var _SR_SRGB_100: f64 = 100.0;
+var _SR_SRGB_1000: f64 = 1000.0;
+var _SR_SRGB_1292: f64 = 1292.0;
+var _SR_SRGB_55: f64 = 55.0;
+var _SR_SRGB_1055: f64 = 1055.0;
+
+# The arguments where narrowing the f64 power gives the wrong f32 (probe P14 over every f32, settled exactly by
+# scripts/oracle/validate.py): pairs of (argument bits, correct result bits), sorted by argument. Each pair is an
+# emitted row of tests/golden/tables.tsv.
+var _SR_SRGB_EXC_DEC_N = 5;
+var _SR_SRGB_EXC_ENC_N = 10;
+var _sr_srgb_exc_dec: u8[40];
+var _sr_srgb_exc_enc: u8[80];
+
+# Fills the two tables. Runs once, at load.
+fn _sr_srgb_exc_init(): i64 {
+    store32(&_sr_srgb_exc_dec + 0, 0x501617DA);
+    store32(&_sr_srgb_exc_dec + 4, 0x673D7BE3);
+    store32(&_sr_srgb_exc_dec + 8, 0x529E6CA9);
+    store32(&_sr_srgb_exc_dec + 12, 0x6D57B6EE);
+    store32(&_sr_srgb_exc_dec + 16, 0x53128C6A);
+    store32(&_sr_srgb_exc_dec + 20, 0x6E6C1675);
+    store32(&_sr_srgb_exc_dec + 24, 0x535C60DB);
+    store32(&_sr_srgb_exc_dec + 28, 0x6F1D21B1);
+    store32(&_sr_srgb_exc_dec + 32, 0x591339E9);
+    store32(&_sr_srgb_exc_dec + 36, 0x7CCFD097);
+    store32(&_sr_srgb_exc_enc + 0, 0x5122829B);
+    store32(&_sr_srgb_exc_enc + 4, 0x46DF7D7E);
+    store32(&_sr_srgb_exc_enc + 8, 0x5292D01B);
+    store32(&_sr_srgb_exc_enc + 12, 0x477EC313);
+    store32(&_sr_srgb_exc_enc + 16, 0x5A6C52FA);
+    store32(&_sr_srgb_exc_enc + 20, 0x4AB8B76F);
+    store32(&_sr_srgb_exc_enc + 24, 0x632181AE);
+    store32(&_sr_srgb_exc_enc + 28, 0x4E5EEA1D);
+    store32(&_sr_srgb_exc_enc + 32, 0x6A57CBDD);
+    store32(&_sr_srgb_exc_enc + 36, 0x516014D6);
+    store32(&_sr_srgb_exc_enc + 40, 0x7320DE3D);
+    store32(&_sr_srgb_exc_enc + 44, 0x550C321E);
+    store32(&_sr_srgb_exc_enc + 48, 0x737FD37C);
+    store32(&_sr_srgb_exc_enc + 52, 0x552A1771);
+    store32(&_sr_srgb_exc_enc + 56, 0x7677FD72);
+    store32(&_sr_srgb_exc_enc + 60, 0x566D72AA);
+    store32(&_sr_srgb_exc_enc + 64, 0x7B295078);
+    store32(&_sr_srgb_exc_enc + 68, 0x586357CB);
+    store32(&_sr_srgb_exc_enc + 72, 0x7C77FD72);
+    store32(&_sr_srgb_exc_enc + 76, 0x58ED72AA);
+    return 1;
+}
+var _sr_srgb_exc_ready = _sr_srgb_exc_init();
+
+# The correction for argument bits x in a sorted exceptions table (n pairs of u32 at p), or −1 when there is none.
+#must_use
+fn _sr_srgb_exc(p, n, x): i64 {
+    var lo = 0;
+    var hi = n;
+    while (lo < hi) {
+        var mid = (lo + hi) / 2;
+        var k = load32(p + mid * 8);
+        if (k == x) { return load32(p + mid * 8 + 4); }
+        if (k < x) { lo = mid + 1; } else { hi = mid; }
+    }
+    return 0 - 1;
+}
+
 # ((c + 0.055) / 1.055) in native f32.
 #must_use
 fn _sr_f32_srgb_base(c: f32, a: f32, d: f32): i64 {
@@ -85,20 +164,86 @@ fn _sr_f32_mul_sub(k: f32, p: f32, s: f32): i64 {
     return r;
 }
 
-# sRGB decode of c (f32 bits): c / 12.92 up to the knee 0.04045, else ((c + 0.055) / 1.055)^2.4, the pow correctly
-# rounded. Mirrors `environment::srgb_to_linear`.
+# The decode power ((c + 0.055) / 1.055)^(12/5) in f64, unrounded: (1000·c + 55) / 1055, then ganita's pow. Probe
+# P14 narrows it for every f32.
+#must_use
+fn _sr_srgb_dec_pow64(c: f64): f64 {
+    var a: f64 = ((c * _SR_SRGB_1000) + _SR_SRGB_55) / _SR_SRGB_1055;
+    var v: f64 = ganita_f64_pow(a, _SR_SRGB_EXP_DEC);
+    return v;
+}
+
+# The encode power 1.055 · l^(5/12) − 0.055 in f64, unrounded: (1055·w − 55) / 1000 with w = ganita's l^(5/12).
+#must_use
+fn _sr_srgb_enc_pow64(l: f64): f64 {
+    var w: f64 = ganita_f64_pow(l, _SR_SRGB_EXP_ENC);
+    var v: f64 = ((w * _SR_SRGB_1055) - _SR_SRGB_55) / _SR_SRGB_1000;
+    return v;
+}
+
+# sRGB decode of c (f32 bits), correctly rounded: c / 12.92 up to the knee 0.04045, else ((c + 0.055) / 1.055)^2.4
+# (ADR 0003). A NaN gives NaN, ±0 and −∞ keep their sign (the linear piece), +∞ gives +∞. Mirrors
+# `environment::srgb_to_linear`.
 #must_use
 fn _sr_srgb_to_linear(c): i64 {
+    var x: f64 = f32_to(c & 0xFFFFFFFF);
+    if (x <= _SR_SRGB_KNEE64) {
+        var q: f64 = (x * _SR_SRGB_100) / _SR_SRGB_1292;
+        return f32_from(q);
+    }
+    var e = _sr_srgb_exc(&_sr_srgb_exc_dec, _SR_SRGB_EXC_DEC_N, c & 0xFFFFFFFF);
+    if (e >= 0) { return e; }
+    return f32_from(_sr_srgb_dec_pow64(x));
+}
+
+# sRGB encode of l (f32 bits), correctly rounded: l · 12.92 up to the knee 0.0031308, else 1.055 · l^(1/2.4) −
+# 0.055 (ADR 0003). A NaN gives NaN, ±0 and −∞ keep their sign, +∞ gives +∞. Mirrors `environment::linear_to_srgb`.
+#must_use
+fn _sr_linear_to_srgb(l): i64 {
+    var x: f64 = f32_to(l & 0xFFFFFFFF);
+    if (x <= _SR_SRGB_LKNEE64) {
+        var q: f64 = (x * _SR_SRGB_1292) / _SR_SRGB_100;
+        return f32_from(q);
+    }
+    var e = _sr_srgb_exc(&_sr_srgb_exc_enc, _SR_SRGB_EXC_ENC_N, l & 0xFFFFFFFF);
+    if (e >= 0) { return e; }
+    return f32_from(_sr_srgb_enc_pow64(x));
+}
+
+# PART0(env): Rust's sRGB encode, its f32 sequence and f32 constants around a correctly rounded pow, which is up to
+# 7 ulp off the correct value (ADR 0002 #35). src/env_cpu.cyr's face encoding keeps it until Part 0c re-derives the
+# `env` rows, recorded from Rust (ADR 0003).
+#must_use
+fn _sr_linear_to_srgb_f32seq(l): i64 {
+    if (_sr_f32_le(l, _SR_SRGB_LKNEE) == 1) { return _sr_f32_mul(l, _SR_SRGB_12_92); }
+    return _sr_f32_mul_sub(_SR_SRGB_1_055, ganita_f32_pow(l, _SR_SRGB_INV_2_4), _SR_SRGB_0_055);
+}
+
+# PART0(env): Rust's sRGB decode, in its f32 sequence (see _sr_linear_to_srgb_f32seq).
+#must_use
+fn _sr_srgb_to_linear_f32seq(c): i64 {
     if (_sr_f32_le(c, _SR_SRGB_KNEE) == 1) { return _sr_f32_div(c, _SR_SRGB_12_92); }
     return ganita_f32_pow(_sr_f32_srgb_base(c, _SR_SRGB_0_055, _SR_SRGB_1_055), _SR_SRGB_2_4);
 }
 
-# sRGB encode of l (f32 bits): l · 12.92 up to the knee 0.0031308, else 1.055 · l^(1/2.4) − 0.055, the pow
-# correctly rounded. Mirrors `environment::linear_to_srgb`.
+# PART0(env): Rust's decode table, srgb_to_linear(b as f32 / 255) in its f32 sequence (214 of 256 entries wrong,
+# ADR 0002 #35), filled once at load, for src/env_cpu.cyr's face decoding until `env` is re-derived.
+var _sr_srgb8_f32seq_data: u8[1024];
+fn _sr_srgb8_f32seq_init(): i64 {
+    var b = 0;
+    while (b < 256) {
+        store32(&_sr_srgb8_f32seq_data + b * 4,
+            _sr_srgb_to_linear_f32seq(_sr_f32_div(f32_from(f64_from(b)), _SR_C255_T)));
+        b = b + 1;
+    }
+    return 1;
+}
+var _sr_srgb8_f32seq_ready = _sr_srgb8_f32seq_init();
+
+# PART0(env): an entry of Rust's decode table.
 #must_use
-fn _sr_linear_to_srgb(l): i64 {
-    if (_sr_f32_le(l, _SR_SRGB_LKNEE) == 1) { return _sr_f32_mul(l, _SR_SRGB_12_92); }
-    return _sr_f32_mul_sub(_SR_SRGB_1_055, ganita_f32_pow(l, _SR_SRGB_INV_2_4), _SR_SRGB_0_055);
+fn _sr_srgb8_decode_f32seq(b): i64 {
+    return load32(&_sr_srgb8_f32seq_data + (b & 0xFF) * 4);
 }
 
 # The linear value (f32 bits) of the sRGB-encoded byte b: an entry of the generated table. Mirrors

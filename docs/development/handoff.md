@@ -24,12 +24,13 @@ We are porting **away from Rust to Cyrius**.
 - **Rust 1.2.0** (tag `1.2.0`) is frozen in `rust-old/` as the functionality reference.
 - **The Cyrius port (2.0.0) has M0–M5 ported: the whole CPU track** (last commit `3fee87b`, "handoff").
   - **What "passing" means today is not yet correctness.** The corpus (29 golden modules, 27,017 rows) was recorded
-    from Rust by a Rust generator. After 0c's `color` and `lights` bites, 18,031 of its 27,028 rows still expect
-    **Rust's outputs**. The other 8,997 expect the correct value:
+    from Rust by a Rust generator. After 0c's `color`, `lights` and `tables` bites, 12,819 of its 27,072 rows still
+    expect **Rust's outputs**. The other 14,253 expect the correct value:
     - the 1,436 `math` rows, re-derived (0b);
     - the 3,439 `color` rows, re-derived (0c), 42 of them emitted;
     - the 1,077 `lights` rows, re-derived (0c), 11 of them emitted;
-    - 3,045 swapped in from side tables: 2,965 class E, 6 correctly rounded, 49 adopted (R) and 25 under ADR 0002
+    - the 5,259 `tables` rows, re-derived (0c), 44 of them emitted;
+    - 3,042 swapped in from side tables: 2,965 class E, 3 correctly rounded, 49 adopted (R) and 25 under ADR 0002
       #14.
     - So "all pass" means that the port reproduces Rust where no side table overrides it.
     - Probe P2 found Rust's f32 matrix math correctly rounded on only 37–78 % of its outputs.
@@ -50,7 +51,16 @@ We are porting **away from Rust to Cyrius**.
   dependency). It has its consumer, `tests/p12_mabda.tcyr`, committed in `c137b6f`. Its binary and static-data cost
   is not recorded yet. That measurement is step 2 of M6.
 - **Committed by the maintainer:** Part 0a and 0b (`c137b6f`, `9b95cb5`).
-- **Uncommitted in this tree:** Part 0c's `color` and `lights` bites. `lights` adds:
+- **Uncommitted in this tree:** Part 0c's `color`, `lights` and `tables` bites. `tables` adds:
+  - `src/tables.cyr`'s f64 sRGB curves and its P14 exception tables;
+  - the regenerated `src/tables_data.cyr`, and `env_cpu.cyr`'s `PART0` calls;
+  - `validate.py`'s `tables_reference`, `tables_extra_rows` and the `PART0` `_srgb8_table`;
+  - `gen_tables.py`'s text;
+  - `tests/golden/tables.tsv`, with `tables.cr.tsv` deleted, and `tests/tables.tcyr`'s table test;
+  - probe P14 (`scripts/probes/math/p14_srgb_pow.tcyr`, `p14_check.py`);
+  - ADR 0002 #35, and port-parity §1.9 and §2.1.
+
+  `lights` adds:
   - `src/crf32.cyr`, after `src/crsum.cyr` in every `[lib]` profile and in `tests/lib.cyr`;
   - `src/lights.cyr` on `_sr_cr_cosf`;
   - `validate.py`'s `cos_f32_ref`, `lights_reference` and `lights_extra_rows`;
@@ -135,13 +145,24 @@ This is large, so take small bites (CLAUDE.md, *Task Sizing*), each gated.
     - **Probe P13** scanned every non-negative finite f32 and found 4 such arguments (port-parity §1.8). For 2 of
       them narrowing alone would be wrong. They are emitted rows, so `_sr_cr_cosf` is proven, not just measured.
     - `lights.cr.tsv` is folded in.
+  - **`tables`: done 2026-11-19.**
+    - The sRGB curves now take IEC 61966-2-1's exact constants, under ADR 0003's constants rule. The knees are
+      exact, and the exponents are 12/5 and 5/12, where Rust has an f32 `1.0 / 2.4`.
+    - Rust was wrong on 3,255 of 5,108 sRGB rows (up to 7 ulp) and on 214 of the decode table's 256 entries
+      (ADR 0002 #35). Its f16 conversions are right.
+    - The reference rounds each power with no floating point (v > m exactly when A^12 > m^5).
+    - The port works in f64 and narrows ganita's `pow` once.
+    - **Probe P14** ran both powers on every f32 argument and flagged those within 2^-38 of a midpoint. That is 128
+      times ganita's estimated worst error; the sampled worst was 2^-46.8. `p14_check.py` settled the flagged ones
+      exactly, and found 15 exceptions, all ≥ 10^10, which `_SR_SRGB_EXC_*` corrects.
+    - The proof rests on ganita's f64 `pow` staying within 2^-38 of exact (port-parity §1.9).
+    - 0d's `tables_data.cyr` is done too: it is regenerated from the corrected row.
+    - `env` keeps Rust's table and encoder: `_sr_srgb8_decode_f32seq` and `_sr_linear_to_srgb_f32seq`, both
+      `PART0`, with `validate.py`'s `_srgb8_table` to match.
   - **The f32 transcendentals still on `ganita_f32_*`** (measured, not proven: ganita narrows an f64 that is only
-    within 1 ulp) switch in their modules' bites:
-    - `sprite`'s and `debug`'s sin and cos need a `_sr_cr_sinf` beside `_sr_cr_cosf`, with its own P13-style
-      midpoint scan over every f32;
-    - `tables`' and `env`'s `powf` need the same for pow.
-  - **Next, in M1 order:** `tables` (with 0d's `tables_data.cyr`) and `color_optics`. Then M2's `sprite`, `text` and
-    `debug`.
+    within 1 ulp) switch in their modules' bites. `sprite`'s and `debug`'s sin and cos need a `_sr_cr_sinf` beside
+    `_sr_cr_cosf`, with its own P13-style midpoint scan over every f32.
+  - **Next, in M1 order:** `color_optics`. Then M2's `sprite`, `text` and `debug`.
   - Class C rows (`.cr.tsv`) become ordinary rows whose value is correctly rounded.
   - Class R (`pbr_optics.r.tsv`, prakash 2.15.2's LUT) is checked against the LUT integral, not against either
     implementation.

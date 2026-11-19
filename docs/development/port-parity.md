@@ -308,6 +308,28 @@ Everywhere else narrowing is exact, so `_sr_cr_cosf` is correctly rounded for ev
 things: crmath's correctly rounded f64 cosine (kimiya's), and this exhaustive list. The four arguments are emitted
 rows of `tests/golden/lights.tsv`, and the decimal reference, which uses no libm, agrees on each.
 
+### 1.9 P14: the sRGB powers (`math/p14_srgb_pow.tcyr`, `math/p14_check.py`, Part 0c)
+
+`src/tables.cyr` narrows an f64 sRGB power once:
+- **decode:** ((1000·c + 55) / 1055)^2.4 through ganita's `pow`;
+- **encode:** (1055·l^(5/12) − 55) / 1000.
+
+Narrowing is right unless the f64 lies within its own error of an f32 midpoint. P14 runs both powers on **every f32
+argument** from each knee to the largest finite value. That is 1,113,215,258 decode and 1,144,181,220 encode
+arguments, in 9 minutes. It flags each one whose f64 is within 2^-38 (relative) of a midpoint, and samples every
+2^14-th:
+
+| | Flagged | Exceptions (settled exactly) | Worst sampled f64 error |
+|---|---|---|---|
+| decode | 43,214 | 5 | 8.1e-15 (2^-46.8) |
+| encode | 100,448 | 10 | 1.9e-15 (2^-48.9) |
+
+`p14_check.py` settles each flagged argument with `validate.py`'s exact reference, which compares A^12 with m^5 in
+integers. The 15 exceptions are the arguments where narrowing gives the wrong f32. All of them are 10^10 or larger,
+and `_SR_SRGB_EXC_*` corrects them. Every unflagged argument narrows correctly provided the f64 error stays below
+2^-38 there, and the 137,780 samples spread over the whole range put it at most 2^-46.8, 450 times inside that. The
+15 are emitted rows of `tests/golden/tables.tsv`.
+
 ### 1.5 P6, P7 and P8: the GPU path (`scripts/probes/gpu/`)
 
 **Setup.**
@@ -562,7 +584,7 @@ Same dev box and toolchain as §1. Re-run: `cyrius test --bounds tests/parity.tc
 | `lod` | 770 | A | all identical, thresholds ± 1 ulp and NaN included |
 | `color_optics` | 1,704 | A | all identical, replayed by tests/parity_features.tcyr (the `optics` feature). Rust calls prakash 1.2.0 (glibc `powf`, `ln`); the port calls prakash 2.15.2: after narrowing to f32 the two agree on all 511 temperatures and 948 wavelengths |
 | `json` | 177 (+ 3 pending) | A | every serde_json document of a colour grid, and 25 hand-written ones (field order, array form, extra, missing and duplicated fields, null, strings, signed zeros, exponents, f32 and f64 overflow, trailing text), decode to Rust's bits or are refused as serde_json refuses them. Three are rows of their own, pending: the integer `-0`, an integer above `i64::MAX`, a duplicated unknown field (bayan's open issues; ADR 0002 #19) |
-| `tables` | 5,215 | A (f16, the decode table); C (sRGB, bound 0) | f16 ⇄ f32 identical on every subnormal half, every exponent's mantissa edges and every rounding midpoint ± 1 ulp. sRGB: 5,105 identical; the **3 rows where glibc's `powf` misrounds** (0.06 %, each by 1 ulp, as P3 found) give the correctly rounded value. The generated 256-entry decode table equals Rust's, and `validate.py` gets the same 256 with `pow` correctly rounded |
+| `tables` | 5,259 | A (since ADR 0003: the correct value) | **all 5,259 bit-identical to the correct value** (2026-11-19, Part 0c): the 5,215 recorded rows and 44 emitted. Rust was wrong on 3,255 sRGB rows (up to 7 ulp) and on 214 of the decode table's 256 entries (ADR 0002 #35); its f16 conversions are right. Before: class C against `tables.cr.tsv`, which kept Rust's f32 constants |
 | `layout` | 19 | A | all identical, measured on the compiled structs (`tests/layout_probe.cyr`) |
 | `constants` | 9 of 18 | A | identical; the other 9 arrive with their modules |
 

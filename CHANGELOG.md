@@ -42,6 +42,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     it takes crmath's accurate path.
   - Probe P13 (`scripts/probes/math/p13_cosf_mid.tcyr`) scanned all 2,139,095,040 non-negative finite f32 values
     and found 4 such arguments. For 2 of them plain narrowing would be wrong. All 4 are emitted rows.
+  - **`tables` re-derived from correctness** (Part 0c). The sRGB curves now use IEC 61966-2-1's exact constants
+    (exponents 12/5 and 5/12), and the decode table uses each byte's exact b / 255. `tables.cr.tsv` is folded in,
+    and 44 emitted rows were added.
+  - Rust 1.2.0 was wrong on 3,255 of 5,108 recorded sRGB rows (up to 7 ulp) and on 214 of the table's 256 entries
+    (ADR 0002 #35). Its f16 conversions are right.
+  - **The port's sRGB curves are now correct.** It works in f64 with exact knees and exact linear pieces, and
+    narrows ganita's power once. Probe P14 (`scripts/probes/math/p14_srgb_pow.tcyr`, with `p14_check.py`) checked
+    every f32 argument of both powers. It found 15 arguments where narrowing is wrong, which `_SR_SRGB_EXC_*` now
+    corrects.
+  - `src/tables_data.cyr` is regenerated from the corrected row. `env` keeps Rust's table and encoder (`PART0`)
+    until it is re-derived.
 - **The Cyrius port begins** (2.0.0; plan `docs/development/soorat-port-plan.md`, ADRs 0001 and 0002).
   - **M0 step 1** ran 11 probes, recorded in `docs/development/port-parity.md` §1, with their sources in
     `scripts/probes/`.

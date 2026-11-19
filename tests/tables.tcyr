@@ -69,12 +69,25 @@ fn main() {
     assert_eq(_sr_f32_to_f16(0x477FF000), 0x7C00, "65520 ties to even: inf");
     assert_eq(_sr_f32_to_f16(0x477FEFFF), 0x7BFF, "just below 65520: 65504");
 
-    # The generated table is the decode at each byte.
+    # The generated table is the decode of each byte's exact value b / 255 (ADR 0003): Rust's f32 b / 255 is not it.
+    # Here the port's own f64 path recomputes each entry, from 100·b / 329,460 (b / 255 / 12.92, one correctly rounded
+    # quotient of exact integers) below the knee, and from the nearest f64 to b / 255 above it.
     test_group("cyrius: the generated sRGB decode table");
+    var d255: f64 = 255.0;
+    var d100: f64 = 100.0;
+    var d329460: f64 = 329460.0;
     var b = 0;
     while (b < 256) {
-        var x = _sr_f32_div(f32_from(f64_from(b)), f255);
-        assert_eq(_sr_srgb8_decode(b), _sr_srgb_to_linear(x), "table[b] = srgb_to_linear(b / 255)");
+        var bd: f64 = f64_from(b);
+        var x: f64 = bd / d255;
+        var want = 0;
+        if (x <= _SR_SRGB_KNEE64) {
+            var q: f64 = (bd * d100) / d329460;
+            want = f32_from(q);
+        } else {
+            want = f32_from(_sr_srgb_dec_pow64(x));
+        }
+        assert_eq(_sr_srgb8_decode(b), want, "table[b] = the decode of b / 255");
         b = b + 1;
     }
 

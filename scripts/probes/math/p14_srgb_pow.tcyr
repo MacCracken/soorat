@@ -1,0 +1,86 @@
+# P14 (Part 0c, ADR 0003): every f32 argument of src/tables.cyr's two sRGB powers, decode ((c + 0.055) / 1.055)^2.4
+# from the knee 0.04045 and encode 1.055·l^(5/12) − 0.055 from the knee 0.0031308, up to the largest finite f32.
+# The port narrows the f64 power once. Narrowing can be wrong only where the f64 lies within its own error of an f32
+# midpoint, so the probe prints every argument whose f64 is within 2^-38 (relative) of one, 128 times the worst f64
+# error estimated for ganita's pow (exp(y·ln x): about 2^-45 at the largest arguments):
+#   D <arg bits> <f64 bits>    and    E <arg bits> <f64 bits>
+# It also prints every 2^14-th argument's f64 (SD / SE lines), from which validate.py measures the real f64 error.
+# scripts/oracle/p14_check.py settles each flagged argument exactly and lists the ones the port must correct.
+#   cyrius test --bounds --timeout 0 scripts/probes/math/p14_srgb_pow.tcyr > build/logs/p14-srgb-pow.log
+#   (from the repository root)
+
+include "tests/lib.cyr"
+
+var _P14_TOL: f64 = f32_to(0x2C800000);   # 2^-38
+
+# 1 when v is within 2^-38·|v| of a midpoint next to its f32 c (c finite; at the largest f32 the upper midpoint is
+# the overflow threshold).
+fn p14_near(v: f64, c): i64 {
+    var o = _sr_f32_ord(c);
+    var up = _sr_f32_unord(o + 1);
+    var dn = _sr_f32_unord(o - 1);
+    var cv: f64 = _sr_crs_val(c);
+    var uv: f64 = _sr_crs_val(up);
+    var dv: f64 = _sr_crs_val(dn);
+    var half: f64 = 0.5;
+    var mh: f64 = (cv + uv) * half;
+    var ml: f64 = (dv + cv) * half;
+    var av: f64 = v;
+    var zero: f64 = 0.0;
+    if (av < zero) { av = zero - av; }
+    var tol: f64 = av * _P14_TOL;
+    var dh: f64 = v - mh;
+    if (dh < zero) { dh = zero - dh; }
+    var dl: f64 = v - ml;
+    if (dl < zero) { dl = zero - dl; }
+    if (dh <= tol || dl <= tol) { return 1; }
+    return 0;
+}
+
+fn p14_line(tag, b, v: f64) {
+    println(tag);
+    fmt_hex0x(b);
+    println("");
+    fmt_hex0x(load64(&v));
+    println("");
+    return 0;
+}
+
+fn main() {
+    var nd = 0;
+    var ne = 0;
+    # decode: from the first f32 above the knee (0x3D25AEE6 = 0.040450000018 > 0.04045)
+    var b = 0x3D25AEE6;
+    while (b <= 0x7F7FFFFF) {
+        var x: f64 = f32_to(b);
+        var v: f64 = _sr_srgb_dec_pow64(x);
+        var c = f32_from(v);
+        if ((c & 0x7FFFFFFF) == 0x7F800000) { c = c - 1; }
+        if (p14_near(v, c) == 1) {
+            p14_line("D", b, v);
+            nd = nd + 1;
+        }
+        if ((b & 0x3FFF) == 0) { p14_line("SD", b, v); }
+        b = b + 1;
+    }
+    # encode: from the first f32 above the knee (0x3B4D2E1C = 0.0031308000907 > 0.0031308)
+    b = 0x3B4D2E1C;
+    while (b <= 0x7F7FFFFF) {
+        var y: f64 = f32_to(b);
+        var w: f64 = _sr_srgb_enc_pow64(y);
+        var d = f32_from(w);
+        if (p14_near(w, d) == 1) {
+            p14_line("E", b, w);
+            ne = ne + 1;
+        }
+        if ((b & 0x3FFF) == 0) { p14_line("SE", b, w); }
+        b = b + 1;
+    }
+    println("P14 flagged decode, encode:");
+    println_int(nd);
+    println_int(ne);
+    return 0;
+}
+
+var exit_code = main();
+sys_exit_group(exit_code);

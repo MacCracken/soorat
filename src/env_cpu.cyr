@@ -54,9 +54,9 @@ fn sr_face_decode(enc, bytes, len, out): i64 {
             store32(q + 8, _sr_f16_to_f32(load16(p + 4)));
             store32(q + 12, _sr_f16_to_f32(load16(p + 6)));
         } else {
-            store32(q, _sr_srgb8_decode(load8(p)));
-            store32(q + 4, _sr_srgb8_decode(load8(p + 1)));
-            store32(q + 8, _sr_srgb8_decode(load8(p + 2)));
+            store32(q, _sr_srgb8_decode_f32seq(load8(p)));
+            store32(q + 4, _sr_srgb8_decode_f32seq(load8(p + 1)));
+            store32(q + 8, _sr_srgb8_decode_f32seq(load8(p + 2)));
             store32(q + 12, _sr_f32_div(_sr_gl_u8f(load8(p + 3)), f255));
         }
         k = k + 1;
@@ -72,7 +72,7 @@ fn _sr_gl_u8f(b): i64 { return f32_from(f64_from(b & 0xFF)); }
 # linear_to_srgb's pow correctly rounded (about 270 ns).
 #must_use
 fn _sr_srgb_byte_direct(l): i64 {
-    return _sr_color_q8_f32seq(_sr_linear_to_srgb(l));
+    return _sr_color_q8_f32seq(_sr_linear_to_srgb_f32seq(l));
 }
 
 # The 255 encode thresholds: entry k (1 … 255) is the smallest non-negative f32 (bits) whose sRGB byte is at least k.

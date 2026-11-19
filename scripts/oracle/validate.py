@@ -5,7 +5,7 @@
     python3 -I -B scripts/oracle/validate.py . --write   # rewrite the re-derived modules' rows and the side tables
 
 **The oracle is correctness** (ADR 0003): an expected output is its formula's exact value, rounded once, never
-Rust's output. A re-derived module (today `math`, `color` and `lights`, by their `*_reference`) has its outputs computed without floating
+Rust's output. A re-derived module (today `math`, `color`, `lights` and `tables`, by their `*_reference`) has its outputs computed without floating
 point, from exact rationals, and rounded by integer arithmetic; `--write` writes them into the module's rows.
 
 The modules not yet re-derived still hold the outputs the deleted Rust generator recorded. For them, Python's
@@ -1015,41 +1015,197 @@ def srgb_encode(l, pw=powf_cr):
     return r32(r32(SRGB_1_055 * pw(l, SRGB_INV_2_4)) - SRGB_0_055)
 
 
-def check_tables(plat):
-    """Re-derives every `tables` row; returns (rows that differ, the tables.cr.tsv rows). A transfer-function row
-    that differs from the correctly rounded value must be Rust's formula with powf 1 ulp off (glibc's misrounding),
-    or it is a failure."""
-    path = os.path.join(GOLDEN, "tables.tsv")
-    if not os.path.exists(path):
-        return 0, []
-    _, body = rows(path)
-    bad, cr = 0, []
-    for fn, _cls, ins, outs, note in body:
-        if fn == "f16_to_f32":
-            ok = same([f16_to_f32_ref(h) for h in i_values(ins)], g_values(outs))
-        elif fn == "f32_to_f16":
-            ok = [f32_to_f16_ref(x) for x in g_values(ins)] == i_values(outs)
-        elif fn == "srgb8_decode_table":
-            ok = same([srgb_decode(r32(i / 255.0)) for i in range(256)], g_values(outs))
-        elif fn in ("srgb_to_linear", "linear_to_srgb"):
-            f = srgb_decode if fn == "srgb_to_linear" else srgb_encode
-            x = g_values(ins)[0]
-            want = g_values(outs)
-            mine = [f(x)]
-            ok = same(mine, want)
-            if not ok:
-                # glibc's powf 1 ulp off, either way, explains the row: record the correctly rounded value.
-                off = [f(x, lambda b, e, k=k: ulp_step(powf_cr(b, e), k)) for k in (-1, 1)]
-                if any(same([o], want) for o in off):
-                    cr.append(f"{fn}\t{ins}\t{g_tokens(outs, mine)}\t{note}; Rust 1.2.0 (glibc powf) {outs}")
-                    ok = True
-        else:
-            ok = False
-            print(f"tables: {fn}: no re-derivation in validate.py")
-        if not ok:
-            bad += 1
-            print(f"tables: {fn} {note}: re-derived outputs differ from the corpus")
-    return bad, cr
+# ── tables: the correctness reference (ADR 0003) ─────────────────────────────────────
+# sRGB (IEC 61966-2-1) with the standard's exact constants: knees 0.04045 and 0.0031308, slope 12.92, offset 0.055,
+# scale 1.055, exponents 12/5 (2.4) and 5/12 (1/2.4). Rust uses their f32 approximations, and `1.0 / 2.4` in f32. A
+# power is rounded with no floating point at all. v = A^(12/5) is above a midpoint m exactly when A^12 > m^5, and
+# 1.055·l^(5/12) − 0.055 is above m exactly when l^5 > ((m + 0.055) / 1.055)^12. A float estimate only picks the first
+# candidate, which those integer comparisons then confirm or step. The decode table's byte b is exactly b / 255. f16
+# is IEEE 754 binary16 with round to nearest even. A NaN narrows to the quiet NaN with its sign, as the function
+# defines it (IEEE 754 only recommends keeping the payload).
+
+SRGB_KNEE = _Q(4045, 100000)
+SRGB_LKNEE = _Q(31308, 10 ** 7)
+SRGB_SLOPE = _Q(1292, 100)
+SRGB_A = _Q(55, 1000)
+SRGB_B = _Q(1055, 1000)
+F32_OVER = _Q(2) ** 128 - _Q(2) ** 103   # the least magnitude that rounds to an f32 infinity (a tie, to even)
+
+
+def _round_by_cmp(cmp, est):
+    """The f32 nearest a positive value v given only cmp(m) = sign(v − m) for rationals m, from a float estimate est
+    of v: step to the neighbour while v lies beyond a midpoint; ties to even; v ≥ F32_OVER gives +inf."""
+    if cmp(F32_OVER) >= 0:
+        return math.inf
+    r = r32(min(est, float(from_bits(0x7F7FFFFF)))) if est == est else 1.0
+    if r <= 0:
+        r = from_bits(1)
+    while True:
+        up = _next32(r)
+        hi = F32_OVER if bits(r) == 0x7F7FFFFF else (_Q(r) + _Q(up)) / 2
+        s = cmp(hi)
+        if s > 0:
+            r = up
+            continue
+        if s == 0:
+            return r if bits(r) % 2 == 0 else up
+        dn = _next32(r, -1)
+        lo = (_Q(dn) + _Q(r)) / 2
+        s = cmp(lo)
+        if s < 0:
+            r = dn
+            continue
+        if s == 0:
+            return r if bits(r) % 2 == 0 else dn
+        return r
+
+
+def _sgn(a, b):
+    return (a > b) - (a < b)
+
+
+def srgb_eotf_q(c):
+    """The sRGB decode of the exact value c (a Fraction), correctly rounded to f32."""
+    if c <= SRGB_KNEE:
+        z = c / SRGB_SLOPE
+        return _out((z, 1 if z < 0 else 0))
+    a = (c + SRGB_A) / SRGB_B
+    a12 = a ** 12
+    return _round_by_cmp(lambda m: _sgn(a12, m ** 5), float(a) ** 2.4 if float(a) < 1e16 else math.inf)
+
+
+def srgb_to_linear_ref(c):
+    if math.isnan(c):
+        return math.nan
+    if math.isinf(c):
+        return c                                          # +inf: (inf + 0.055)^2.4; -inf: -inf / 12.92
+    if c == 0.0:
+        return c                                          # ±0 / 12.92
+    return srgb_eotf_q(_Q(c))
+
+
+def linear_to_srgb_ref(l):
+    if math.isnan(l):
+        return math.nan
+    if math.isinf(l):
+        return l                                          # +inf: 1.055·inf − 0.055; -inf: -inf · 12.92
+    if l == 0.0:
+        return l
+    lq = _Q(l)
+    if lq <= SRGB_LKNEE:
+        z = lq * SRGB_SLOPE
+        return _out((z, 1 if z < 0 else 0))
+    l5 = lq ** 5
+
+    def cmp(m):
+        bq = (m + SRGB_A) / SRGB_B
+        return 1 if bq <= 0 else _sgn(l5, bq ** 12)
+
+    return _round_by_cmp(cmp, 1.055 * l ** (5 / 12) - 0.055)
+
+
+def srgb8_table_ref():
+    return [srgb_eotf_q(_Q(b, 255)) if b else 0.0 for b in range(256)]
+
+
+def f16_to_f32_ref_exact(h):
+    s, e, m = h >> 15, (h >> 10) & 0x1F, h & 0x3FF
+    if e == 31:
+        v = math.inf if m == 0 else math.nan
+    else:
+        v = float(_Q(m, 2 ** 24) if e == 0 else _Q(1024 + m) * _Q(2) ** (e - 25))
+    return -v if s and not math.isnan(v) else v
+
+
+def f32_to_f16_ref_exact(x):
+    sign = 0x8000 if math.copysign(1.0, x) < 0 else 0
+    if math.isnan(x):
+        return sign | 0x7E00
+    a = abs(x)
+    if a == math.inf or _Q(a) >= _Q(65520):              # 65520 = 65504 + half its ulp: ties to even give inf
+        return sign | 0x7C00
+    q = _Q(a)
+    e = -14
+    while e < 15 and q >= _Q(2) ** (e + 1):
+        e += 1
+    quantum = _Q(2) ** (e - 10)                          # binade e's ulp; the subnormals share 2^-24
+    k, rem = divmod(q, quantum)
+    k = int(k)
+    if rem * 2 > quantum or (rem * 2 == quantum and k & 1):
+        k += 1
+    # k counts quanta of binade e: re-encode (a carry to 2^11 moves to the next binade, up to inf)
+    if e == -14 and k < 1024:
+        return sign | k
+    if k == 2048:
+        e, k = e + 1, 1024
+    if e > 15:
+        return sign | 0x7C00
+    return sign | ((e + 15) << 10) | (k - 1024)
+
+
+def tables_reference(fn, ins, outs):
+    if fn == "f16_to_f32":
+        # A NaN keeps its sign and payload bit for bit (the function re-encodes it; IEEE 754 widens a NaN that way).
+        hs = i_values(ins)
+        vals = iter([f16_to_f32_ref_exact(h) for h in hs])
+        nan_bits = iter([((h >> 15) << 31) | 0x7F800000 | ((h & 0x3FF) << 13) for h in hs])
+        out = []
+        for tok in outs.split(" "):
+            if tok.startswith("g:"):
+                v, nb = next(vals), next(nan_bits)
+                out.append("g:%08x" % (nb if math.isnan(v) else bits(v)))
+            else:
+                out.append(tok)
+        return " ".join(out)
+    if fn == "f32_to_f16":
+        return "v:64 " + " ".join(f"i:{f32_to_f16_ref_exact(v)}" for v in g_values(ins)) if outs.startswith("v:64") \
+            else " ".join(f"i:{f32_to_f16_ref_exact(v)}" for v in g_values(ins))
+    if fn == "srgb_to_linear":
+        return g_tokens(outs, [srgb_to_linear_ref(v) for v in g_values(ins)])
+    if fn == "linear_to_srgb":
+        return g_tokens(outs, [linear_to_srgb_ref(v) for v in g_values(ins)])
+    if fn == "srgb8_decode_table":
+        return g_tokens(outs, srgb8_table_ref())
+    raise KeyError(fn)
+
+
+# The f32 arguments where narrowing src/tables.cyr's f64 sRGB power gives the wrong f32 (probe P14 over every f32,
+# settled by scripts/probes/math/p14_check.py): (argument bits, correct result bits). The port's _SR_SRGB_EXC_* hold
+# the same pairs.
+P14_SRGB_DEC_EXC = [
+    (0x501617DA, 0x673D7BE3), (0x529E6CA9, 0x6D57B6EE), (0x53128C6A, 0x6E6C1675), (0x535C60DB, 0x6F1D21B1),
+    (0x591339E9, 0x7CCFD097)]
+P14_SRGB_ENC_EXC = [
+    (0x5122829B, 0x46DF7D7E), (0x5292D01B, 0x477EC313), (0x5A6C52FA, 0x4AB8B76F), (0x632181AE, 0x4E5EEA1D),
+    (0x6A57CBDD, 0x516014D6), (0x7320DE3D, 0x550C321E), (0x737FD37C, 0x552A1771), (0x7677FD72, 0x566D72AA),
+    (0x7B295078, 0x586357CB), (0x7C77FD72, 0x58ED72AA)]
+
+
+def tables_extra_rows():
+    """Emitted `tables` rows (ADR 0003): P14's exceptions; the decode's f32 overflow edge (the arguments around
+    1.055·F32_OVER^(5/12) − 0.055); the largest f32, 1, the least subnormal, negative values, both zeros and
+    infinities, and NaN, through both curves."""
+    out = []
+    dec = [from_bits(b) for b, _r in P14_SRGB_DEC_EXC]
+    enc = [from_bits(b) for b, _r in P14_SRGB_ENC_EXC]
+    edge = r32(float(SRGB_B) * float(F32_OVER) ** (5 / 12) - float(SRGB_A))
+    dec += [_next32(edge, k) for k in range(-3, 4)]
+    for v in (from_bits(0x7F7FFFFF), 1.0, from_bits(1), -from_bits(1), -1.0, -1.0e30, 0.0, -0.0, math.inf, -math.inf,
+              math.nan):
+        dec.append(v)
+        enc.append(v)
+    for fn, vals in (("srgb_to_linear", dec), ("linear_to_srgb", enc)):
+        for v in vals:
+            out.append((fn, _gt(v), "g:00000000", f"{EMITTED}{'c' if fn == 'srgb_to_linear' else 'l'} {v!r}"))
+    return out
+
+
+def check_tables_ref():
+    """tests/golden/tables.tsv against tables_reference (rederive_module); tables.cr.tsv is folded in."""
+    return rederive_module(
+        "tables", "IEEE 754 binary16 conversions, round to nearest even; the sRGB curves (IEC 61966-2-1) with the "
+        "standard's exact constants, correctly rounded to f32; the decode table at each byte's exact b / 255. By "
+        "scripts/oracle/validate.py's tables_reference", tables_reference, tables_extra_rows())
 
 
 # ── color_optics: prakash 1.2.0's formulas (glibc's pow and log, as Rust's), then Color::from_prakash ──────────
@@ -2799,11 +2955,10 @@ def check_shadow():
 # ── env, pbr_material, pbr_optics (M4 part b) ─────────────────────────────────────────────────────────────────
 
 def _srgb8_table():
-    _, body = rows(os.path.join(GOLDEN, "tables.tsv"))
-    for fn, _cls, _ins, outs, _note in body:
-        if fn == "srgb8_decode_table":
-            return g_values(outs)
-    raise KeyError("srgb8_decode_table")
+    """PART0(env): Rust 1.2.0's decode table, srgb_to_linear(b as f32 / 255) in its f32 sequence (powf correctly
+    rounded). `env`'s rows were recorded with it, and src/env_cpu.cyr keeps it (`_sr_srgb8_decode_f32seq`) until Part
+    0c re-derives `env`. tests/golden/tables.tsv's row now holds the correct table (ADR 0003)."""
+    return [srgb_decode(r32(i / 255.0)) for i in range(256)]
 
 
 def env_decode(fmt, b):
@@ -4031,7 +4186,7 @@ def main():
     failures += check_render_graph()
     sides_e = []
     lbad = check_lights()
-    tbad, tcr = check_tables(plat)
+    tbad = check_tables_ref()
     sbad, scr = check_sprite()
     dbad, dcr = check_debug("debug")
     cbad, ccr = check_debug("debug_collider")
@@ -4069,8 +4224,6 @@ def main():
     sides_e.append(("animation.e.tsv", "class-E rows (ADR 0002 #4, D4 rule b): Rust's formula in f64, rounded once to "
                     "f32, where that differs from Rust's f32 outputs", aerows))
     sides = sides_e + [
-        ("tables.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's sRGB transfer functions with powf "
-         "correctly rounded (glibc's f64 pow, rounded once), where glibc's powf differs by 1 ulp", tcr),
         ("sprite.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's sprite quads with each rotation's sinf "
          "and cosf correctly rounded (glibc's f64 sin/cos, rounded once), where glibc's differ by 1 ulp", scr),
         ("debug.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's debug circles with each angle's sinf and "
