@@ -34,6 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       error-free summation).
   - Until their own modules are re-derived, `env`, `acoustic_render` and `animation` keep Rust's f32 colour path
     (`PART0` markers).
+  - **`lights` re-derived from correctness** (Part 0c). Its spot cones' cosines come from `validate.py`'s
+    `cos_f32_ref`, a decimal cosine with no libm. `lights.cr.tsv` is folded in, and 11 emitted rows were added.
+  - Rust 1.2.0's glibc `cosf` was wrong on 28 rows (ADR 0002 #34).
+  - **The port's cone cosines are now provably correctly rounded:** `_sr_cr_cosf` (new `src/crf32.cyr`) replaces
+    `ganita_f32_cos`. It narrows kimiya's correctly rounded f64 cosine, and when that f64 is itself an f32 midpoint,
+    it takes crmath's accurate path.
+  - Probe P13 (`scripts/probes/math/p13_cosf_mid.tcyr`) scanned all 2,139,095,040 non-negative finite f32 values
+    and found 4 such arguments. For 2 of them plain narrowing would be wrong. All 4 are emitted rows.
 - **The Cyrius port begins** (2.0.0; plan `docs/development/soorat-port-plan.md`, ADRs 0001 and 0002).
   - **M0 step 1** ran 11 probes, recorded in `docs/development/port-parity.md` §1, with their sources in
     `scripts/probes/`.

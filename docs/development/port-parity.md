@@ -289,6 +289,25 @@ agree:
 | P10 chitra | ✅ PNG/BMP exact, JPEG within B-img | ADR 0002 #15; no chitra accuracy request |
 | P11 full bundle | ❌ 2 errors, 8 warnings, a silent wrong sRGB | L18–L20 (name clashes); §12's 24 MB risk retired |
 
+### 1.8 P13: f32 cosine midpoints (`math/p13_cosf_mid.tcyr`, Part 0c)
+
+`src/crf32.cyr`'s `_sr_cr_cosf` narrows kimiya's correctly rounded f64 cosine (`src/crmath.cyr`). Narrowing is
+right unless the f64 is itself an f32 midpoint, and there it takes crmath's triple-double accurate path. P13 runs
+the f64 cosine on **every non-negative finite f32**, 2,139,095,040 arguments in about 15 minutes (cos is even), and
+lists the midpoints:
+
+| Argument (bits) | Value | Ties to even | `_sr_cr_cosf` (accurate path) | `validate.py`'s `cos_f32_ref` |
+|---|---|---|---|---|
+| `0x59443c0a` | 3.45e15 | `0x3f425f62` | `0x3f425f62` | `0x3f425f62` |
+| `0x5f18b878` | 1.10e19 | `0x3f7f14bc` | **`0x3f7f14bb`** | `0x3f7f14bb` |
+| `0x6115cb11` | 1.73e20 | `0x3f78142e` | **`0x3f78142f`** | `0x3f78142f` |
+| `0x7a4b1a27` | 2.64e35 | `0x3f7c54da` | `0x3f7c54da` | `0x3f7c54da` |
+
+So 4 arguments, and their negatives, need the accurate path, and for 2 of them narrowing alone would be 1 ulp off.
+Everywhere else narrowing is exact, so `_sr_cr_cosf` is correctly rounded for every f32. The proof rests on two
+things: crmath's correctly rounded f64 cosine (kimiya's), and this exhaustive list. The four arguments are emitted
+rows of `tests/golden/lights.tsv`, and the decimal reference, which uses no libm, agrees on each.
+
 ### 1.5 P6, P7 and P8: the GPU path (`scripts/probes/gpu/`)
 
 **Setup.**
@@ -539,7 +558,7 @@ Same dev box and toolchain as §1. Re-run: `cyrius test --bounds tests/parity.tc
 |---|---|---|---|
 | `math` | 1,436 | A (since ADR 0003: the correct value) | **all 1,436 bit-identical to the correct value** (2026-11-18, Part 0b). Before: 287 identical to Rust, 1,149 accepted (E) |
 | `color` | 3,439 | A (since ADR 0003: the correct value) | **all 3,439 bit-identical to the correct value** (2026-11-18, Part 0c): the 3,397 recorded rows and 42 emitted for the exact path. Before: all identical to Rust, which was wrong on 239 of them (classes A, B) |
-| `lights` | 1,066 | A; C (`GpuLight::spot`, bound 0) | 1,038 identical; the **28 spot rows where glibc's `cosf` misrounds** (28 of 2,016 cosines, 1.4 %) give the correctly rounded value, never glibc's |
+| `lights` | 1,077 | A (since ADR 0003: the correct value) | **all 1,077 bit-identical to the correct value** (2026-11-18, Part 0c): the 1,066 recorded rows and 11 emitted. Before: 1,038 identical to Rust; the 28 spot rows where glibc's `cosf` misrounds (28 of 2,016 cosines, 1.4 %) through `lights.cr.tsv` |
 | `lod` | 770 | A | all identical, thresholds ± 1 ulp and NaN included |
 | `color_optics` | 1,704 | A | all identical, replayed by tests/parity_features.tcyr (the `optics` feature). Rust calls prakash 1.2.0 (glibc `powf`, `ln`); the port calls prakash 2.15.2: after narrowing to f32 the two agree on all 511 temperatures and 948 wavelengths |
 | `json` | 177 (+ 3 pending) | A | every serde_json document of a colour grid, and 25 hand-written ones (field order, array form, extra, missing and duplicated fields, null, strings, signed zeros, exponents, f32 and f64 overflow, trailing text), decode to Rust's bits or are refused as serde_json refuses them. Three are rows of their own, pending: the integer `-0`, an integer above `i64::MAX`, a duplicated unknown field (bayan's open issues; ADR 0002 #19) |

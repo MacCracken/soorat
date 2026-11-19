@@ -24,11 +24,12 @@ We are porting **away from Rust to Cyrius**.
 - **Rust 1.2.0** (tag `1.2.0`) is frozen in `rust-old/` as the functionality reference.
 - **The Cyrius port (2.0.0) has M0–M5 ported: the whole CPU track** (last commit `3fee87b`, "handoff").
   - **What "passing" means today is not yet correctness.** The corpus (29 golden modules, 27,017 rows) was recorded
-    from Rust by a Rust generator. After 0c's `color` bite, 19,069 rows still expect **Rust's outputs**. The other
-    7,948 expect the correct value:
+    from Rust by a Rust generator. After 0c's `color` and `lights` bites, 18,031 of its 27,028 rows still expect
+    **Rust's outputs**. The other 8,997 expect the correct value:
     - the 1,436 `math` rows, re-derived (0b);
     - the 3,439 `color` rows, re-derived (0c), 42 of them emitted;
-    - 3,073 swapped in from side tables: 2,965 class E, 34 correctly rounded, 49 adopted (R) and 25 under ADR 0002
+    - the 1,077 `lights` rows, re-derived (0c), 11 of them emitted;
+    - 3,045 swapped in from side tables: 2,965 class E, 6 correctly rounded, 49 adopted (R) and 25 under ADR 0002
       #14.
     - So "all pass" means that the port reproduces Rust where no side table overrides it.
     - Probe P2 found Rust's f32 matrix math correctly rounded on only 37–78 % of its outputs.
@@ -49,7 +50,15 @@ We are porting **away from Rust to Cyrius**.
   dependency). It has its consumer, `tests/p12_mabda.tcyr`, committed in `c137b6f`. Its binary and static-data cost
   is not recorded yet. That measurement is step 2 of M6.
 - **Committed by the maintainer:** Part 0a and 0b (`c137b6f`, `9b95cb5`).
-- **Uncommitted in this tree:** Part 0c's `color` bite.
+- **Uncommitted in this tree:** Part 0c's `color` and `lights` bites. `lights` adds:
+  - `src/crf32.cyr`, after `src/crsum.cyr` in every `[lib]` profile and in `tests/lib.cyr`;
+  - `src/lights.cyr` on `_sr_cr_cosf`;
+  - `validate.py`'s `cos_f32_ref`, `lights_reference` and `lights_extra_rows`;
+  - `tests/golden/lights.tsv`, with `lights.cr.tsv` deleted;
+  - probe P13 (`scripts/probes/math/p13_cosf_mid.tcyr`);
+  - ADR 0002 #34 (and #16's comparison), and port-parity §1.8 and §2.1.
+
+  The `color` bite has:
   - New: `src/crsum.cyr`, registered after `src/math.cyr` in every `[lib]` profile and in `tests/lib.cyr`.
   - Changed:
     - `src/color.cyr`, plus `src/env_cpu.cyr` and `src/acoustic_render.cyr`'s `PART0` calls;
@@ -118,8 +127,21 @@ This is large, so take small bites (CLAUDE.md, *Task Sizing*), each gated.
   - **The pattern**, extending 0b's: a `<module>_reference`, and a `check_<module>` that calls
     `rederive_module(module, expected, derive, extra)`; emitted rows for what the recorded grid misses; port
     changes where the reference disagrees.
-  - **Next, in M1 order:** `lights` (its `.cr.tsv` folds in), `tables` (with 0d's `tables_data.cyr`) and
-    `color_optics`. Then M2's `sprite`, `text` and `debug`.
+  - **`lights`: done 2026-11-18.**
+    - Rust (glibc `cosf`) was wrong on 28 spot rows, 1 ulp each (ADR 0002 #34).
+    - The reference's cosine is `cos_f32_ref`: decimal, no libm, its precision growing with the argument.
+    - The port's is `_sr_cr_cosf` (`src/crf32.cyr`): kimiya's correctly rounded f64 cosine narrowed, with crmath's
+      accurate path when the f64 is an f32 midpoint.
+    - **Probe P13** scanned every non-negative finite f32 and found 4 such arguments (port-parity §1.8). For 2 of
+      them narrowing alone would be wrong. They are emitted rows, so `_sr_cr_cosf` is proven, not just measured.
+    - `lights.cr.tsv` is folded in.
+  - **The f32 transcendentals still on `ganita_f32_*`** (measured, not proven: ganita narrows an f64 that is only
+    within 1 ulp) switch in their modules' bites:
+    - `sprite`'s and `debug`'s sin and cos need a `_sr_cr_sinf` beside `_sr_cr_cosf`, with its own P13-style
+      midpoint scan over every f32;
+    - `tables`' and `env`'s `powf` need the same for pow.
+  - **Next, in M1 order:** `tables` (with 0d's `tables_data.cyr`) and `color_optics`. Then M2's `sprite`, `text` and
+    `debug`.
   - Class C rows (`.cr.tsv`) become ordinary rows whose value is correctly rounded.
   - Class R (`pbr_optics.r.tsv`, prakash 2.15.2's LUT) is checked against the LUT integral, not against either
     implementation.

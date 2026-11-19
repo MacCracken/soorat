@@ -44,7 +44,7 @@ turn.
 | `color` | M1 | 3,439 | `Color` without its `optics` half: every byte in `from_rgba8`; `to_rgba8` at every k/510 and every halfway point (Rust rounds half away from zero); the colour maps across and beyond their domain, each stop ± 1 ulp, ±0, ±∞, NaN. **Re-derived (Part 0c, 2026-11-18)**: class A from `color_reference`, plus 42 emitted rows for the exact path of `src/crsum.cyr`. Rust 1.2.0 was wrong on 239 rows (ADR 0002 #33) |
 | `color_optics` | M1 | 1,704 | `Color`'s `optics` half (the oracle crate turns on soorat's `optics` feature and depends on prakash 1.2.0): `from_prakash` at f32 midpoints and the clamp's edges, `to_prakash`, `from_temperature` every 100 K, `from_wavelength` every 0.5 nm, `n:` for `None` (A). Replayed by tests/parity_features.tcyr |
 | `json` | M1 | 180 | serde_json 1.0.154 (rust-old's dev-dependency, at its version) reading `Color` documents: its own output for a colour grid, and hand-written ones for serde's derive semantics; `E:Deserialize` for a refusal (A). The three `Color::from_json_bayan_*` rows are pending (ADR 0002 #19) |
-| `lights` | M1 | 1,066 | the three light constructors and the light array; `GpuLight::spot`'s cone cosines are class C, and `lights.cr.tsv` holds the 28 rows where glibc's `cosf` misrounds (ADR 0002 #16) |
+| `lights` | M1 | 1,077 | the three light constructors and the light array; `GpuLight::spot`'s cone cosines. **Re-derived (Part 0c, 2026-11-18)**: class A from `lights_reference`, each cosine from `cos_f32_ref` (decimal, no libm); `lights.cr.tsv` is folded in, plus 11 emitted rows for probe P13's midpoint arguments and the range edges. Rust 1.2.0 (glibc `cosf`) was wrong on 28 rows (ADR 0002 #34) |
 | `lod` | M1 | 770 | `LodChain` and `TerrainLod`: every threshold ± 1 ulp, NaN, ±∞, empty chains, mismatched lengths (`E:Pipeline`) (A) |
 | `sprite` | M2 | 638 | `UvRect`, `Sprite`, `sort_by_z`'s permutation, `batch_to_vertices` (C: rotated quads, `sprite.cr.tsv`), and the limit batches as FNV-1a digests |
 | `text` | M2 | 479 | glyph rectangles, and the sprites of text and UI batches (A) |
@@ -115,7 +115,8 @@ without floating point: the f32 inputs as exact rationals (`fractions`), the for
 output rounded once to f32 (ties to even) by integer arithmetic. `math` is the first: every output there is a
 rational z or z / √W, so `round_sqrt_f32` rounds √(z²/W) exactly, and the sign of an exact zero follows IEEE 754's
 rules. A row with a non-finite input follows IEEE 754's special-value rules. `color` is the second (Rec. 709's exact
-luma weights, under ADR 0003's constants rule).
+luma weights, under ADR 0003's constants rule). `lights` is the third: its cosines come from `cos_f32_ref`, a decimal
+cosine whose precision grows with the argument (π to 90 + log10|x| digits), rounded once by integer arithmetic.
 
 `rederive_module` does the writing for every re-derived module. `--write` rewrites the module's outputs (the inputs
 and notes kept), appends its **emitted rows** and removes its retired side tables. The check fails when a row differs

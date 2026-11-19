@@ -1,9 +1,10 @@
 # lights.cyr — Rust 1.2.0's src/lights.rs (M1 part c): directional, point and spot lights packed for the GPU.
 #
 # `SrGpuLight` (64 bytes) and `SrLightArrayUniforms` (16 + 16 + 8 × 64 = 544 bytes) are src/layout.cyr's; these
-# functions fill them through pointers the caller owns. Every value is copied, except a spot light's cone cosines:
-# Rust's f32 `cos` is host glibc's, which misrounds about 1 % of arguments by 1 ulp (probe P3); ganita's f32 `cos`
-# is correctly rounded, so those rows are class C against tests/golden/lights.cr.tsv (ADR 0002 #16).
+# functions fill them through pointers the caller owns. Every value is copied, except a spot light's cone cosines,
+# which are correctly rounded (`_sr_cr_cosf`, src/crf32.cyr). Rust's f32 `cos` is host glibc's `cosf`, which misrounds
+# about 1 % of arguments by 1 ulp (probe P3): it is wrong on 28 recorded rows (ADR 0002 #16, #34). Every row of
+# tests/golden/lights.tsv holds the correct value (class A, ADR 0003).
 
 # Maximum number of lights in one draw call. Mirrors `MAX_LIGHTS`.
 var SR_MAX_LIGHTS = 8;
@@ -54,12 +55,12 @@ fn SrGpuLight_point(position, color, intensity, range, out) {
 
 # A spot light into out: position_type = (position, 2), direction_range = (direction, range), color_intensity =
 # (color, intensity), spot_params = (cos inner_cone, cos outer_cone, 0, 0). The cones are half-angles in radians, f32
-# bits; their cosines are correctly rounded (ganita_f32_cos). Mirrors `GpuLight::spot`.
+# bits; their cosines are correctly rounded (`_sr_cr_cosf`). Mirrors `GpuLight::spot`.
 fn SrGpuLight_spot(position, direction, color, intensity, range, inner_cone, outer_cone, out) {
     _sr_light_v4(out, load32(position), load32(position + 4), load32(position + 8), _SR_L2);
     _sr_light_v4(out + 16, load32(direction), load32(direction + 4), load32(direction + 8), range);
     _sr_light_v4(out + 32, load32(color), load32(color + 4), load32(color + 8), intensity);
-    _sr_light_v4(out + 48, ganita_f32_cos(inner_cone), ganita_f32_cos(outer_cone), _SR_L0, _SR_L0);
+    _sr_light_v4(out + 48, _sr_cr_cosf(inner_cone), _sr_cr_cosf(outer_cone), _SR_L0, _SR_L0);
     return out;
 }
 

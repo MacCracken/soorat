@@ -5,7 +5,7 @@
     python3 -I -B scripts/oracle/validate.py . --write   # rewrite the re-derived modules' rows and the side tables
 
 **The oracle is correctness** (ADR 0003): an expected output is its formula's exact value, rounded once, never
-Rust's output. A re-derived module (today `math` and `color`, by their `*_reference`) has its outputs computed without floating
+Rust's output. A re-derived module (today `math`, `color` and `lights`, by their `*_reference`) has its outputs computed without floating
 point, from exact rationals, and rounded by integer arithmetic; `--write` writes them into the module's rows.
 
 The modules not yet re-derived still hold the outputs the deleted Rust generator recorded. For them, Python's
@@ -779,48 +779,115 @@ def side_table(name, what, rows_out, plat):
     ] + rows_out) + "\n"
 
 
-def check_lights(plat):
-    """Re-derives every `lights` row; returns (rows that differ, the lights.cr.tsv rows)."""
-    path = os.path.join(GOLDEN, "lights.tsv")
-    if not os.path.exists(path):
-        return 0, []
-    _, body = rows(path)
-    bad, cr = 0, []
-    for fn, _cls, ins, outs, note in body:
-        x = g_values(ins)
-        want = g_values(outs)
-        if fn == "GpuLight::directional":
-            mine = x[0:3] + [0.0] + [0.0] * 4 + x[3:6] + [x[6]] + [0.0] * 4
-        elif fn == "GpuLight::point":
-            mine = x[0:3] + [1.0] + [0.0, 0.0, 0.0, x[7]] + x[3:6] + [x[6]] + [0.0] * 4
-        elif fn == "GpuLight::spot":
-            rust = x[0:3] + [2.0] + x[3:6] + [x[10]] + x[6:9] + [x[9]]
-            mine = rust + [cos_cr(x[11]), cos_cr(x[12]), 0.0, 0.0]
-            if not same(rust, want[0:12]):
-                bad += 1
-                print(f"lights: {fn} {note}: re-derived copies differ from the corpus")
-                continue
-            if not same(mine, want):
-                got = " ".join(f"g:{bits(v):08x}" for v in want[12:14])
-                cr.append(f"{fn}\t{ins}\t{g_tokens(outs, mine)}\t{note}; Rust 1.2.0 (glibc cosf) {got}")
-            continue
-        elif fn == "LightArrayUniforms::default":
-            mine = light_default()
-        elif fn == "LightArrayUniforms::set_lights":
-            n = i_values(ins)[0]
-            mine = light_default()
-            k = min(n, 8)
-            mine[4] = float(k)
-            mine[8:8 + 16 * k] = x[0:16 * k]
-        elif fn == "LightArrayUniforms::set_ambient":
-            mine = x[0:3] + [x[3]] + light_default()[4:]
-        else:
-            mine = None
-            print(f"lights: {fn}: no re-derivation in validate.py")
-        if mine is None or not same(mine, want):
-            bad += 1
-            print(f"lights: {fn} {note}: re-derived outputs differ from the corpus")
-    return bad, cr
+_PI_AT = {}
+
+
+def _dec_pi_at(prec):
+    """π to prec + 10 digits (Machin's formula), cached per precision."""
+    if prec not in _PI_AT:
+        with decimal.localcontext() as ctx:
+            ctx.prec = prec + 10
+
+            def arctan_inv(n):
+                x = decimal.Decimal(1) / n
+                x2, s, term, k = x * x, decimal.Decimal(0), x, 0
+                while term != 0:
+                    s += term / (2 * k + 1) if k % 2 == 0 else -term / (2 * k + 1)
+                    term *= x2
+                    k += 1
+                return s
+
+            _PI_AT[prec] = 4 * (4 * arctan_inv(5) - arctan_inv(239))
+    return _PI_AT[prec]
+
+
+def cos_f32_ref(x):
+    """cos x correctly rounded to f32, independently of any libm (ADR 0003). The argument is reduced by 2π with π to
+    90 + log10|x| digits, so the reduced argument keeps about 90 digits at any f32 size, then the Taylor series runs
+    at that precision. The decimal is within 1e-78 of cos x. It is rounded once to f32 by integer arithmetic, after a
+    check that no f32 midpoint lies within 1e-70 of it (a cosine of a nonzero f32 is transcendental, so none sits on
+    one)."""
+    if not math.isfinite(x):
+        return math.nan
+    if x == 0.0:
+        return 1.0
+    prec = 90 + max(0, int(math.log10(abs(x))) + 1)
+    with decimal.localcontext() as ctx:
+        ctx.prec = prec
+        two_pi = 2 * _dec_pi_at(prec)
+        X = decimal.Decimal(x)
+        r = X - two_pi * (X / two_pi).to_integral_value()
+        c, term, k = decimal.Decimal(0), decimal.Decimal(1), 1
+        while term != 0 and abs(term) > decimal.Decimal(10) ** -(prec + 5):
+            c += term
+            term = -term * r * r / ((2 * k - 1) * (2 * k))
+            k += 1
+    q = _Q(c)
+    rr = _out((q, 1 if q < 0 else 0))
+    eps = _Q(1, 10 ** 70)
+    for m in ((_Q(_next32(rr, -1)) + _Q(rr)) / 2, (_Q(rr) + _Q(_next32(rr))) / 2):
+        if abs(q - m) < eps:
+            raise ValueError(f"cos_f32_ref: cos({x!r}) is within 1e-70 of an f32 midpoint; raise the precision")
+    return rr
+
+
+def lights_reference(fn, ins, outs):
+    """The correct outputs of one `lights` row. Every value is a copy, an exact small integer (the light type, the
+    count) or a spot cone's cosine (cos_f32_ref)."""
+    x = g_values(ins)
+    if fn == "GpuLight::directional":
+        v = x[0:3] + [0.0] + [0.0] * 4 + x[3:6] + [x[6]] + [0.0] * 4
+    elif fn == "GpuLight::point":
+        v = x[0:3] + [1.0] + [0.0, 0.0, 0.0, x[7]] + x[3:6] + [x[6]] + [0.0] * 4
+    elif fn == "GpuLight::spot":
+        v = x[0:3] + [2.0] + x[3:6] + [x[10]] + x[6:9] + [x[9]] + [cos_f32_ref(x[11]), cos_f32_ref(x[12]), 0.0, 0.0]
+    elif fn == "LightArrayUniforms::default":
+        v = light_default()
+    elif fn == "LightArrayUniforms::set_lights":
+        n = i_values(ins)[0]
+        v = light_default()
+        k = min(n, 8)
+        v[4] = float(k)
+        v[8:8 + 16 * k] = x[0:16 * k]
+    elif fn == "LightArrayUniforms::set_ambient":
+        v = x[0:3] + [x[3]] + light_default()[4:]
+    else:
+        raise KeyError(fn)
+    return g_tokens(outs, v)
+
+
+# The f32 arguments whose correctly rounded f64 cosine is exactly an f32 midpoint (probe P13, every non-negative
+# finite f32): src/crf32.cyr's _sr_cr_cosf takes crmath's accurate path for them.
+P13_COS_MIDPOINTS = [0x59443C0A, 0x5F18B878, 0x6115CB11, 0x7A4B1A27]
+
+
+def lights_extra_rows():
+    """Emitted `lights` rows (ADR 0003): spot cones at the arguments the recorded grid misses. These are probe P13's
+    midpoint arguments (and their negatives), the largest f32, -1e30, 2^30 and -10^9, 2^20 (crmath's Payne–Hanek
+    switch) and its neighbours, the least subnormal, 2^-27 and its neighbours (crmath's cos = 1 cut-off),
+    and the f32 nearest π/2 and 3π/2 (cosines near 0)."""
+    cones = [from_bits(b) for b in P13_COS_MIDPOINTS]
+    cones += [-v for v in cones]
+    cones += [from_bits(0x7F7FFFFF), -1.0e30, 2.0 ** 30, -1.0e9, _next32(2.0 ** 20, -1), 2.0 ** 20, _next32(2.0 ** 20),
+              from_bits(1),
+              _next32(2.0 ** -27, -1), 2.0 ** -27, _next32(2.0 ** -27), r32(math.pi / 2), _next32(r32(math.pi / 2)),
+              r32(3 * math.pi / 2)]
+    if len(cones) % 2:
+        cones.append(0.0)
+    out = []
+    base = "v:3 g:3f800000 g:40000000 g:40400000 v:3 g:00000000 g:bf800000 g:00000000 v:3 g:3f800000 g:3f000000 g:3e800000 g:40200000 g:41200000"
+    tmpl = "v:16 " + " ".join(["g:00000000"] * 16)
+    for i in range(0, len(cones), 2):
+        ins = f"{base} {_gt(cones[i])} {_gt(cones[i + 1])}"
+        out.append(("GpuLight::spot", ins, tmpl, f"{EMITTED}cones {cones[i]!r} and {cones[i + 1]!r}"))
+    return out
+
+
+def check_lights():
+    """tests/golden/lights.tsv against lights_reference (rederive_module); lights.cr.tsv is folded in."""
+    return rederive_module(
+        "lights", "copies, the light types and counts exactly, and each spot cone's cosine correctly rounded to f32 "
+        "by scripts/oracle/validate.py's cos_f32_ref (80-digit decimal, no libm)", lights_reference, lights_extra_rows())
 
 
 # ── lod: f32 squares and comparisons (D4 rule a) ─────────────────────────────────────
@@ -3952,7 +4019,8 @@ def cube_ref():
 
 def main():
     failures = 0
-    plat = rows(os.path.join(GOLDEN, "lights.tsv"))[0][1].split("libm: ")[-1]
+    plat = next((h[1].split("libm: ")[-1] for h in (rows(os.path.join(GOLDEN, f))[0] for f in sorted(os.listdir(GOLDEN))
+                 if f.endswith(".tsv") and f.count(".") == 1) if len(h) > 1 and "libm: " in h[1]), "")
     failures += check_math()
 
     failures += check_color()
@@ -3962,7 +4030,7 @@ def main():
     failures += check_text()
     failures += check_render_graph()
     sides_e = []
-    lbad, lcr = check_lights(plat)
+    lbad = check_lights()
     tbad, tcr = check_tables(plat)
     sbad, scr = check_sprite()
     dbad, dcr = check_debug("debug")
@@ -4001,8 +4069,6 @@ def main():
     sides_e.append(("animation.e.tsv", "class-E rows (ADR 0002 #4, D4 rule b): Rust's formula in f64, rounded once to "
                     "f32, where that differs from Rust's f32 outputs", aerows))
     sides = sides_e + [
-        ("lights.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's outputs with each f32 cos correctly "
-         "rounded (glibc's f64 cos, rounded once), where glibc's cosf differs", lcr),
         ("tables.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's sRGB transfer functions with powf "
          "correctly rounded (glibc's f64 pow, rounded once), where glibc's powf differs by 1 ulp", tcr),
         ("sprite.cr.tsv", "correctly rounded rows (ADR 0002 #16): Rust 1.2.0's sprite quads with each rotation's sinf "

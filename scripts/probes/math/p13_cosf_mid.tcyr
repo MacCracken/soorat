@@ -1,0 +1,39 @@
+# P13 (Part 0c, ADR 0003): the f32 arguments whose correctly rounded f64 cosine (src/crmath.cyr) is exactly an f32
+# midpoint. There, src/crf32.cyr's _sr_cr_cosf can't narrow and needs crmath's accurate path. Every non-negative
+# finite f32 (cos is even, so the negatives mirror them). Each hit prints the argument's bits, the f64 midpoint
+# narrowed by ties to even, and _sr_cr_cosf's answer.
+#   cyrius test --bounds --timeout 0 scripts/probes/math/p13_cosf_mid.tcyr    (from the repository root; about 15
+#   minutes: a progress line every 2^26 arguments)
+
+include "tests/lib.cyr"
+
+fn main() {
+    var b = 0;
+    var hits = 0;
+    while (b < 0x7F800000) {
+        var xd: f64 = f32_to(b);
+        var y: f64 = _sr_km_cr_cos(xd);
+        if (_sr_f32_is_mid(y) == 1) {
+            println("hit");
+            fmt_hex0x(b);
+            println("");
+            fmt_hex0x(f32_from(y));
+            println("");
+            fmt_hex0x(_sr_cr_cosf(b));
+            println("");
+            hits = hits + 1;
+        }
+        b = b + 1;
+        if ((b & 0x3FFFFFF) == 0) {
+            println("at");
+            fmt_hex0x(b);
+            println("");
+        }
+    }
+    println("P13 hits:");
+    println_int(hits);
+    return 0;
+}
+
+var exit_code = main();
+sys_exit_group(exit_code);
