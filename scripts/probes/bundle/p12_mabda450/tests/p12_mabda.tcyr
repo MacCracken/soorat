@@ -1,0 +1,50 @@
+# P12 "mabda 4.5.0 as a dependency" (M6 step 3). P5's consumer (p5_dep/tests/p5_mabda.tcyr), at mabda 4.5.0.
+# A minimal mabda consumer on the wgpu backend, the default MABDA_BACKEND_KIND: mabda README's
+# quick-start include order and its mabda_main, verbatim. Nothing here needs a GPU: mabda_main is
+# reachable (so an undefined function it reaches would refuse the binary) but runs only under a
+# launcher, which a test never is. The measurement is the compile's diagnostics under --bounds.
+#   cyrius test --bounds tests/p12_mabda.tcyr
+
+include "lib/mmap.cyr"     # mmap flags (MAP_SHARED, …) — GPU buffer mapping
+include "lib/dynlib.cyr"   # dlopen/dlsym — wgpu-native FFI binding
+include "lib/sakshi.cyr"   # structured logging
+include "lib/mabda.cyr"    # mabda itself — MUST come last
+
+fn mabda_main(fn_table_ptr, preinit_ptr) {
+    wgpu_ffi_init_table(fn_table_ptr);
+
+    # Create GPU context (via C launcher pre-init).
+    # A Result is a (tag, payload) register pair since cyrius 6.6.0 —
+    # bind BOTH halves; the payload is the context handle.
+    var res_tag, res = gpu_context_from_preinit(preinit_ptr);
+    var ctx = res;
+    var device = gpu_ctx_device(ctx);
+    var queue = gpu_ctx_queue(ctx);
+
+    # Create a storage buffer
+    var usage = WGPU_BUFFER_USAGE_STORAGE | WGPU_BUFFER_USAGE_COPY_DST;
+    var desc = wgpu_buffer_descriptor("my-buf", usage, 1024, 0);
+    var buf = wgpu_device_create_buffer(device, desc);
+
+    # Write data
+    var data[64];
+    store64(&data, 42);
+    wgpu_queue_write_buffer(queue, buf, 0, &data, 64);
+
+    wgpu_buffer_release(buf);
+    gpu_context_release(ctx);
+    return 0;
+}
+
+fn p5_main(never) {
+    test_group("mabda 4.5.0, wgpu backend");
+    assert_eq(MABDA_BACKEND_KIND, BACKEND_KIND_WGPU, "default MABDA_BACKEND_KIND is wgpu");
+    var desc = wgpu_buffer_descriptor("p5", WGPU_BUFFER_USAGE_STORAGE, 64, 0);
+    assert(desc != 0, "wgpu_buffer_descriptor builds without a device");
+    if (never == 1) { mabda_main(0, 0); }   # reachable, never run
+    return 0;
+}
+
+alloc_init();
+p5_main(0);
+var r = assert_summary();

@@ -46,5 +46,5 @@ Caused by:
       Shader global ResourceBinding { group: 0, binding: 0 } is not available in the pipeline layout
         Visibility flags don't include the shader stage
 
-  sprite  [Vertex2D 32 B; g0 uniform(V); g1 tex+sampler; alpha blend] ... pipeline OK  create_us=245
+  sprite  [Vertex2D 32 B; g0 uniform(V); g1 tex+sampler; alpha blend] ... pipeline OK  create_us=252
 process alive after 3 rejected pipelines; a valid pipeline afterwards: OK

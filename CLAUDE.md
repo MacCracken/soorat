@@ -4,9 +4,10 @@
 
 **Soorat** (Arabic/Urdu: image/form, Farsi: face) — GPU rendering engine — wgpu, sprites, meshes, shaders, PBR pipeline, window management
 
-- **Type**: Library: Cyrius at the root (the 2.0.0 port in progress); the Rust 1.2.0 oracle in `rust-old/`
+- **Type**: Library: Cyrius at the root (the 2.0.0 port in progress); the Rust 1.2.0 source in `rust-old/`, the
+  functionality reference
 - **License**: GPL-3.0-only
-- **Toolchains**: Cyrius 6.7.18 (`cyrius.cyml`); Rust MSRV 1.100 (the oracle only)
+- **Toolchains**: Cyrius 6.7.18 (`cyrius.cyml`). No Rust toolchain: nothing builds or runs Rust
 - **Version**: SemVer 1.2.0 (`VERSION`; the Cyrius port ships as 2.0.0)
 
 ## Consumers
@@ -18,15 +19,22 @@ kiran (game rendering), salai (editor viewport), joshua (visualization)
 ## Cyrius Port (in progress, 2.0.0)
 
 soorat is being ported to Cyrius. Plan of record: `docs/development/soorat-port-plan.md`. Measurements:
-`docs/development/port-parity.md`. Decisions: `docs/adr/0001`, `docs/adr/0002`. Volatile status:
+`docs/development/port-parity.md`. Decisions: `docs/adr/0001`, `docs/adr/0002`, `docs/adr/0003`. Volatile status:
 `docs/development/state.md`. **Picking the port up? Start with `docs/development/handoff.md`.**
 
 **Layout.**
 - The **repository root is the Cyrius project**: `cyrius.cyml`, `src/`, `tests/`.
-- **`rust-old/` is the frozen Rust 1.2.0 oracle.**
-  - **Never edit it.** A wrong oracle value is fixed as a Rust 1.2.x release, and the corpus is regenerated.
-  - The `cargo` commands in the processes below run **inside `rust-old/`**, and only to prove the oracle is
-    still green.
+- **`rust-old/` is the frozen Rust 1.2.0 source: the functionality reference, not the oracle** (ADR 0003).
+  - It says *what* to port: the surface, the behaviour, the tests. **Never edit it**, and **never delete it until the
+    port is finished.**
+  - **Rust may be wrong.** Its outputs are never the expected value. Where it disagrees with the correct result, the
+    port does the correct thing and the disagreement is recorded (an ADR 0002 row). Never release Rust 1.2.x to fix it.
+  - **No Rust in the test path**: no `cargo` in the gate or CI, no Rust in `scripts/`.
+
+**The oracle is correctness** (ADR 0003): every expected value is derived from the mathematics or the governing
+specification, independently of Rust. Arithmetic is evaluated exactly (or at high precision for roots and
+transcendentals) and rounded once to the output type; non-numeric behaviour follows its spec (glTF 2.0, JSON, WGSL
+layout rules) through an independent model.
 
 **Cyrius cleanliness check** (every work-loop step that says "cleanliness check"):
 - `cyrius deps --locked --features optics,physics-debug,acoustics,thermo,fluids` (the tests use every feature),
@@ -65,7 +73,7 @@ soorat is being ported to Cyrius. Plan of record: `docs/development/soorat-port-
 
 0. Read roadmap, CHANGELOG, and open issues — know what was intended before auditing what was built
 1. Test + benchmark sweep of existing code
-2. Cleanliness check. Cyrius: see *Cyrius Port* above. The oracle, in `rust-old/`: `cargo fmt --check`, `cargo clippy --all-features --all-targets -- -D warnings`, `cargo audit`, `cargo deny check`, `RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps`
+2. Cleanliness check: see *Cyrius Port* above
 3. Get baseline benchmarks (`./scripts/bench-history.sh`)
 4. Internal deep review — gaps, optimizations, security, logging/errors, docs
 5. External research — domain completeness, missing capabilities, best practices, world-class accuracy
@@ -77,7 +85,7 @@ soorat is being ported to Cyrius. Plan of record: `docs/development/soorat-port-
 ### Work Loop / Working Loop (continuous)
 
 1. Work phase — new features, roadmap items, bug fixes
-2. Cleanliness check. Cyrius: see *Cyrius Port* above. The oracle, in `rust-old/`: `cargo fmt --check`, `cargo clippy --all-features --all-targets -- -D warnings`, `cargo audit`, `cargo deny check`, `RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps`
+2. Cleanliness check: see *Cyrius Port* above
 3. Test + benchmark additions for new code
 4. Run benchmarks (`./scripts/bench-history.sh`)
 5. Internal review — performance, memory, security, throughput, correctness

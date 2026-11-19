@@ -1,68 +1,72 @@
-# scripts/oracle: the golden corpus from the Rust oracle
+# scripts/oracle: the golden corpus and its correctness reference
 
-`soorat-oracle` drives the frozen Rust soorat **1.2.0** in [`rust-old/`](../../rust-old/), with its hidden
-`oracle` hooks (port plan D1), and writes the golden corpus, `tests/golden/<module>.tsv`: one row per call, every
-float as its IEEE-754 bit pattern. The Cyrius parity harness (`tests/parity.tcyr`, on `tests/parity_core.cyr`
-and `tests/ulp.cyr`) replays every row against the port. `validate.py` re-derives the rows independently of Rust
-and writes the class-E rows.
+**No Rust is built or run here** ([ADR 0003](../../docs/adr/0003-correctness-is-the-oracle.md)). Rust 1.2.0 in
+[`rust-old/`](../../rust-old/) is the functionality reference: it says what each function does. It is **not** the
+oracle, and its outputs are never the expected value. **The oracle is correctness**: each expected output is the
+function's mathematics evaluated exactly (or at high precision for roots and transcendentals) and rounded once to the
+output type, or, for non-numeric behaviour, what the governing specification requires.
+
+**Where the corpus stands (2026-11-18).** The Rust generator that recorded `tests/golden/*.tsv` (`src/m_*.rs`, a
+cargo crate driving `rust-old/`) is deleted; its source is in git history at `3fee87b`. The rows it wrote are still
+the corpus, so today most expected values are still **Rust's outputs**, with the correct value swapped in only where
+a side table says so (`.e.tsv`, `.cr.tsv`, `.r.tsv`). That is the defect ADR 0003 removes: module by module, the
+expected outputs are re-derived from the correctness reference (`validate.py`), the inputs kept, and every row where
+Rust's recorded value is wrong is listed as a Rust defect. The tracking is in `docs/development/handoff.md`.
 
 ```sh
-cargo run --release --locked --manifest-path scripts/oracle/Cargo.toml             # write tests/golden/*.tsv + modules.txt
-cargo run --release --locked --manifest-path scripts/oracle/Cargo.toml -- --check  # verify; exit 1 on any difference, 2 on another platform
-python3 -I -B scripts/oracle/validate.py .                                         # re-derive every row; check the .e.tsv
+python3 -I -B scripts/oracle/validate.py .                                         # re-derive every row; check the side tables
 python3 -I -B scripts/oracle/validate.py . --write                                 # (re)write the .e.tsv, .cr.tsv and .r.tsv side tables
 python3 -I -B scripts/oracle/gen_layout.py . [--check]                              # (re)write src/layout.cyr, tests/layout_probe.cyr
 python3 -I -B scripts/oracle/gen_tables.py . [--check]                              # (re)write src/tables_data.cyr
 cyrius test --bounds tests/parity.tcyr                                             # replay the corpus against the port
 ```
 
-The format, the comparison rules and the harness are pravash's, which are impetus's, kimiya's and tanmatra's.
-Every port's harness reads the same files. This README records what is specific to soorat.
-
 ## Rules
 
-- **`rust-old/` is never edited.** This crate depends on it by path. `Cargo.lock` was seeded from
-  `rust-old/Cargo.lock`. Building this crate pruned the packages it doesn't need and added only
-  `soorat-oracle`; no shared dependency changed version.
-- **The output is deterministic.** Two runs give byte-identical files. Grids use only + − × ÷, exact conversions
-  and the probes' seeded xorshift64. They never use a transcendental std call, a timestamp or a hash-map order.
-- **Every header records the platform** (`libm: glibc 2.44 x86_64 fma`), and `--check` refuses a corpus recorded
-  on another. Today's modules call no libm function, but class-C modules (from M1) will.
-- **A row is never patched.** A wrong value is fixed in Rust as 1.2.x and recorded again.
-- **Modules arrive with their milestone.** Each one adds `src/m_<module>.rs` with the grid from the port plan
-  §7, registers it in `src/main.rs`, and adds its re-derivation to `validate.py`.
+- **`rust-old/` is never edited, and never deleted until the port is finished.** It is read for functionality only.
+- **Rust may be wrong.** A row's expected value comes from the correctness reference, never from Rust. Where Rust's
+  recorded output disagrees, the reference is checked first (a defect there is fixed in the reference); a confirmed
+  disagreement is a Rust defect, recorded as an ADR 0002 row. Rust 1.2.x is never released to change the corpus.
+- **The output is deterministic.** Two runs give byte-identical files: inputs from fixed grids and seeded xorshift64,
+  no timestamp, no hash-map order.
+- **Every header records the platform** where a row depends on it (glibc's libm, for the rows that document where
+  glibc misrounds).
+- **Modules arrive with their milestone**, with their inputs built and their outputs derived in Python here.
 
-| Module | Milestone | Rows | Emitter | What |
-|---|---|---|---|---|
-| `constants` | M0 | 18 | `src/m_constants.rs` | public constants (`MAX_*`, `IDENTITY_MAT4`, the `Color` constants, `UvRect::FULL`) and the oracle's `MAX_SEGMENTS`, `MAX_QUADS`, `XZ_QUAD_INDICES`. `validate.py` checks the integers against the literals in `rust-old/src` |
-| `layout` | M0 | 19 | `src/m_layout.rs` | size and field offsets of every GPU-facing `#[repr(C)]` type (probe P1) |
-| `math` | M0 | 1,436 | `src/m_math.rs` | `math_util` on probe P2's grid: `mul_mat4`, `normalize3`, `cross`, `perspective_90`, `look_at`, `compose_trs`, `normal_to_basis` (class E) and `flatten_mat4` (class A). `math.e.tsv`: 1,149 rows where f64-once differs |
-| `color` | M1 | 3,397 | `src/m_color.rs` | `Color` without its `optics` half: every byte in `from_rgba8`; `to_rgba8` at every k/510 and every halfway point (Rust rounds half away from zero); the colour maps across and beyond their domain, each stop ± 1 ulp, ±0, ±∞, NaN (A, B) |
-| `color_optics` | M1 | 1,704 | `src/m_color_optics.rs` | `Color`'s `optics` half (the oracle crate turns on soorat's `optics` feature and depends on prakash 1.2.0): `from_prakash` at f32 midpoints and the clamp's edges, `to_prakash`, `from_temperature` every 100 K, `from_wavelength` every 0.5 nm, `n:` for `None` (A). Replayed by tests/parity_features.tcyr |
-| `json` | M1 | 180 | `src/m_json.rs` | serde_json 1.0.154 (rust-old's dev-dependency, at its version) reading `Color` documents: its own output for a colour grid, and hand-written ones for serde's derive semantics; `E:Deserialize` for a refusal (A). The three `Color::from_json_bayan_*` rows are pending (ADR 0002 #19) |
-| `lights` | M1 | 1,066 | `src/m_lights.rs` | the three light constructors and the light array; `GpuLight::spot`'s cone cosines are class C, and `lights.cr.tsv` holds the 28 rows where glibc's `cosf` misrounds (ADR 0002 #16) |
-| `lod` | M1 | 770 | `src/m_lod.rs` | `LodChain` and `TerrainLod`: every threshold ± 1 ulp, NaN, ±∞, empty chains, mismatched lengths (`E:Pipeline`) (A) |
-| `sprite` | M2 | 638 | `src/m_sprite.rs` | `UvRect`, `Sprite`, `sort_by_z`'s permutation, `batch_to_vertices` (C: rotated quads, `sprite.cr.tsv`), and the limit batches as FNV-1a digests |
-| `text` | M2 | 479 | `src/m_text.rs` | glyph rectangles, and the sprites of text and UI batches (A) |
-| `debug` | M2 | 151 | `src/m_debug.rs` | `LineBatch`'s lines and wire shapes (A; circles C, `debug.cr.tsv`) |
-| `debug_collider` | M2 | 60 | `src/m_debug.rs` | `LineBatch::collider` over impetus 1.4.0's shapes (the oracle turns on `physics-debug`), C. Replayed by tests/parity_features.tcyr |
-| `primitives` | M3 | 28 | `src/m_geom.rs` | the cube (A); spheres from 0 × 0 (clamped) to 32 × 16, planes and cylinders up to 100 segments (E). `primitives.e.tsv`: 23 rows where f64-once differs |
-| `viz` | M3 | 599 | `src/m_geom.rs` | `unit_t`, `signed_t`, `magnitude_t` on a grid with NaN, ±∞, ±0 and empty ranges; `finite_min_max`, the grid checks, `with_alpha` (A); `heat_rgba`, `signed_rgba` (B); XZ heatmaps and height fields with non-finite heights, zero spacing and single rows (E); `lattice_indices` (A). `viz.e.tsv`: 8 rows |
-| `terrain` | M3 | 10 | `src/m_geom.rs` | `TerrainConfig::default`, `flat_heightmap` (A); six terrains from 0 × 5 to 32 × 32, one with a short height map and one with a NaN height (E). `terrain.e.tsv`: 5 rows |
-| `shadow` | M4 | 6,972 | `src/m_shadow.rs` | `directional_light_matrix(_at)` (directions across the 0.99 up switch, every guard on both sides), `compute_practical_splits` (sanitized and overflowing inputs), `PointShadowMap::new` (E); the atlas tile math at its zero and saturation edges, the uniforms' defaults (A). `shadow.e.tsv`: 1,539 rows |
-| `env` | M4 | 197 | `src/m_env.rs` | environment's CPU half through the oracle hooks: `decode_face` (every byte, f16 specials; A), `encode_face` (linear values at every sRGB byte boundary ± 3 ulps, specials; C, `env.cr.tsv`), `downsample` (sizes 0 … 64, short input; B), `face_mip_chain` (both encodings, sizes 1 … 64; C/B), mabda's `mip_level_count` (A) |
-| `pbr_material` | M4 | 69 | `src/m_env.rs` | `MaterialUniforms::default`, `dielectric`, `metal` (A) |
-| `acoustic` | M5 | 81 | `src/m_acoustic.rs` | `acoustic_heat_map` at its edges, NaN, ±∞ and ±1 ulp around each band; `AcousticVisParams` and `DecayCurveParams` defaults (A) |
-| `acoustic_render` | M5 | 752 | `src/m_acoustic.rs` | the `acoustics` renderers on goonj 1.4.3's types built from f32-representable values (E): `ray_paths_to_lines` (empty, one and many bounces, NaN, infinite, negative, overflowing and −0 band energies, 200 random), `portal_to_lines` (axis and oblique normals, the 0.99 switch ± 3 ulps, zero and NaN normals, 200 random), `coupled_decay_to_lines` (every guard, step counts 0 … 500, 100 random); the meshes (part b): `pressure_map_slice` (empty, unbacked and out-of-range grids, non-finite values in every mode, 60 random), `mode_pattern_to_mesh` (empty, short, single-column, non-finite, 60 random), `directivity_balloon_to_mesh` (the segment minimums, missing tables, missing and NaN gains, zero and NaN fronts, 40 random). `acoustic_render.e.tsv`: 564 rows. Replayed by tests/parity_acoustics.tcyr |
-| `thermo` | M5 | 12 | `src/m_thermo.rs` | `thermal_heat_map`; `ThermalVisParams` and `CycleDiagramParams` defaults (A) |
-| `thermo_render` | M5 | 236 | `src/m_thermo.rs` | the `thermo` renderers on ushma 1.4.0's types, any f64 (`f:`): `thermal_grid_to_mesh` (empty, short, out-of-range and NaN values in both modes, equal and NaN bounds, inexact origin and spacing, 40 random), `temperature_profile_to_lines`, `cycle_diagram_to_lines` (non-finite points, degenerate ranges), `thermal_network_to_lines` (missing nodes, short conductances, non-finite values), `heat_flux_to_arrows` (NaN, stale and infinite maxima, f32 overflow), 40 random each (E). `thermo_render.e.tsv`: 189 rows. Replayed by tests/parity_thermo.tcyr |
-| `fluid` | M5 | 8 | `src/m_fluid.rs` | `fluid_heat_map` (0, ½, 1, out of range, NaN, an inexact value); `ParticleColorParams::default` (A) |
-| `fluid_render` | M5 | 143 | `src/m_fluid.rs` | the `fluids` renderers on pravash 1.3.0's types, any f64 (`f:`): `particles_to_quads` (no particles, every colour mode, zero and NaN maxima, an inexact speed ratio, odd values in each mode, 40 random), `particles_to_billboards` (no particles, a turned camera, skew and zero bases, odd values in each mode, 40 random), `shallow_water_to_mesh` (one column or row, dx 0, negative, NaN, past and below f32, short heights, non-finite heights, flat and centred surfaces, 30 random) (E). `fluid_render.e.tsv`: 117 rows. Replayed by tests/parity_fluids.tcyr |
-| `render_graph` | M4 | 435 | `src/m_rg.rs` | `RenderGraph` driven by scripts of its public calls (add, depend, enable), with the order, the counts and passes queried along the way: the four starting graphs and changes to the forward ones, Rust's ten tests, cycles, missing and disabled dependencies, escaped names, a 300-pass chain, a 100-pass fan-in and 400 random scripts (A). `validate.py` re-derives every row with an independent model |
-| `pbr_optics` | M4 | 114 | `src/m_env.rs` | the `optics` half: `MaterialUniforms::from_ior` over every IOR edge (A), and `generate_brdf_lut` at sizes 0 … 32 and 0 … 128 samples (prakash 1.2.0's, in the corpus). The port adopts prakash 2.15.2's LUT: `pbr_optics.r.tsv` holds the 49 LUTs whose bytes change (class R, ADR 0002 #27). Replayed by tests/parity_features.tcyr |
-| `gltf` | M3 | 292 | `src/m_gltf.rs` | `load_gltf_meshes` and `load_gltf_animations` on 146 fixtures written to `tests/golden/gltf/` (a row's input names its file): probe P9's 51, and variants for the schema, sparse accessors, matrix joints and the reader's rules. `E:Model` for an error, `s:panic` where Rust panics (ADR 0002 #14). `gltf.cr.tsv`: 1 row (correctly rounded decimals). `validate.py` re-derives the accepted documents |
-| `animation` | M3 | 1,777 | `src/m_anim.rs` | `Joint` and `JointUniforms` defaults, `set_joints` (A); slerp across the 0.9995 switch (each side ± 3 ulp), random and near-switch pairs, degenerate quaternions (E); brackets, linear and rotation interpolation on 14 tracks (duplicate, unsorted, NaN and infinite times, keys an ulp apart) at every key, midpoint and edge (A, rotation E); sampler pairing for every mode (A); local and world transforms and joint matrices of chains of 1–130 joints, leaf-first, cyclic and random (E); clip sampling with wrapped, non-finite and huge times, odd durations, STEP rotations and the bench clip (E). `animation.e.tsv`: 520 rows |
-| `tables` | M1 | 5,215 | `src/m_tables.rs` | `environment`'s f16 and sRGB conversions, through the oracle hooks. f16 ⇄ f32 (A, 64 values a row): every subnormal half, every exponent's mantissa edges, every rounding midpoint ± 1 ulp, NaN payloads. sRGB (C): dense grids, each knee ± 2 ulp; `tables.cr.tsv` holds the 3 rows where glibc's `powf` misrounds. The 256-entry decode table (A), which `gen_tables.py` turns into `src/tables_data.cyr` |
+The modules below were recorded by the deleted Rust generator; each is re-derived from the correctness reference in
+turn.
+
+| Module | Milestone | Rows | What |
+|---|---|---|---|
+| `constants` | M0 | 18 | public constants (`MAX_*`, `IDENTITY_MAT4`, the `Color` constants, `UvRect::FULL`) and the oracle's `MAX_SEGMENTS`, `MAX_QUADS`, `XZ_QUAD_INDICES`. `validate.py` checks the integers against the literals in `rust-old/src` |
+| `layout` | M0 | 19 | size and field offsets of every GPU-facing `#[repr(C)]` type (probe P1) |
+| `math` | M0 | 1,436 | `math_util` on probe P2's grid: `mul_mat4`, `normalize3`, `cross`, `perspective_90`, `look_at`, `compose_trs`, `normal_to_basis` (class E) and `flatten_mat4` (class A). `math.e.tsv`: 1,149 rows where f64-once differs |
+| `color` | M1 | 3,397 | `Color` without its `optics` half: every byte in `from_rgba8`; `to_rgba8` at every k/510 and every halfway point (Rust rounds half away from zero); the colour maps across and beyond their domain, each stop ± 1 ulp, ±0, ±∞, NaN (A, B) |
+| `color_optics` | M1 | 1,704 | `Color`'s `optics` half (the oracle crate turns on soorat's `optics` feature and depends on prakash 1.2.0): `from_prakash` at f32 midpoints and the clamp's edges, `to_prakash`, `from_temperature` every 100 K, `from_wavelength` every 0.5 nm, `n:` for `None` (A). Replayed by tests/parity_features.tcyr |
+| `json` | M1 | 180 | serde_json 1.0.154 (rust-old's dev-dependency, at its version) reading `Color` documents: its own output for a colour grid, and hand-written ones for serde's derive semantics; `E:Deserialize` for a refusal (A). The three `Color::from_json_bayan_*` rows are pending (ADR 0002 #19) |
+| `lights` | M1 | 1,066 | the three light constructors and the light array; `GpuLight::spot`'s cone cosines are class C, and `lights.cr.tsv` holds the 28 rows where glibc's `cosf` misrounds (ADR 0002 #16) |
+| `lod` | M1 | 770 | `LodChain` and `TerrainLod`: every threshold ± 1 ulp, NaN, ±∞, empty chains, mismatched lengths (`E:Pipeline`) (A) |
+| `sprite` | M2 | 638 | `UvRect`, `Sprite`, `sort_by_z`'s permutation, `batch_to_vertices` (C: rotated quads, `sprite.cr.tsv`), and the limit batches as FNV-1a digests |
+| `text` | M2 | 479 | glyph rectangles, and the sprites of text and UI batches (A) |
+| `debug` | M2 | 151 | `LineBatch`'s lines and wire shapes (A; circles C, `debug.cr.tsv`) |
+| `debug_collider` | M2 | 60 | `LineBatch::collider` over impetus 1.4.0's shapes (the oracle turns on `physics-debug`), C. Replayed by tests/parity_features.tcyr |
+| `primitives` | M3 | 28 | the cube (A); spheres from 0 × 0 (clamped) to 32 × 16, planes and cylinders up to 100 segments (E). `primitives.e.tsv`: 23 rows where f64-once differs |
+| `viz` | M3 | 599 | `unit_t`, `signed_t`, `magnitude_t` on a grid with NaN, ±∞, ±0 and empty ranges; `finite_min_max`, the grid checks, `with_alpha` (A); `heat_rgba`, `signed_rgba` (B); XZ heatmaps and height fields with non-finite heights, zero spacing and single rows (E); `lattice_indices` (A). `viz.e.tsv`: 8 rows |
+| `terrain` | M3 | 10 | `TerrainConfig::default`, `flat_heightmap` (A); six terrains from 0 × 5 to 32 × 32, one with a short height map and one with a NaN height (E). `terrain.e.tsv`: 5 rows |
+| `shadow` | M4 | 6,972 | `directional_light_matrix(_at)` (directions across the 0.99 up switch, every guard on both sides), `compute_practical_splits` (sanitized and overflowing inputs), `PointShadowMap::new` (E); the atlas tile math at its zero and saturation edges, the uniforms' defaults (A). `shadow.e.tsv`: 1,539 rows |
+| `env` | M4 | 197 | environment's CPU half through the oracle hooks: `decode_face` (every byte, f16 specials; A), `encode_face` (linear values at every sRGB byte boundary ± 3 ulps, specials; C, `env.cr.tsv`), `downsample` (sizes 0 … 64, short input; B), `face_mip_chain` (both encodings, sizes 1 … 64; C/B), mabda's `mip_level_count` (A) |
+| `pbr_material` | M4 | 69 | `MaterialUniforms::default`, `dielectric`, `metal` (A) |
+| `acoustic` | M5 | 81 | `acoustic_heat_map` at its edges, NaN, ±∞ and ±1 ulp around each band; `AcousticVisParams` and `DecayCurveParams` defaults (A) |
+| `acoustic_render` | M5 | 752 | the `acoustics` renderers on goonj 1.4.3's types built from f32-representable values (E): `ray_paths_to_lines` (empty, one and many bounces, NaN, infinite, negative, overflowing and −0 band energies, 200 random), `portal_to_lines` (axis and oblique normals, the 0.99 switch ± 3 ulps, zero and NaN normals, 200 random), `coupled_decay_to_lines` (every guard, step counts 0 … 500, 100 random); the meshes (part b): `pressure_map_slice` (empty, unbacked and out-of-range grids, non-finite values in every mode, 60 random), `mode_pattern_to_mesh` (empty, short, single-column, non-finite, 60 random), `directivity_balloon_to_mesh` (the segment minimums, missing tables, missing and NaN gains, zero and NaN fronts, 40 random). `acoustic_render.e.tsv`: 564 rows. Replayed by tests/parity_acoustics.tcyr |
+| `thermo` | M5 | 12 | `thermal_heat_map`; `ThermalVisParams` and `CycleDiagramParams` defaults (A) |
+| `thermo_render` | M5 | 236 | the `thermo` renderers on ushma 1.4.0's types, any f64 (`f:`): `thermal_grid_to_mesh` (empty, short, out-of-range and NaN values in both modes, equal and NaN bounds, inexact origin and spacing, 40 random), `temperature_profile_to_lines`, `cycle_diagram_to_lines` (non-finite points, degenerate ranges), `thermal_network_to_lines` (missing nodes, short conductances, non-finite values), `heat_flux_to_arrows` (NaN, stale and infinite maxima, f32 overflow), 40 random each (E). `thermo_render.e.tsv`: 189 rows. Replayed by tests/parity_thermo.tcyr |
+| `fluid` | M5 | 8 | `fluid_heat_map` (0, ½, 1, out of range, NaN, an inexact value); `ParticleColorParams::default` (A) |
+| `fluid_render` | M5 | 143 | the `fluids` renderers on pravash 1.3.0's types, any f64 (`f:`): `particles_to_quads` (no particles, every colour mode, zero and NaN maxima, an inexact speed ratio, odd values in each mode, 40 random), `particles_to_billboards` (no particles, a turned camera, skew and zero bases, odd values in each mode, 40 random), `shallow_water_to_mesh` (one column or row, dx 0, negative, NaN, past and below f32, short heights, non-finite heights, flat and centred surfaces, 30 random) (E). `fluid_render.e.tsv`: 117 rows. Replayed by tests/parity_fluids.tcyr |
+| `render_graph` | M4 | 435 | `RenderGraph` driven by scripts of its public calls (add, depend, enable), with the order, the counts and passes queried along the way: the four starting graphs and changes to the forward ones, Rust's ten tests, cycles, missing and disabled dependencies, escaped names, a 300-pass chain, a 100-pass fan-in and 400 random scripts (A). `validate.py` re-derives every row with an independent model |
+| `pbr_optics` | M4 | 114 | the `optics` half: `MaterialUniforms::from_ior` over every IOR edge (A), and `generate_brdf_lut` at sizes 0 … 32 and 0 … 128 samples (prakash 1.2.0's, in the corpus). The port adopts prakash 2.15.2's LUT: `pbr_optics.r.tsv` holds the 49 LUTs whose bytes change (class R, ADR 0002 #27). Replayed by tests/parity_features.tcyr |
+| `gltf` | M3 | 292 | `load_gltf_meshes` and `load_gltf_animations` on 146 fixtures written to `tests/golden/gltf/` (a row's input names its file): probe P9's 51, and variants for the schema, sparse accessors, matrix joints and the reader's rules. `E:Model` for an error, `s:panic` where Rust panics (ADR 0002 #14). `gltf.cr.tsv`: 1 row (correctly rounded decimals). `validate.py` re-derives the accepted documents |
+| `animation` | M3 | 1,777 | `Joint` and `JointUniforms` defaults, `set_joints` (A); slerp across the 0.9995 switch (each side ± 3 ulp), random and near-switch pairs, degenerate quaternions (E); brackets, linear and rotation interpolation on 14 tracks (duplicate, unsorted, NaN and infinite times, keys an ulp apart) at every key, midpoint and edge (A, rotation E); sampler pairing for every mode (A); local and world transforms and joint matrices of chains of 1–130 joints, leaf-first, cyclic and random (E); clip sampling with wrapped, non-finite and huge times, odd durations, STEP rotations and the bench clip (E). `animation.e.tsv`: 520 rows |
+| `tables` | M1 | 5,215 | `environment`'s f16 and sRGB conversions, through the oracle hooks. f16 ⇄ f32 (A, 64 values a row): every subnormal half, every exponent's mantissa edges, every rounding midpoint ± 1 ulp, NaN payloads. sRGB (C): dense grids, each knee ± 2 ulp; `tables.cr.tsv` holds the 3 rows where glibc's `powf` misrounds. The 256-entry decode table (A), which `gen_tables.py` turns into `src/tables_data.cyr` |
 
 ## Format 1
 

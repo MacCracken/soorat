@@ -1,6 +1,7 @@
 # 0001 — Port soorat to Cyrius, with the frozen Rust 1.2.0 crate as the oracle
 
-**Status**: Accepted
+**Status**: Accepted; the oracle clause (Rust 1.2.0's outputs as the expectation, fixed by 1.2.x releases) and
+D4's "keep Rust's f32 sequence" are superseded by [ADR 0003](0003-correctness-is-the-oracle.md)
 **Date**: 2026-11-15
 
 ## Context

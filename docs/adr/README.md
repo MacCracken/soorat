@@ -21,5 +21,6 @@ Decisions about soorat — what we chose, the context, and the consequences we a
 
 | ADR | Title | Status |
 |---|---|---|
-| [0001](0001-cyrius-port-with-rust-oracle.md) | Port soorat to Cyrius, with the frozen Rust 1.2.0 crate as the oracle | Accepted |
+| [0001](0001-cyrius-port-with-rust-oracle.md) | Port soorat to Cyrius, with the frozen Rust 1.2.0 crate as the oracle | Accepted; oracle clause superseded by 0003 |
 | [0002](0002-port-api-divergences.md) | API divergences between Rust 1.2.0 and the Cyrius 2.0.0 port | Accepted (growing) |
+| [0003](0003-correctness-is-the-oracle.md) | Correctness is the oracle; Rust 1.2.0 is the functionality reference | Accepted |

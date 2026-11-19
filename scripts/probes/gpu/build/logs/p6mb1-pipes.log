@@ -3,15 +3,15 @@ mabda: DEPRECATION - AMD-on-wgpu is deprecated (v4.0.1); use BACKEND_KIND_AMD na
   The AMD wgpu route retires in a future release; build -D MABDA_AMD_WGPU_STRICT to enforce now.
 context OK backend_kind=1 launcher_slots=83
 adapter vendor_id=0x1002 device_id=0x1638 name=AMD Radeon Graphics (RADV RENOIR)
-  sprite  [Vertex2D 32 B; g0 uniform(V); g1 tex+sampler; alpha blend] ... pipeline OK  create_us=268
-  line    [LineVertex 28 B; LineList; depth LessEqual, no write; g0 uniform(V)] ... pipeline OK  create_us=137
-  pbr     [Vertex3D 48 B; 4 groups incl. depth+comparison and 2 cubes; Less; cull back] ... pipeline OK  create_us=547
-  pbr_skinned [SkinnedVertex3D 96 B, joints Uint32x4; g3 read-only storage(V)] ... pipeline OK  create_us=521
+  sprite  [Vertex2D 32 B; g0 uniform(V); g1 tex+sampler; alpha blend] ... pipeline OK  create_us=274
+  line    [LineVertex 28 B; LineList; depth LessEqual, no write; g0 uniform(V)] ... pipeline OK  create_us=138
+  pbr     [Vertex3D 48 B; 4 groups incl. depth+comparison and 2 cubes; Less; cull back] ... pipeline OK  create_us=528
+  pbr_skinned [SkinnedVertex3D 96 B, joints Uint32x4; g3 read-only storage(V)] ... pipeline OK  create_us=526
   shadow  [depth-only, no fragment stage; LessEqual; bias 2 / slope 2.0; cull back] ... pipeline OK  create_us=101
-  ssao    [full-screen; g0 depth + sampler, tex + sampler, uniform] ... pipeline OK  create_us=257
-  bloom   [fs_threshold; RGBA16F] ... pipeline OK  create_us=203
-  bloom   [fs_blur_h; RGBA16F] ... pipeline OK  create_us=197
-  bloom   [fs_blur_v; RGBA16F] ... pipeline OK  create_us=178
-  postprocess [fs_main; g0 tex+sampler+uniform; g1 bloom tex+sampler] ... pipeline OK  create_us=192
-  postprocess [fs_no_bloom; g0 tex+sampler+uniform] ... pipeline OK  create_us=183
+  ssao    [full-screen; g0 depth + sampler, tex + sampler, uniform] ... pipeline OK  create_us=269
+  bloom   [fs_threshold; RGBA16F] ... pipeline OK  create_us=193
+  bloom   [fs_blur_h; RGBA16F] ... pipeline OK  create_us=191
+  bloom   [fs_blur_v; RGBA16F] ... pipeline OK  create_us=193
+  postprocess [fs_main; g0 tex+sampler+uniform; g1 bloom tex+sampler] ... pipeline OK  create_us=195
+  postprocess [fs_no_bloom; g0 tex+sampler+uniform] ... pipeline OK  create_us=177
 pipelines built: 11, failed: 0

@@ -1,0 +1,24 @@
+# P12 "mabda 4.5.0 as soorat's dependency" (M6 step 3, handoff): the [deps.mabda] route at tag 4.5.0. The cyrius
+# 6.7.18 stdlib fold is still mabda 4.2.0, which has no render tier (MB1-MB5), so the fold is not a route for M6.
+# Since 4.3.0 mabda's samvada and chitra are optional (L12), so this consumer resolves neither. mmap / dynlib /
+# sakshi stay stdlib leaves, as mabda's README quick start asks.
+#   cd scripts/probes/bundle/p12_mabda450 && cyrius deps && cyrius test --bounds tests/p12_mabda.tcyr
+[package]
+name = "soorat-probes-p12-mabda450"
+version = "0.0.0"
+description = "soorat M6 probe P12: mabda 4.5.0 ([deps.mabda] git tag) on cyrius 6.7.18, minimal wgpu consumer"
+license = "GPL-3.0-only"
+language = "cyrius"
+cyrius = "6.7.18"
+
+[deps]
+stdlib = ["syscalls", "string", "alloc", "str", "fmt", "vec", "io", "args", "hashmap", "chrono", "tagged",
+    "fnptr", "result", "mmap", "dynlib", "sakshi"]
+
+[deps.mabda]
+git = "https://github.com/MacCracken/mabda.git"
+tag = "4.5.0"
+modules = ["dist/mabda.cyr"]
+
+[test]
+stdlib = ["assert", "bench"]

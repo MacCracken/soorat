@@ -1,5 +1,4 @@
 # Probe build outputs (sources, manifests and locks are tracked)
-rust/target/
 **/build/*
 **/lib/
 **/out/

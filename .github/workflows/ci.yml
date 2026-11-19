@@ -1,9 +1,7 @@
 name: CI
 
-# During the Cyrius port (docs/development/soorat-port-plan.md) this workflow checks both trees:
-# - the Cyrius port at the repository root (`cyrius` job);
-# - the frozen Rust 1.2.0 oracle in rust-old/ (the `oracle-*` jobs), which stays green until 2.0.0
-#   removes it. rust-old/ is never edited; these jobs only prove it still builds and passes.
+# The Cyrius port (docs/development/soorat-port-plan.md, ADR 0003). No Rust is built or run here: rust-old/ is the
+# frozen 1.2.0 source, read as the functionality reference only, and the tests' oracle is correctness, not Rust.
 
 on:
   push:
@@ -15,10 +13,6 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
 
 jobs:
   cyrius:
@@ -82,107 +76,3 @@ jobs:
       # job after Build, preceded by `cyrius distlib`.
       - run: python3 -I -B scripts/doc_examples.py . --check
       - run: python3 -I -B scripts/vendor_crmath.py . --check   # ../kimiya isn't checked out on CI: reports "unverified"
-
-  oracle-check:
-    name: Oracle (Rust 1.2.0) — check & lint
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: rust-old
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust-old
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --all-features --all-targets -- -D warnings
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo check
-
-  oracle-security:
-    name: Oracle — security audit
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: rust-old
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo install cargo-audit
-      - run: cargo audit
-
-  oracle-deny:
-    name: Oracle — supply chain
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          manifest-path: rust-old/Cargo.toml
-
-  oracle-test:
-    name: Oracle — test (${{ matrix.os }})
-    needs: [oracle-check]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # `drm` (agnosys) is Linux-only, so macOS tests the `full` set.
-          - os: ubuntu-latest
-            features: --all-features
-          - os: macos-latest
-            features: --features full
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: rust-old
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust-old
-      # GPU smoke tests (tests/gpu_smoke.rs) skip when the runner has no adapter;
-      # tests/shaders.rs validates every WGSL file without a GPU.
-      - run: cargo test
-      - run: cargo test ${{ matrix.features }}
-      - run: cargo test --doc
-
-  oracle-msrv:
-    name: Oracle — MSRV (1.100)
-    runs-on: ubuntu-latest
-    needs: [oracle-check]
-    env:
-      MSRV: "1.100"
-    defaults:
-      run:
-        working-directory: rust-old
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.MSRV }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust-old
-      # rust-old/rust-toolchain.toml pins `stable`; `+toolchain` overrides the file.
-      - run: cargo +${{ env.MSRV }} check --all-features
-      - run: cargo +${{ env.MSRV }} test --all-features
-
-  oracle-doc:
-    name: Oracle — documentation
-    runs-on: ubuntu-latest
-    needs: [oracle-check]
-    defaults:
-      run:
-        working-directory: rust-old
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust-old
-      - run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features

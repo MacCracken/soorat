@@ -1,0 +1,12 @@
+mabda: DEPRECATION - AMD-on-wgpu is deprecated (v4.0.1); use BACKEND_KIND_AMD native.
+  The AMD wgpu route retires in a future release; build -D MABDA_AMD_WGPU_STRICT to enforce now.
+adapter vendor_id=0x1002 device_id=0x1638 name=AMD Radeon Graphics (RADV RENOIR)
+P7 (c): 2000 frames, 1000 sprites = 128000 B vertices + 12000 B u16 indices per frame
+  gen (sr_batch_to_vertices_into): mean=67363 median=66564 p99=81302 min=65586 max=117343 ns
+  write (gpu_buffer_write x2, 140000 B): mean=8997 median=8661 p99=18160 min=7613 max=24865 ns
+  submit (empty pass begin+end): mean=44133 median=42816 p99=62723 min=40930 max=114898 ns
+  wait (gpu_device_wait_idle): mean=51648 median=50010 p99=71453 min=31920 max=473422 ns
+  frame total: mean=172142 median=168540 p99=210658 min=160718 max=664801 ns
+  baseline frame (no writes): mean=143664 median=140043 p99=172940 min=134455 max=648317 ns
+  Cyrius heap growth over the upload frames (alloc_used): 0 B (0 B/frame; render-pass begin allocates its pass struct per call)
+  gpu_buffer_read(128000) rc=0 time_us=2018 bytes_match=1
