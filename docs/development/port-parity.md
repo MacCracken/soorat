@@ -330,6 +330,28 @@ and `_SR_SRGB_EXC_*` corrects them. Every unflagged argument narrows correctly p
 2^-38 there, and the 137,780 samples spread over the whole range put it at most 2^-46.8, 450 times inside that. The
 15 are emitted rows of `tests/golden/tables.tsv`.
 
+### 1.10 P15: prakash's RGB conversions (`math/p15_prakash_rgb.tcyr`, `math/p15_check.py`, Part 0c)
+
+`src/color_optics.cyr` narrows prakash's f64 `Rgb` to f32, so under ADR 0003's composition rule soorat's
+`from_temperature` and `from_wavelength` are correct wherever prakash's f64 is the correctly rounded one. P15 runs
+prakash 2.15.2's `color_temperature_to_rgb` on 20,000 seeded kelvins in [1000, 40000) and `wavelength_to_rgb` on
+20,000 wavelengths in [380, 780). `p15_check.py` compares each channel with `validate.py`'s exact reference, using
+prakash's own green exponent so that only the arithmetic is measured:
+
+| Channel | Correctly rounded f64 | Worst |
+|---|---|---|
+| temperature r | 53% | 3 ulp |
+| temperature g | 56% | 4 ulp |
+| temperature b | 89% (mostly the constants 0 and 1) | 9 ulp above 2,500 K, 57 at 2,000–2,500 K, **353** at 1,900–2,000 K, where `138.52·ln(t − 10) − 305.04` cancels toward its zero |
+| wavelength r | 87% | 2 ulp |
+| wavelength g | 100% | 0 |
+| wavelength b | 96% | 1 ulp |
+
+Narrowing gives the correct f32 on all 120,000 channels, because a few f64 ulps is about 2^-27 of an f32 ulp. It
+fails only where the exact value lies within that error of an f32 midpoint. The emitted near-tie rows of
+`tests/golden/color_optics.tsv` find 2 such inputs (ledger L27). In both, the correctly rounded f64 is the midpoint
+itself and prakash's is 1 ulp off it.
+
 ### 1.5 P6, P7 and P8: the GPU path (`scripts/probes/gpu/`)
 
 **Setup.**
@@ -582,7 +604,7 @@ Same dev box and toolchain as §1. Re-run: `cyrius test --bounds tests/parity.tc
 | `color` | 3,439 | A (since ADR 0003: the correct value) | **all 3,439 bit-identical to the correct value** (2026-11-18, Part 0c): the 3,397 recorded rows and 42 emitted for the exact path. Before: all identical to Rust, which was wrong on 239 of them (classes A, B) |
 | `lights` | 1,077 | A (since ADR 0003: the correct value) | **all 1,077 bit-identical to the correct value** (2026-11-18, Part 0c): the 1,066 recorded rows and 11 emitted. Before: 1,038 identical to Rust; the 28 spot rows where glibc's `cosf` misrounds (28 of 2,016 cosines, 1.4 %) through `lights.cr.tsv` |
 | `lod` | 770 | A | all identical, thresholds ± 1 ulp and NaN included |
-| `color_optics` | 1,704 | A | all identical, replayed by tests/parity_features.tcyr (the `optics` feature). Rust calls prakash 1.2.0 (glibc `powf`, `ln`); the port calls prakash 2.15.2: after narrowing to f32 the two agree on all 511 temperatures and 948 wavelengths |
+| `color_optics` | 1,755 (+ 7 pending) | A (since ADR 0003: the correct value) | **all 1,755 active rows bit-identical to the correct value** (2026-11-19, Part 0c): the 1,704 recorded rows and 58 emitted, replayed by tests/parity_features.tcyr (the `optics` feature). The 7 pending rows wait on prakash (ADR 0002 #36). In 5, prakash's green exponent above 6,600 K, −0.07551484937 where Tanner Helland's fit has −0.0755148492, makes the green 1 ulp low (ledger L26); 3 of those are recorded inputs, which Rust also had wrong. In 2 near-ties, prakash's f64 is 1 ulp from the f32 midpoint that is its correct value (L27). Before: all 1,704 identical to Rust (prakash 1.2.0 and 2.15.2 agree after narrowing) |
 | `json` | 177 (+ 3 pending) | A | every serde_json document of a colour grid, and 25 hand-written ones (field order, array form, extra, missing and duplicated fields, null, strings, signed zeros, exponents, f32 and f64 overflow, trailing text), decode to Rust's bits or are refused as serde_json refuses them. Three are rows of their own, pending: the integer `-0`, an integer above `i64::MAX`, a duplicated unknown field (bayan's open issues; ADR 0002 #19) |
 | `tables` | 5,259 | A (since ADR 0003: the correct value) | **all 5,259 bit-identical to the correct value** (2026-11-19, Part 0c): the 5,215 recorded rows and 44 emitted. Rust was wrong on 3,255 sRGB rows (up to 7 ulp) and on 214 of the decode table's 256 entries (ADR 0002 #35); its f16 conversions are right. Before: class C against `tables.cr.tsv`, which kept Rust's f32 constants |
 | `layout` | 19 | A | all identical, measured on the compiled structs (`tests/layout_probe.cyr`) |
@@ -623,6 +645,32 @@ near-ties, the lerp ties at t = ½ and ¼, cancellations, signed zeros, subnorma
 Over the same random tests, `math`'s functions (20,000 inputs each, 5,000 for `mul_mat4`) and `lerp` (50,000) showed
 no miss. So their f64 methods are measured correct, not proven: an exact value within about 2^-29 ulp of a midpoint
 could still round wrong.
+
+**`color_optics` against the correct value (ADR 0003, 2026-11-19).** `validate.py`'s `color_optics_reference`
+evaluates prakash's conversions exactly:
+- Tanner Helland's fit, with his published coefficients, at t = kelvin / 100 exactly, in decimal at a precision
+  raised until both roundings are decided;
+- the wavelength approximation in rational arithmetic, with 0.3 and 0.7 exact.
+
+By ADR 0003's composition rule, each channel rounds to f64 (prakash's `Rgb`) and is then narrowed by `from_prakash`.
+Rounding once to f32 gives the same output on all 1,704 recorded rows. The two differ on 4 emitted near-ties, which
+were built to test the rule.
+
+| Function | Rows (recorded + emitted) | Rust 1.2.0 wrong | The port |
+|---|---|---|---|
+| `from_temperature` | 511 + 20 | 3: green 1 ulp low at 13,600, 19,600 and 34,700 K, from prakash's green exponent (L26) | right on 525; 6 pending (5 on L26, 1 on L27) |
+| `from_wavelength` | 948 + 35 | 0 | right on 982; 1 pending (L27) |
+| `from_prakash` | 205 + 3 | 0 | right on all 208 |
+| `to_prakash` | 40 | 0 | right on all 40 |
+
+The 58 emitted rows (`ADR 0003:` notes) are:
+- `from_prakash` at f32 midpoints (ties to even both ways), subnormal ties and the clamp's edges;
+- the f64 neighbours of every branch and clamp edge, at 1,000, 1,900, 6,600 and 40,000 K and at 380, 420, 440, 490,
+  510, 580, 645, 700 and 780 nm;
+- two exact f32-midpoint ties on each of the wavelength's 7 linear pieces, where prakash's arithmetic is exact or
+  nearly so; it gets all 14 right;
+- near-ties on each of the fit's 4 branches and on the wavelength's one quadratic piece, red times its fall-off
+  below 420 nm.
 
 **Class E, by function** (before ADR 0003; `validate.py`): f64-once differs from Rust's f32 on `mul_mat4` and
 `compose_trs` 100 %, `look_at` 98.5 %, `normal_to_basis` 83.0 %, `cross` 73.5 %, `normalize3` 60.2 %, `perspective_90`

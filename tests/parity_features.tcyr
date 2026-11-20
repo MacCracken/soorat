@@ -2,6 +2,9 @@
 # `optics` feature, prakash; M1 part b2), `debug_collider` (src/debug_collider.cyr, `physics-debug`, impetus;
 # M2 part b) and `pbr_optics` (src/pbr_optics.cyr, `optics`; M4 part b). pbr_optics's LUTs are prakash 2.15.2's: the
 # rows whose bytes differ from Rust 1.2.0's are compared against tests/golden/pbr_optics.r.tsv (class R, ADR 0002 #27).
+# color_optics holds the correct value (ADR 0003, #36). Its `Color::from_temperature_prakash` and
+# `Color::from_wavelength_prakash` rows have no dispatcher, so they stay pending until prakash changes (ledger L26,
+# L27), as tests/parity.tcyr's json bayan rows do.
 #
 # Their code includes optional dependencies (cyrius.cyml `[features]`), so they have this harness of their own:
 # tests/parity.tcyr replays every other module without them in the compile, as a consumer without the features

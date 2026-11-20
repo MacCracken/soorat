@@ -23,13 +23,15 @@ We are porting **away from Rust to Cyrius**.
 
 - **Rust 1.2.0** (tag `1.2.0`) is frozen in `rust-old/` as the functionality reference.
 - **The Cyrius port (2.0.0) has M0–M5 ported: the whole CPU track** (last commit `3fee87b`, "handoff").
-  - **What "passing" means today is not yet correctness.** The corpus (29 golden modules, 27,017 rows) was recorded
-    from Rust by a Rust generator. After 0c's `color`, `lights` and `tables` bites, 12,819 of its 27,072 rows still
-    expect **Rust's outputs**. The other 14,253 expect the correct value:
+  - **What "passing" means today is not yet correctness.** The corpus (29 golden modules) holds 26,975 rows
+    recorded from Rust by a Rust generator, plus 155 that Part 0 emitted. After 0c's `color`, `lights`, `tables` and
+    `color_optics` bites, 11,115 of its 27,130 rows still expect **Rust's outputs**. The other 16,015 expect the
+    correct value:
     - the 1,436 `math` rows, re-derived (0b);
     - the 3,439 `color` rows, re-derived (0c), 42 of them emitted;
     - the 1,077 `lights` rows, re-derived (0c), 11 of them emitted;
     - the 5,259 `tables` rows, re-derived (0c), 44 of them emitted;
+    - the 1,762 `color_optics` rows, re-derived (0c), 58 of them emitted, and 7 of them pending on prakash;
     - 3,042 swapped in from side tables: 2,965 class E, 3 correctly rounded, 49 adopted (R) and 25 under ADR 0002
       #14.
     - So "all pass" means that the port reproduces Rust where no side table overrides it.
@@ -162,7 +164,27 @@ This is large, so take small bites (CLAUDE.md, *Task Sizing*), each gated.
   - **The f32 transcendentals still on `ganita_f32_*`** (measured, not proven: ganita narrows an f64 that is only
     within 1 ulp) switch in their modules' bites. `sprite`'s and `debug`'s sin and cos need a `_sr_cr_sinf` beside
     `_sr_cr_cosf`, with its own P13-style midpoint scan over every f32.
-  - **Next, in M1 order:** `color_optics`. Then M2's `sprite`, `text` and `debug`.
+  - **`color_optics`: done 2026-11-19.**
+    - The port calls prakash, so ADR 0003 gained the **composition rule**. A function that passes another library's
+      typed result through soorat's own step is correct when that step is applied to the library's correct result.
+      Here that is the exact channel rounded to f64 (prakash's `Rgb`), then narrowed.
+    - The reference evaluates Tanner Helland's fit with his published coefficients, in decimal, and the wavelength
+      approximation exactly. The constants rule now covers a published fit's coefficients.
+    - **Rust was wrong on 3 of 1,704 recorded rows** (ADR 0002 #36): green 1 ulp low at 13,600, 19,600 and
+      34,700 K. All 3 are prakash's green exponent above 6,600 K, −0.07551484937 where the fit has −0.0755148492.
+    - The port still calls prakash 2.15.2, which has the same exponent, and the code is unchanged. Two prakash issues
+      are filed: the exponent (ledger L26) and correctly rounded f64 results (L27).
+    - **Probe P15** measured prakash's f64 at up to 9 ulp for temperature (353 where the blue fit cancels near
+      1,905 K) and 2 for wavelength. Narrowing hides that except near f32 midpoints (port-parity §1.10).
+    - **58 emitted rows:** `from_prakash` midpoints and edges, every branch edge's f64 neighbours, exact midpoint
+      ties on each linear piece, and near-ties of each fit branch. The port is right on all of them but 4 (2 for
+      each prakash issue).
+    - **7 rows wait on prakash**, named `Color::from_temperature_prakash` (6) and `Color::from_wavelength_prakash`
+      (1) and pending in tests/parity_features.tcyr, as json's bayan rows are. They are named from `validate.py`'s
+      `_co_exponent_changes` and `PRAKASH_ROUNDING_PENDING`. When a prakash release fixes either issue: pin it,
+      empty that rule, rerun `validate.py . --write`, and the rows replay under their own names.
+  - **Next, in M2 order:** `sprite`, `text` and `debug`. `sprite`'s and `debug`'s sin and cos need `_sr_cr_sinf`
+    first, with its own P13-style scan.
   - Class C rows (`.cr.tsv`) become ordinary rows whose value is correctly rounded.
   - Class R (`pbr_optics.r.tsv`, prakash 2.15.2's LUT) is checked against the LUT integral, not against either
     implementation.

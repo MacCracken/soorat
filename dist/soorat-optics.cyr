@@ -7997,7 +7997,20 @@ fn sr_fluid_heat_map(t, out) {
 #   `Color::from_temperature` and `Color::from_wavelength` rows of tests/golden/color_optics.tsv (class A).
 #
 # **Precision.** Each channel is clamped to [0, 1] in f64 (Rust's `f64::clamp`: −0 and NaN kept) and narrowed once to
-# f32, as Rust's `as f32` does: class A against the oracle (tests/parity_features.tcyr).
+# f32 (ties to even). That is correct by construction for `from_prakash` and `to_prakash`. For `from_temperature` and
+# `from_wavelength`, the correct value (ADR 0003, the composition rule) is that narrowing of prakash's *correct*
+# result: each channel's exact value rounded once to f64. The exact values are Tanner Helland's fit with his published
+# coefficients, and the piecewise-linear approximation with 0.3 and 0.7 exact. So these two are correct wherever
+# prakash's f64 is. tests/golden/color_optics.tsv (class A, scripts/oracle/validate.py) is right on every active row.
+# Seven rows wait on prakash, named `Color::from_*_prakash` and pending in tests/parity_features.tcyr:
+#
+# UPSTREAM(L26): prakash:docs/development/issues/2026-11-19-temperature-fit-green-exponent-is-not-tanner-hellands.md
+#   prakash's green exponent above 6,600 K is −0.07551484937, the fit's −0.0755148492. 5 rows (13,600, 19,600 and
+#   34,700 K among them) get a green 1 ulp low; parity: they pass once a prakash with the fix is pinned.
+# UPSTREAM(L27): prakash:docs/development/issues/2026-11-19-temperature-and-wavelength-rgb-are-not-correctly-rounded.md
+#   prakash's f64 is up to 9 ulp off (353 where the blue fit cancels) for temperature, and 2 for wavelength. That
+#   matters only within that error of an f32 midpoint; parity: the 2 emitted rows there pass once prakash's results
+#   are correctly rounded.
 
 include "lib/prakash.cyr"
 

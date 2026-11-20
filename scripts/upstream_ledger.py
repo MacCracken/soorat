@@ -62,6 +62,8 @@ NO_STANDIN = {
     "L23": "bayan's JSON verdicts where serde_json's differ: the glTF rows are named (ADR 0002 #14), no stand-in code",
     "L24": "none: resolved in mabda 4.3.0, before soorat's profiler arrives with mabda at M6",
     "L25": "none: pravash's static data only shapes soorat's test layout (the fluids replay is its own harness)",
+    "L26": "none: the rows prakash's green exponent changes are named Color::from_temperature_prakash (pending)",
+    "L27": "none: the rows prakash's f64 rounding changes are named Color::from_*_prakash (pending)",
     "L18": "none possible (a dependency's names): the `ranga` feature excludes `acoustics` and `thermo` until it lands",
     "L19": "a manifest arrangement (agnodrm only behind the `drm` feature, cyrius.cyml), not code",
     "L20": "none: a duplicate-definition warning, last definition wins",

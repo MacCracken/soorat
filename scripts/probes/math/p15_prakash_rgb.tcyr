@@ -1,0 +1,72 @@
+# P15 (Part 0c, ADR 0003): the accuracy of prakash 2.15.2's f64 `color_temperature_to_rgb` and `wavelength_to_rgb`,
+# which src/color_optics.cyr narrows to f32. soorat's Color is correct wherever prakash's f64 is (ADR 0003's
+# composition rule), so P15 measures that f64 against the exact value. The probe prints, for 20,000 seeded kelvins in
+# [1000, 40000) and 20,000 wavelengths in [380, 780):
+#   T <kelvin bits> <r> <g> <b>    and    W <nm bits> <r> <g> <b>      (each on its own line, f64 bits)
+# scripts/probes/math/p15_check.py compares each channel with validate.py's exact reference (prakash's own
+# coefficients, so that only the arithmetic is measured) and prints the ulp error by channel. Needs the `optics`
+# feature (`cyrius deps --features optics`):
+#   cyrius test --bounds scripts/probes/math/p15_prakash_rgb.tcyr > build/logs/p15-prakash-rgb.log
+#   python3 -I -B scripts/probes/math/p15_check.py build/logs/p15-prakash-rgb.log
+#   (from the repository root)
+
+include "tests/lib.cyr"
+include "src/color_optics.cyr"
+
+var _p15_state = 0x2545F4914F6CDD1D;
+
+# The next of a 64-bit LCG's values as an f64 in [0, 1) (its top 53 bits), as bits.
+fn p15_next(): i64 {
+    _p15_state = _p15_state * 6364136223846793005 + 1442695040888963407;
+    var m = (_p15_state >> 11) & 0x1FFFFFFFFFFFFF;
+    var u: f64 = f64_from(m);
+    var s: f64 = f32_to(0x25800000);   # 2^-52
+    var h: f64 = 0.5;
+    var r: f64 = u * s * h;
+    return load64(&r);
+}
+
+fn p15_hex(v) {
+    fmt_hex0x(v);
+    println("");
+    return 0;
+}
+
+fn p15_rgb(tag, x, rgb) {
+    println(tag);
+    p15_hex(x);
+    p15_hex(Rgb_r(rgb));
+    p15_hex(Rgb_g(rgb));
+    p15_hex(Rgb_b(rgb));
+    return 0;
+}
+
+fn main() {
+    alloc_init();
+    var i = 0;
+    while (i < 20000) {
+        var u: f64 = 0.0;
+        store64(&u, p15_next());
+        var k0: f64 = 1000.0;
+        var ks: f64 = 39000.0;
+        var k: f64 = k0 + ks * u;
+        p15_rgb("T", load64(&k), color_temperature_to_rgb(load64(&k)));
+        i = i + 1;
+    }
+    i = 0;
+    while (i < 20000) {
+        var v: f64 = 0.0;
+        store64(&v, p15_next());
+        var w0: f64 = 380.0;
+        var ws: f64 = 400.0;
+        var w: f64 = w0 + ws * v;
+        var err[8];
+        p15_rgb("W", load64(&w), wavelength_to_rgb(load64(&w), &err));
+        i = i + 1;
+    }
+    println("P15 done");
+    return 0;
+}
+
+var exit_code = main();
+sys_exit_group(exit_code);

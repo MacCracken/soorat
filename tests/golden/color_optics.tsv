@@ -1,8 +1,8 @@
 # soorat golden corpus, format 1: color_optics
-# recorded: soorat 1.2.0 (rust-old/, oracle feature); libm: glibc 2.44 x86_64 fma
-# regenerate: cargo run --release --locked --manifest-path scripts/oracle/Cargo.toml (never patch a row)
+# expected: the correct value (ADR 0003): Color::from_prakash of prakash's correct Rgb: each channel's exact value (Tanner Helland's fit with his published coefficients; prakash's piecewise-linear wavelength approximation) rounded once to f64, clamped and narrowed to f32 (ties to even); `_prakash` rows wait on prakash (ledger L26). By scripts/oracle/validate.py's color_optics_reference
+# regenerate: python3 -I -B scripts/oracle/validate.py . --write (never patch a row)
 # columns: fn<TAB>class<TAB>inputs<TAB>outputs<TAB>note (tokens: scripts/oracle/README.md)
-# rows: 1704
+# rows: 1762
 Color::from_prakash	A	f:3fe549217186cbac f:3ff7394d2bd746c2 f:3fbe81ddba076140 g:3f800000	v:4 g:3f2a490c g:3f800000 g:3df40eee g:3f800000	case 0
 Color::from_prakash	A	f:3fe894be91b4b010 f:3ff28bbb19d152c6 f:3fd6423404dba2b0 g:3b800000	v:4 g:3f44a5f5 g:3f800000 g:3eb211a0 g:3b800000	case 1
 Color::from_prakash	A	f:3fb1ffcd965d97e0 f:bfc699dbcab28170 f:3fda9c0d85592dc0 g:3c000000	v:4 g:3d8ffe6d g:00000000 g:3ed4e06c g:3c000000	case 2
@@ -384,7 +384,7 @@ Color::from_temperature	A	f:40c9c80000000000	v:4 g:3f3b3edd g:3f516bc8 g:3f80000
 Color::from_temperature	A	f:40c9fa0000000000	v:4 g:3f3ae6df g:3f5133f8 g:3f800000 g:3f800000	13300.0 K (case 133)
 Color::from_temperature	A	f:40ca2c0000000000	v:4 g:3f3a903c g:3f50fcf9 g:3f800000 g:3f800000	13400.0 K (case 134)
 Color::from_temperature	A	f:40ca5e0000000000	v:4 g:3f3a3aeb g:3f50c6c5 g:3f800000 g:3f800000	13500.0 K (case 135)
-Color::from_temperature	A	f:40ca900000000000	v:4 g:3f39e6e0 g:3f509156 g:3f800000 g:3f800000	13600.0 K (case 136)
+Color::from_temperature_prakash	A	f:40ca900000000000	v:4 g:3f39e6e0 g:3f509157 g:3f800000 g:3f800000	13600.0 K (case 136)
 Color::from_temperature	A	f:40cac20000000000	v:4 g:3f399414 g:3f505ca8 g:3f800000 g:3f800000	13700.0 K (case 137)
 Color::from_temperature	A	f:40caf40000000000	v:4 g:3f39427e g:3f5028b5 g:3f800000 g:3f800000	13800.0 K (case 138)
 Color::from_temperature	A	f:40cb260000000000	v:4 g:3f38f215 g:3f4ff578 g:3f800000 g:3f800000	13900.0 K (case 139)
@@ -444,7 +444,7 @@ Color::from_temperature	A	f:40d2c00000000000	v:4 g:3f2cb8b7 g:3f480d2a g:3f80000
 Color::from_temperature	A	f:40d2d90000000000	v:4 g:3f2c8c49 g:3f47effc g:3f800000 g:3f800000	19300.0 K (case 193)
 Color::from_temperature	A	f:40d2f20000000000	v:4 g:3f2c603c g:3f47d30a g:3f800000 g:3f800000	19400.0 K (case 194)
 Color::from_temperature	A	f:40d30b0000000000	v:4 g:3f2c348d g:3f47b654 g:3f800000 g:3f800000	19500.0 K (case 195)
-Color::from_temperature	A	f:40d3240000000000	v:4 g:3f2c093c g:3f4799d7 g:3f800000 g:3f800000	19600.0 K (case 196)
+Color::from_temperature_prakash	A	f:40d3240000000000	v:4 g:3f2c093c g:3f4799d8 g:3f800000 g:3f800000	19600.0 K (case 196)
 Color::from_temperature	A	f:40d33d0000000000	v:4 g:3f2bde47 g:3f477d95 g:3f800000 g:3f800000	19700.0 K (case 197)
 Color::from_temperature	A	f:40d3560000000000	v:4 g:3f2bb3ad g:3f47618b g:3f800000 g:3f800000	19800.0 K (case 198)
 Color::from_temperature	A	f:40d36f0000000000	v:4 g:3f2b896b g:3f4745b8 g:3f800000 g:3f800000	19900.0 K (case 199)
@@ -595,7 +595,7 @@ Color::from_temperature	A	f:40e0bf8000000000	v:4 g:3f1c0975 g:3f3cdb11 g:3f80000
 Color::from_temperature	A	f:40e0cc0000000000	v:4 g:3f1bf6b1 g:3f3cce31 g:3f800000 g:3f800000	34400.0 K (case 344)
 Color::from_temperature	A	f:40e0d88000000000	v:4 g:3f1be401 g:3f3cc15d g:3f800000 g:3f800000	34500.0 K (case 345)
 Color::from_temperature	A	f:40e0e50000000000	v:4 g:3f1bd163 g:3f3cb496 g:3f800000 g:3f800000	34600.0 K (case 346)
-Color::from_temperature	A	f:40e0f18000000000	v:4 g:3f1bbed9 g:3f3ca7da g:3f800000 g:3f800000	34700.0 K (case 347)
+Color::from_temperature_prakash	A	f:40e0f18000000000	v:4 g:3f1bbed9 g:3f3ca7db g:3f800000 g:3f800000	34700.0 K (case 347)
 Color::from_temperature	A	f:40e0fe0000000000	v:4 g:3f1bac61 g:3f3c9b2b g:3f800000 g:3f800000	34800.0 K (case 348)
 Color::from_temperature	A	f:40e10a8000000000	v:4 g:3f1b99fb g:3f3c8e89 g:3f800000 g:3f800000	34900.0 K (case 349)
 Color::from_temperature	A	f:40e1170000000000	v:4 g:3f1b87a8 g:3f3c81f2 g:3f800000 g:3f800000	35000.0 K (case 350)
@@ -1707,3 +1707,61 @@ Color::from_wavelength	A	f:40865a0577539019	v:4 g:3f5dd582 g:00000000 g:00000000
 Color::from_wavelength	A	f:407f7ea550ccd090	v:4 g:00000000 g:3f800000 g:3e9bc44c g:3f800000	503.9153602600645 nm (case 945)
 Color::from_wavelength	A	f:4077e2d182bba9b6	v:4 g:3ea6d1f7 g:00000000 g:3ead192a g:3f800000	382.17615006738504 nm (case 946)
 Color::from_wavelength	A	f:4080956914cee320	v:4 g:3e973b81 g:3f800000 g:00000000 g:3f800000	530.6763092196525 nm (case 947)
+Color::from_prakash	A	f:3feffffff0000000 f:3fe0000010000000 f:3fe0000030000000 g:3e800000	v:4 g:3f800000 g:3f000000 g:3f000002 g:3e800000	ADR 0003: f32 midpoints and edges 0
+Color::from_prakash	A	f:3fe0000030000001 f:3690000000000000 f:36a8000000000000 g:00000001	v:4 g:3f000002 g:00000000 g:00000002 g:00000001	ADR 0003: f32 midpoints and edges 1
+Color::from_prakash	A	f:3ff0000000000001 f:0000000000000001 f:8000000000000001 g:3f800000	v:4 g:3f800000 g:00000000 g:00000000 g:3f800000	ADR 0003: f32 midpoints and edges 2
+Color::from_temperature	A	f:408f3fffffffffff	v:4 g:3f800000 g:3e885fa1 g:00000000 g:3f800000	ADR 0003: 999.9999999999999 K: next to 1000 K
+Color::from_temperature	A	f:408f400000000001	v:4 g:3f800000 g:3e885fa1 g:00000000 g:3f800000	ADR 0003: 1000.0000000000001 K: next to 1000 K
+Color::from_temperature	A	f:409dafffffffffff	v:4 g:3f800000 g:3f04486a g:00000000 g:3f800000	ADR 0003: 1899.9999999999998 K: next to 1900 K
+Color::from_temperature	A	f:409db00000000001	v:4 g:3f800000 g:3f04486a g:00000000 g:3f800000	ADR 0003: 1900.0000000000002 K: next to 1900 K
+Color::from_temperature	A	f:40b9c7ffffffffff	v:4 g:3f800000 g:3f800000 g:3f7d8734 g:3f800000	ADR 0003: 6599.999999999999 K: next to 6600 K
+Color::from_temperature	A	f:40b9c80000000001	v:4 g:3f800000 g:3f7ca5af g:3f800000 g:3f800000	ADR 0003: 6600.000000000001 K: next to 6600 K
+Color::from_temperature	A	f:40e387ffffffffff	v:4 g:3f1844e9 g:3f3a41c0 g:3f800000 g:3f800000	ADR 0003: 39999.99999999999 K: next to 40000 K
+Color::from_temperature	A	f:40e3880000000001	v:4 g:3f1844e9 g:3f3a41c0 g:3f800000 g:3f800000	ADR 0003: 40000.00000000001 K: next to 40000 K
+Color::from_wavelength	A	f:4077bfffffffffff	n:	ADR 0003: 379.99999999999994 nm: next to 380 nm
+Color::from_wavelength	A	f:4077c00000000001	v:4 g:3e99999a g:00000000 g:3e99999a g:3f800000	ADR 0003: 380.00000000000006 nm: next to 380 nm
+Color::from_wavelength	A	f:407a3fffffffffff	v:4 g:3eaaaaab g:00000000 g:3f800000 g:3f800000	ADR 0003: 419.99999999999994 nm: next to 420 nm
+Color::from_wavelength	A	f:407a400000000001	v:4 g:3eaaaaab g:00000000 g:3f800000 g:3f800000	ADR 0003: 420.00000000000006 nm: next to 420 nm
+Color::from_wavelength	A	f:407b7fffffffffff	v:4 g:26888889 g:00000000 g:3f800000 g:3f800000	ADR 0003: 439.99999999999994 nm: next to 440 nm
+Color::from_wavelength	A	f:407b800000000001	v:4 g:00000000 g:26a3d70a g:3f800000 g:3f800000	ADR 0003: 440.00000000000006 nm: next to 440 nm
+Color::from_wavelength	A	f:407e9fffffffffff	v:4 g:00000000 g:3f800000 g:3f800000 g:3f800000	ADR 0003: 489.99999999999994 nm: next to 490 nm
+Color::from_wavelength	A	f:407ea00000000001	v:4 g:00000000 g:3f800000 g:3f800000 g:3f800000	ADR 0003: 490.00000000000006 nm: next to 490 nm
+Color::from_wavelength	A	f:407fdfffffffffff	v:4 g:00000000 g:3f800000 g:274ccccd g:3f800000	ADR 0003: 509.99999999999994 nm: next to 510 nm
+Color::from_wavelength	A	f:407fe00000000001	v:4 g:266a0ea1 g:3f800000 g:00000000 g:3f800000	ADR 0003: 510.00000000000006 nm: next to 510 nm
+Color::from_wavelength	A	f:40821fffffffffff	v:4 g:3f800000 g:3f800000 g:00000000 g:3f800000	ADR 0003: 579.9999999999999 nm: next to 580 nm
+Color::from_wavelength	A	f:4082200000000001	v:4 g:3f800000 g:3f800000 g:00000000 g:3f800000	ADR 0003: 580.0000000000001 nm: next to 580 nm
+Color::from_wavelength	A	f:408427ffffffffff	v:4 g:3f800000 g:26fc0fc1 g:00000000 g:3f800000	ADR 0003: 644.9999999999999 nm: next to 645 nm
+Color::from_wavelength	A	f:4084280000000001	v:4 g:3f800000 g:00000000 g:00000000 g:3f800000	ADR 0003: 645.0000000000001 nm: next to 645 nm
+Color::from_wavelength	A	f:4085dfffffffffff	v:4 g:3f800000 g:00000000 g:00000000 g:3f800000	ADR 0003: 699.9999999999999 nm: next to 700 nm
+Color::from_wavelength	A	f:4085e00000000001	v:4 g:3f800000 g:00000000 g:00000000 g:3f800000	ADR 0003: 700.0000000000001 nm: next to 700 nm
+Color::from_wavelength	A	f:40885fffffffffff	v:4 g:3e99999a g:00000000 g:00000000 g:3f800000	ADR 0003: 779.9999999999999 nm: next to 780 nm
+Color::from_wavelength	A	f:4088600000000001	n:	ADR 0003: 780.0000000000001 nm: next to 780 nm
+Color::from_temperature_prakash	A	f:40ddce7bc7a11390	v:4 g:3f1f0b3c g:3f3ee910 g:3f800000 g:3f800000	ADR 0003: 30521.934059399704 K: r within half an f64 ulp of an f32 midpoint, the even f32 below it
+Color::from_temperature	A	f:40e0317b5cf8eada	v:4 g:3f1ce414 g:3f3d70e5 g:3f800000 g:3f800000	ADR 0003: 33163.85509916181 K: r within half an f64 ulp of an f32 midpoint, the even f32 above it
+Color::from_temperature	A	f:40e0317b5cf8ead4	v:4 g:3f1ce414 g:3f3d70e5 g:3f800000 g:3f800000	ADR 0003: 33163.85509916177 K: r between 1/2 and 3/2 f64 ulp from an f32 midpoint
+Color::from_temperature	A	f:40b1043fdbf19df6	v:4 g:3f800000 g:3f5724a8 g:3f365641 g:3f800000	ADR 0003: 4356.249449826302 K: g_lo within half an f64 ulp of an f32 midpoint, the even f32 below it
+Color::from_temperature	A	f:40b8e122c135bebf	v:4 g:3f800000 g:3f7d135a g:3f77ac79 g:3f800000	ADR 0003: 6369.135760649747 K: g_lo within half an f64 ulp of an f32 midpoint, the even f32 above it
+Color::from_temperature	A	f:40b1043fdbf19df5	v:4 g:3f800000 g:3f5724a8 g:3f365641 g:3f800000	ADR 0003: 4356.249449826301 K: g_lo between 1/2 and 3/2 f64 ulp from an f32 midpoint
+Color::from_temperature	A	f:40e10273247a2368	v:4 g:3f1ba5d2 g:3f3c96aa g:3f800000 g:3f800000	ADR 0003: 34835.59820277133 K: g_hi within half an f64 ulp of an f32 midpoint, the even f32 below it
+Color::from_temperature_prakash	A	f:40cd9a24d50fef8e	v:4 g:3f355870 g:3f4da778 g:3f800000 g:3f800000	ADR 0003: 15156.287752143831 K: g_hi within half an f64 ulp of an f32 midpoint, the even f32 above it
+Color::from_temperature_prakash	A	f:40e10273247a235d	v:4 g:3f1ba5d2 g:3f3c96ab g:3f800000 g:3f800000	ADR 0003: 34835.59820277125 K: g_hi between 1/2 and 3/2 f64 ulp from an f32 midpoint
+Color::from_temperature	A	f:40b94db2a741b40b	v:4 g:3f800000 g:3f7ec36c g:3f7a751a g:3f800000	ADR 0003: 6477.697864633995 K: b within half an f64 ulp of an f32 midpoint, the even f32 below it
+Color::from_temperature	A	f:40a94956fc8b912c	v:4 g:3f800000 g:3f397a56 g:3efbcd50 g:3f800000	ADR 0003: 3236.669895516845 K: b within half an f64 ulp of an f32 midpoint, the even f32 above it
+Color::from_temperature	A	f:40b94db2a741b409	v:4 g:3f800000 g:3f7ec36c g:3f7a751a g:3f800000	ADR 0003: 6477.697864633993 K: b between 1/2 and 3/2 f64 ulp from an f32 midpoint
+Color::from_wavelength	A	f:407b151bbe640000	v:4 g:3de40914 g:00000000 g:3f800000 g:3f800000	ADR 0003: 433.31927336752415 nm: channel 0 at an f32 midpoint, the even f32 below it
+Color::from_wavelength	A	f:407a5018d1b00000	v:4 g:3ea214e6 g:00000000 g:3f800000 g:3f800000	ADR 0003: 421.0060593485832 nm: channel 0 at an f32 midpoint, the even f32 above it
+Color::from_wavelength	A	f:407b95f62a768000	v:4 g:00000000 g:3ce0e2fa g:3f800000 g:3f800000	ADR 0003: 441.3725990895182 nm: channel 1 at an f32 midpoint, the even f32 below it
+Color::from_wavelength	A	f:407dc395eb700000	v:4 g:00000000 g:3f3977a8 g:3f800000 g:3f800000	ADR 0003: 476.22410148382187 nm: channel 1 at an f32 midpoint, the even f32 above it
+Color::from_wavelength	A	f:407f3bb1e8600000	v:4 g:00000000 g:3f800000 g:3f0371ac g:3f800000	ADR 0003: 499.7309345006943 nm: channel 2 at an f32 midpoint, the even f32 below it
+Color::from_wavelength	A	f:407f09b77fa00000	v:4 g:00000000 g:3f800000 g:3f2b6d34 g:3f800000	ADR 0003: 496.60729944705963 nm: channel 2 at an f32 midpoint, the even f32 above it
+Color::from_wavelength	A	f:408124fbbb180000	v:4 g:3f0d3fe0 g:3f800000 g:00000000 g:3f800000	ADR 0003: 548.6229154467583 nm: channel 0 at an f32 midpoint, the even f32 below it
+Color::from_wavelength	A	f:4081b5ded1880000	v:4 g:3f4f7bce g:3f800000 g:00000000 g:3f800000	ADR 0003: 566.7337980866432 nm: channel 0 at an f32 midpoint, the even f32 above it
+Color::from_wavelength	A	f:408318a37ffc0000	v:4 g:3f800000 g:3f0597e0 g:00000000 g:3f800000	ADR 0003: 611.0798339545727 nm: channel 1 at an f32 midpoint, the even f32 below it
+Color::from_wavelength	A	f:40823e72e8f40000	v:4 g:3f800000 g:3f710282 g:00000000 g:3f800000	ADR 0003: 583.8061083853245 nm: channel 1 at an f32 midpoint, the even f32 above it
+Color::from_wavelength	A	f:407a12e8fb800000	v:4 g:3eb91ca3 g:00000000 g:3f735ff4 g:3f800000	ADR 0003: 417.1818804740906 nm: channel 2 at an f32 midpoint, the even f32 below it
+Color::from_wavelength	A	f:407946b740800000	v:4 g:3edcd5d8 g:00000000 g:3f3a3350 g:3f800000	ADR 0003: 404.4197392463684 nm: channel 2 at an f32 midpoint, the even f32 above it
+Color::from_wavelength	A	f:4086e1c968800000	v:4 g:3f37d1d8 g:00000000 g:00000000 g:3f800000	ADR 0003: 732.2233438491821 nm: channel 0 at an f32 midpoint, the even f32 below it
+Color::from_wavelength	A	f:4087cbcb31c00000	v:4 g:3eec9874 g:00000000 g:00000000 g:3f800000	ADR 0003: 761.4742159843445 nm: channel 0 at an f32 midpoint, the even f32 above it
+Color::from_wavelength	A	f:4079447130000d3d	v:4 g:3edcf592 g:00000000 g:3f399055 g:3f800000	ADR 0003: 404.27763366718483 nm: r within half an f64 ulp of an f32 midpoint, the even f32 below it
+Color::from_wavelength_prakash	A	f:407909d3127f4fb7	v:4 g:3ede1286 g:00000000 g:3f29269f g:3f800000	ADR 0003: 400.61403131228457 nm: r within half an f64 ulp of an f32 midpoint, the even f32 above it
+Color::from_wavelength	A	f:407a3e1c0e3c9a7f	v:4 g:3eab51e6 g:00000000 g:3f7f787f g:3f800000	ADR 0003: 419.88184951470606 nm: r between 1/2 and 3/2 f64 ulp from an f32 midpoint

@@ -53,6 +53,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     corrects.
   - `src/tables_data.cyr` is regenerated from the corrected row. `env` keeps Rust's table and encoder (`PART0`)
     until it is re-derived.
+  - **`color_optics` re-derived from correctness** (Part 0c). `validate.py`'s `color_optics_reference` evaluates
+    Tanner Helland's fit, with his published coefficients, in decimal, and the wavelength approximation exactly. Its
+    1,704 recorded rows are class A, plus 58 emitted rows: midpoints, branch edges and near-ties.
+    - ADR 0003 gained the composition rule. `from_temperature` is `from_prakash` of prakash's f64 `Rgb`, so the
+      correct value is the exact channel rounded to f64, then narrowed.
+    - Rust 1.2.0 was wrong on 3 recorded rows (ADR 0002 #36): green 1 ulp low at 13,600, 19,600 and 34,700 K, from
+      prakash's green exponent −0.07551484937, where the fit has −0.0755148492.
+  - **The port is unchanged and calls prakash 2.15.2**, which has the same exponent. Its f64 is not correctly rounded:
+    probe P15 (`scripts/probes/math/p15_prakash_rgb.tcyr`) measured up to 9 ulp for temperature, 353 where the blue
+    fit cancels, and 2 for wavelength.
+    - Two prakash issues are filed: the exponent (ledger L26) and correct rounding (L27).
+    - The 7 rows they change are named `Color::from_*_prakash` and pending until prakash ships the fixes; the other
+      1,755 pass.
 - **The Cyrius port begins** (2.0.0; plan `docs/development/soorat-port-plan.md`, ADRs 0001 and 0002).
   - **M0 step 1** ran 11 probes, recorded in `docs/development/port-parity.md` §1, with their sources in
     `scripts/probes/`.

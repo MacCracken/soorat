@@ -397,15 +397,18 @@ def math_reference(fn, ins):
 EMITTED = "ADR 0003: "   # the note prefix of a row emitted here (its inputs built in Python), not recorded from Rust
 
 
-def rederive_module(module, expected, derive, extra=()):
+def rederive_module(module, expected, derive, extra=(), rename=None):
     """A re-derived module (ADR 0003): every row of tests/golden/<module>.tsv gets the outputs `derive(fn, ins, outs)`
     returns (its correct values, as a token list), class A; the inputs and notes are kept. `extra` rows (fn, inputs,
-    an output template, a note starting EMITTED) replace the previously emitted ones at the end of the file. --write writes the file and
-    removes the module's retired side tables (.e.tsv, .cr.tsv, .r.tsv); the check fails on any difference, or on a
-    side table still present. Returns the failure count."""
+    an output template, a note starting EMITTED) replace the previously emitted ones at the end of the file. `rename`
+    (fn, inputs) gives a row's name, for rows that wait on a dependency. --write writes the file and removes the
+    module's retired side tables (.e.tsv, .cr.tsv, .r.tsv); the check fails on any difference, or on a side table
+    still present. Returns the failure count."""
     path = os.path.join(GOLDEN, f"{module}.tsv")
     _, body = rows(path)
     body = [r for r in body if not r[4].startswith(EMITTED)] + [[fn, "A", ins, outs, note] for fn, ins, outs, note in extra]
+    if rename is not None:
+        body = [[rename(fn, ins), cls, ins, outs, note] for fn, cls, ins, outs, note in body]
     out_rows = [f"{fn}\tA\t{ins}\t{derive(fn, ins, outs)}\t{note}" for fn, _cls, ins, outs, note in body]
     head = [f"# soorat golden corpus, format 1: {module}",
             f"# expected: the correct value (ADR 0003): {expected}",
@@ -1208,7 +1211,38 @@ def check_tables_ref():
         "scripts/oracle/validate.py's tables_reference", tables_reference, tables_extra_rows())
 
 
-# ── color_optics: prakash 1.2.0's formulas (glibc's pow and log, as Rust's), then Color::from_prakash ──────────
+# ── color_optics: Color ⇄ prakash, the correct value (ADR 0003) ────────────────────────────────────────────────────
+#
+# Rust 1.2.0's `optics` functions pass prakash's f64 `Rgb` through `Color::from_prakash`, which clamps each channel to
+# [0, 1] (Rust's f64::clamp: NaN and -0 kept) and narrows it to f32. The correct value is from_prakash applied to
+# prakash's correct result (ADR 0003, the composition rule): each channel's exact value rounded once to f64, then
+# clamped and narrowed (ties to even). Rounding the exact value once to f32 gives the same output on every recorded
+# row; the two differ only within half an f64 ulp of an f32 midpoint, where emitted rows test the rule.
+# - color_temperature_to_rgb is Tanner Helland's fit with his published coefficients, as exact decimals, at
+#   t = kelvin / 100 exactly, clamped to [10, 400] (prakash's range). prakash 2.15.2, like Rust prakash 1.2.0, writes
+#   the green exponent above t = 66 as -0.07551484937, where the fit has -0.0755148492 (ledger L26).
+# - wavelength_to_rgb is prakash's piecewise-linear approximation, with its intensity fall-off below 420 nm and above
+#   700 nm, evaluated exactly (0.3 and 0.7 as exact decimals); None outside 380-780 nm, NaN included.
+# - The fit's pow and ln are evaluated in decimal, at a precision raised until both roundings are decided.
+# Rows soorat can't pass until prakash changes are named `<fn>_prakash`, which tests/parity_features.tcyr leaves
+# pending (json's bayan rows are the precedent): the inputs whose f32 green the exponent changes, and
+# PRAKASH_ROUNDING_PENDING's, where prakash's f64 is not the correctly rounded one and narrowing it gives the other f32.
+
+TH_RED = ("329.698727446", "-0.1332047592")
+TH_GREEN_LO = ("99.4708025861", "161.1195681661")
+TH_GREEN_HI = ("288.1221695283", "-0.0755148492")
+TH_BLUE = ("138.5177312231", "305.0447927307")
+PRAKASH_GREEN_EXP = "-0.07551484937"     # prakash's green exponent (L26): it only names the rows it changes
+
+# (fn, f64 input bits) of the emitted rows where prakash 2.15.2's f64 narrows to the other f32 (ledger L26), measured
+# by replaying the rows through the port (tests/parity_features.tcyr): pending until prakash's results are correctly
+# rounded there. At both, the correctly rounded f64 is the f32 midpoint itself, and prakash's is 1 ulp off it:
+# - 30521.934059399704 K, red: the exact value is 0.042 f64 ulp above the midpoint, prakash's f64 1 ulp above, so it
+#   narrows to 0x3f1f0b3d where the midpoint ties to the even 0x3f1f0b3c;
+# - 400.61403131228457 nm, red: 0.142 ulp below, prakash's 1 ulp below: 0x3ede1285 where the tie gives 0x3ede1286.
+PRAKASH_ROUNDING_PENDING = {("Color::from_temperature", 0x40DDCE7BC7A11390),
+                            ("Color::from_wavelength", 0x407909D3127F4FB7)}
+
 
 def clamp64(x, lo, hi):
     """Rust's f64::clamp: lo when x < lo, hi when x > hi, else x (NaN and -0 kept)."""
@@ -1219,85 +1253,332 @@ def clamp64(x, lo, hi):
     return x
 
 
-def from_prakash(rgb, alpha):
-    return [r32(clamp64(c, 0.0, 1.0)) for c in rgb] + [alpha]
-
-
-def temperature_rgb(kelvin):
-    """prakash 1.2.0's color_temperature_to_rgb (Tanner Helland's fit), in Rust's order."""
-    def pw(x, y):
-        return math.nan if math.isnan(x) else math.pow(x, y)
-
-    def ln(x):
-        return math.nan if math.isnan(x) else math.log(x)
-    temp = clamp64(kelvin / 100.0, 10.0, 400.0)
-    r = 1.0 if temp <= 66.0 else clamp64(329.698_727_446 * pw(temp - 60.0, -0.133_204_759_2) / 255.0, 0.0, 1.0)
-    if temp <= 66.0:
-        g = clamp64(99.470_802_586_1 * ln(temp) - 161.119_568_166_1, 0.0, 255.0) / 255.0
-    else:
-        g = clamp64(288.122_169_528_3 * pw(temp - 60.0, -0.075_514_849_37) / 255.0, 0.0, 1.0)
-    if temp >= 66.0:
-        b = 1.0
-    elif temp <= 19.0:
-        b = 0.0
-    else:
-        b = clamp64(138.517_731_223_1 * ln(temp - 10.0) - 305.044_792_730_7, 0.0, 255.0) / 255.0
-    return [r, g, b]
-
-
-def wavelength_rgb(w):
-    """prakash 1.2.0's wavelength_to_rgb, or None outside 380-780 nm (NaN included)."""
-    if not (380.0 <= w <= 780.0):
-        return None
-    if w < 440.0:
-        r, g, b = -(w - 440.0) / (440.0 - 380.0), 0.0, 1.0
-    elif w < 490.0:
-        r, g, b = 0.0, (w - 440.0) / (490.0 - 440.0), 1.0
-    elif w < 510.0:
-        r, g, b = 0.0, 1.0, -(w - 510.0) / (510.0 - 490.0)
-    elif w < 580.0:
-        r, g, b = (w - 510.0) / (580.0 - 510.0), 1.0, 0.0
-    elif w < 645.0:
-        r, g, b = 1.0, -(w - 645.0) / (645.0 - 580.0), 0.0
-    else:
-        r, g, b = 1.0, 0.0, 0.0
-    if w < 420.0:
-        factor = 0.3 + 0.7 * (w - 380.0) / (420.0 - 380.0)
-    elif w > 700.0:
-        factor = 0.3 + 0.7 * (780.0 - w) / (780.0 - 700.0)
-    else:
-        factor = 1.0
-    return [r * factor, g * factor, b * factor]
-
-
 def f64_tok_values(tokens):
     return [struct.unpack("<d", struct.pack("<Q", b))[0] for b in f64_bits_tokens(tokens)]
 
 
+def _rn32_q(q):
+    """A Fraction rounded once to f32 (ties to even)."""
+    return _out((q, 1 if q < 0 else 0))
+
+
+def _f64t(x):
+    return "f:%016x" % struct.unpack("<Q", struct.pack("<d", x))[0]
+
+
+def _bits64(x):
+    return struct.unpack("<Q", struct.pack("<d", x))[0]
+
+
+def _nextf(x, k):
+    """The f64 k steps from x."""
+    for _ in range(abs(k)):
+        x = math.nextafter(x, math.inf if k > 0 else -math.inf)
+    return x
+
+
+def _th_fit_dec(kind, t, green_exp):
+    """Tanner Helland's channel `kind` (r, g_lo, g_hi, b) at the Decimal t, in 0..255 units before its clamp, in the
+    current decimal context."""
+    D = decimal.Decimal
+    if kind == "r":
+        return D(TH_RED[0]) * (D(TH_RED[1]) * (t - 60).ln()).exp()
+    if kind == "g_hi":
+        return D(TH_GREEN_HI[0]) * (D(green_exp) * (t - 60).ln()).exp()
+    c1, c0 = TH_GREEN_LO if kind == "g_lo" else TH_BLUE
+    return D(c1) * (t if kind == "g_lo" else t - 10).ln() - D(c0)
+
+
+def _th_fit(kind, t, prec, green_exp):
+    """(value, error bound) of _th_fit_dec at the exact t (a Fraction), as Fractions, in decimal at prec digits. Its ln
+    and exp are correctly rounded, so its five roundings stay far inside the bound."""
+    D = decimal.Decimal
+    with decimal.localcontext() as ctx:
+        ctx.prec = prec
+        v = _Q(_th_fit_dec(kind, D(t.numerator) / D(t.denominator), green_exp))
+    return v, (abs(v) + 1200) * _Q(10) ** (6 - prec)
+
+
+def _th_channel(kind, t, green_exp):
+    """The channel's exact value after its clamp, over 255: 0 or 1 beyond a clamp bound, else a Fraction inside an
+    interval narrow enough that its f64 and f32 roundings are decided."""
+    prec = 60
+    while True:
+        v, err = _th_fit(kind, t, prec, green_exp)
+        if v + err < 0:
+            return _Q(0)
+        if v - err > 255:
+            return _Q(1)
+        if v - err > 0 and v + err < 255:
+            lo, hi = (v - err) / 255, (v + err) / 255
+            if float(lo) == float(hi) and _rn32_q(lo) == _rn32_q(hi):
+                return v / 255
+        prec += 40
+
+
+def _th_t(kelvin):
+    """t = kelvin / 100 exactly, clamped to [10, 400]; None for a NaN."""
+    if math.isnan(kelvin):
+        return None
+    t = _Q(kelvin) / 100 if math.isfinite(kelvin) else _Q(400 if kelvin > 0 else 10)
+    return min(max(t, _Q(10)), _Q(400))
+
+
+def temperature_exact(kelvin, green_exp=TH_GREEN_HI[1]):
+    """Tanner Helland's r, g, b at kelvin, each the exact value over 255 after its clamp (Fractions); None for a NaN,
+    where every branch test fails and each channel is NaN."""
+    t = _th_t(kelvin)
+    if t is None:
+        return None
+    r = _Q(1) if t <= 66 else _th_channel("r", t, green_exp)
+    g = _th_channel("g_lo", t, green_exp) if t <= 66 else _th_channel("g_hi", t, green_exp)
+    b = _Q(1) if t >= 66 else (_Q(0) if t <= 19 else _th_channel("b", t, green_exp))
+    return [r, g, b]
+
+
+def _wl_factor(x):
+    """The intensity fall-off at the exact x nm: (7x - 2540) / 400 below 420, (5700 - 7x) / 800 above 700."""
+    if x < 420:
+        return _Q(3, 10) + _Q(7, 10) * (x - 380) / 40
+    if x > 700:
+        return _Q(3, 10) + _Q(7, 10) * (780 - x) / 80
+    return _Q(1)
+
+
+def wavelength_exact(w):
+    """prakash's wavelength_to_rgb at w nm, exactly (Fractions); None outside 380-780 nm, NaN included."""
+    if not (380.0 <= w <= 780.0):
+        return None
+    x = _Q(w)
+    if x < 440:
+        c = [(440 - x) / 60, _Q(0), _Q(1)]
+    elif x < 490:
+        c = [_Q(0), (x - 440) / 50, _Q(1)]
+    elif x < 510:
+        c = [_Q(0), _Q(1), (510 - x) / 20]
+    elif x < 580:
+        c = [(x - 510) / 70, _Q(1), _Q(0)]
+    elif x < 645:
+        c = [_Q(1), (645 - x) / 65, _Q(0)]
+    else:
+        c = [_Q(1), _Q(0), _Q(0)]
+    f = _wl_factor(x)
+    return [v * f for v in c]
+
+
+def _co_rgba(vals):
+    return "v:4 " + " ".join(_gt(v) for v in vals)
+
+
+def color_optics_reference(fn, ins):
+    """The correct outputs of a color_optics row, as tokens (fn without a pending row's `_prakash` suffix)."""
+    if fn == "Color::from_prakash":
+        return _co_rgba([r32(clamp64(c, 0.0, 1.0)) for c in f64_tok_values(ins)] + g_values(ins))
+    if fn == "Color::to_prakash":
+        return " ".join(_f64t(v) for v in g_values(ins)[0:3])
+    x = f64_tok_values(ins)[0]
+    if fn == "Color::from_temperature":
+        e = temperature_exact(x)
+        return _co_rgba(([math.nan] * 3 if e is None else [r32(float(c)) for c in e]) + [1.0])
+    if fn == "Color::from_wavelength":
+        e = wavelength_exact(x)
+        return "n:" if e is None else _co_rgba([r32(float(c)) for c in e] + [1.0])
+    raise KeyError(fn)
+
+
+def _co_exponent_changes(kelvin):
+    """True when prakash's green exponent (L26), correctly evaluated, gives another f32 green than the fit's."""
+    t = _th_t(kelvin)
+    if t is None or t <= 66:
+        return False
+    return r32(float(_th_channel("g_hi", t, TH_GREEN_HI[1]))) != r32(float(_th_channel("g_hi", t, PRAKASH_GREEN_EXP)))
+
+
+_CO_PENDING = {"Color::from_temperature_prakash": "Color::from_temperature",
+               "Color::from_wavelength_prakash": "Color::from_wavelength"}
+
+
+def _co_name(fn, ins):
+    """A row's name: `<fn>_prakash` while it waits on prakash (L26), else fn."""
+    base = _CO_PENDING.get(fn, fn)
+    if base in ("Color::from_temperature", "Color::from_wavelength"):
+        x = f64_tok_values(ins)[0]
+        if base == "Color::from_temperature" and _co_exponent_changes(x):
+            return base + "_prakash"
+        if (base, _bits64(x)) in PRAKASH_ROUNDING_PENDING:
+            return base + "_prakash"
+    return base
+
+
+_TH_RANGES = {"r": (68, 400), "g_lo": (10, 65), "g_hi": (67, 400), "b": (20, 65)}
+
+
+def _th_solve(kind, m, t0):
+    """The t (a Decimal) where the fit's channel over 255 equals m (a Fraction), by Newton's method from t0."""
+    D = decimal.Decimal
+    with decimal.localcontext() as ctx:
+        ctx.prec = 60
+        t = D(t0.numerator) / D(t0.denominator)
+        mm = D(m.numerator) / D(m.denominator)
+        for _ in range(100):
+            v = _th_fit_dec(kind, t, TH_GREEN_HI[1]) / 255
+            if kind in ("r", "g_hi"):
+                dv = v * D((TH_RED if kind == "r" else TH_GREEN_HI)[1]) / (t - 60)
+            else:
+                dv = D((TH_GREEN_LO if kind == "g_lo" else TH_BLUE)[0]) / (255 * (t if kind == "g_lo" else t - 10))
+            step = (v - mm) / dv
+            t -= step
+            if abs(step) < D(10) ** -45:
+                break
+        return float(t * 100)
+
+
+_TIE_NOTE = {"lo": "within half an f64 ulp of an f32 midpoint, the even f32 below it",
+             "hi": "within half an f64 ulp of an f32 midpoint, the even f32 above it",
+             "off": "between 1/2 and 3/2 f64 ulp from an f32 midpoint"}
+
+
+def _near_tie_picks(cands, c):
+    """From (input, exact value) candidates around the f32 midpoint m above the f32 c: 'lo' or 'hi' (which neighbour
+    of m is even) for the nearest when it lies within half an f64 ulp of m, and 'off' for one between 3/5 and 7/5."""
+    m = (_Q(c) + _Q(_next32(c))) / 2
+    u = _Q(math.ulp(float(m)))
+    out = {}
+    x, v = min(cands, key=lambda cv: abs(cv[1] - m))
+    if 0 < abs(v - m) < u / 2:
+        out["lo" if bits(c) % 2 == 0 else "hi"] = x
+    for x, v in cands:
+        if _Q(3, 5) * u < abs(v - m) < _Q(7, 5) * u:
+            out["off"] = x
+            break
+    return out
+
+
+def _th_near_ties(rnd):
+    """Emitted kelvins at f32 midpoints of each fit branch: two within half an f64 ulp of one (prakash's correct f64 is
+    the midpoint, so from_prakash ties to even: below, then above) and one between 1/2 and 3/2 ulp."""
+    rows = []
+    for kind, (lo, hi) in _TH_RANGES.items():
+        got = {}
+        while len(got) < 3:
+            t0 = _Q(lo) + (_Q(hi) - _Q(lo)) * _Q(rnd.random())
+            c = r32(float(_th_channel(kind, t0, TH_GREEN_HI[1])))
+            m = (_Q(c) + _Q(_next32(c))) / 2
+            k0 = _th_solve(kind, m, t0)
+            cands = []
+            for j in range(-12, 13):
+                k = _nextf(k0, j)
+                cands.append((k, _th_fit(kind, _Q(k) / 100, 60, TH_GREEN_HI[1])[0] / 255))
+            for key, k in _near_tie_picks(cands, c).items():
+                got.setdefault(key, k)
+        for key in ("lo", "hi", "off"):
+            k = got[key]
+            rows.append(("Color::from_temperature", _f64t(k), "", f"{EMITTED}{k!r} K: {kind} {_TIE_NOTE[key]}"))
+    return rows
+
+
+# The channels that are linear in w where prakash's arithmetic is exact, and the two fall-off products that are linear:
+# (channel, w from the channel's value m, the open w range). At w(m) for an f32 midpoint m the exact value is m.
+_WL_LINEAR = [
+    (0, lambda m: 440 - 60 * m, (420, 440)),
+    (1, lambda m: 440 + 50 * m, (440, 490)),
+    (2, lambda m: 510 - 20 * m, (490, 510)),
+    (0, lambda m: 510 + 70 * m, (510, 580)),
+    (1, lambda m: 645 - 65 * m, (580, 645)),
+    (2, lambda m: (2540 + 400 * m) / 7, (380, 420)),     # b · fall-off = (7w - 2540) / 400
+    (0, lambda m: (5700 - 800 * m) / 7, (700, 780)),     # r · fall-off = (5700 - 7w) / 800
+]
+
+
+def _wl_ties(rnd):
+    """Emitted wavelengths whose exact channel is an f32 midpoint (so from_prakash ties to even, below and above), on
+    each linear piece; and near-ties of the one quadratic piece, r · fall-off below 420 nm."""
+    rows = []
+    for ch, wof, (lo, hi) in _WL_LINEAR:
+        got = {}
+        while len(got) < 2:
+            w0 = lo + (hi - lo) * rnd.random()
+            c = r32(float(wavelength_exact(w0)[ch]))
+            m = (_Q(c) + _Q(_next32(c))) / 2
+            w = wof(m)
+            if w.denominator & (w.denominator - 1) or _Q(float(w)) != w or not lo < w < hi:
+                continue
+            assert wavelength_exact(float(w))[ch] == m
+            got.setdefault("lo" if bits(c) % 2 == 0 else "hi", float(w))
+        for key in ("lo", "hi"):
+            w = got[key]
+            rows.append(("Color::from_wavelength", _f64t(w), "",
+                         f"{EMITTED}{w!r} nm: channel {ch} at an f32 midpoint, the even f32 {'below' if key == 'lo' else 'above'} it"))
+    got = {}
+    D = decimal.Decimal
+    while len(got) < 3:
+        w0 = 380 + 40 * rnd.random()
+        c = r32(float(wavelength_exact(w0)[0]))
+        m = (_Q(c) + _Q(_next32(c))) / 2
+        with decimal.localcontext() as ctx:         # 7w^2 - 5620w + (1117600 + 24000m) = 0, on w0's side of 2810/7
+            ctx.prec = 60
+            disc = D(5620) ** 2 - 28 * (D(1117600) + D(24000) * D(m.numerator) / D(m.denominator))
+            if disc < 0:
+                continue
+            wk = float((D(5620) + (disc.sqrt() if w0 * 7 > 2810 else -disc.sqrt())) / 14)
+        cands = [(x, wavelength_exact(x)[0]) for x in (_nextf(wk, j) for j in range(-12, 13)) if 380 <= x < 420]
+        for key, x in _near_tie_picks(cands, c).items():
+            got.setdefault(key, x)
+    for key in ("lo", "hi", "off"):
+        w = got[key]
+        rows.append(("Color::from_wavelength", _f64t(w), "", f"{EMITTED}{w!r} nm: r {_TIE_NOTE[key]}"))
+    return rows
+
+
+def color_optics_extra_rows():
+    """Emitted `color_optics` rows (ADR 0003): from_prakash at f32 midpoints (ties to even both ways), just past one,
+    the f32 subnormal ties, f64 subnormals and the clamp's edges; the f64 neighbours of every branch and clamp edge of
+    both conversions; and the near-ties of _th_near_ties and _wl_ties."""
+    out = []
+    for i, (rgb, a) in enumerate((((1 - 2.0 ** -25, 0.5 + 2.0 ** -25, 0.5 + 3 * 2.0 ** -25), 0x3E800000),
+                                  ((math.nextafter(0.5 + 3 * 2.0 ** -25, 1.0), 2.0 ** -150, 3 * 2.0 ** -150), 1),
+                                  ((1 + 2.0 ** -52, 5e-324, -5e-324), 0x3F800000))):
+        out.append(("Color::from_prakash", " ".join(_f64t(v) for v in rgb) + " g:%08x" % a, "",
+                    f"{EMITTED}f32 midpoints and edges {i}"))
+    for k0 in (1000.0, 1900.0, 6600.0, 40000.0):
+        for d in (-1, 1):
+            k = _nextf(k0, d)
+            out.append(("Color::from_temperature", _f64t(k), "", f"{EMITTED}{k!r} K: next to {k0:g} K"))
+    for w0 in (380.0, 420.0, 440.0, 490.0, 510.0, 580.0, 645.0, 700.0, 780.0):
+        for d in (-1, 1):
+            w = _nextf(w0, d)
+            out.append(("Color::from_wavelength", _f64t(w), "", f"{EMITTED}{w!r} nm: next to {w0:g} nm"))
+    rnd = __import__("random").Random(20261119)
+    return out + _th_near_ties(rnd) + _wl_ties(rnd)
+
+
+def _co_derive(fn, ins, _outs):
+    return color_optics_reference(_CO_PENDING.get(fn, fn), ins)
+
+
 def check_color_optics():
-    path = os.path.join(GOLDEN, "color_optics.tsv")
-    if not os.path.exists(path):
-        return 0
-    _, body = rows(path)
-    bad = 0
-    for fn, _cls, ins, outs, note in body:
-        if fn == "Color::from_prakash":
-            ok = same(from_prakash(f64_tok_values(ins), g_values(ins)[0]), g_values(outs))
-        elif fn == "Color::to_prakash":
-            x = g_values(ins)
-            ok = [struct.unpack("<Q", struct.pack("<d", v))[0] for v in x[0:3]] == f64_bits_tokens(outs)
-        elif fn == "Color::from_temperature":
-            ok = same(from_prakash(temperature_rgb(f64_tok_values(ins)[0]), 1.0), g_values(outs))
-        elif fn == "Color::from_wavelength":
-            rgb = wavelength_rgb(f64_tok_values(ins)[0])
-            ok = outs == "n:" if rgb is None else same(from_prakash(rgb, 1.0), g_values(outs))
-        else:
-            ok = False
-            print(f"color_optics: {fn}: no re-derivation in validate.py")
-        if not ok:
-            bad += 1
-            print(f"color_optics: {fn} {note}: re-derived outputs differ from the corpus")
-    return bad
+    """tests/golden/color_optics.tsv against color_optics_reference (rederive_module), with its `_prakash` rows named
+    by _co_name. Also reports where rounding the exact value once to f32 differs from the composition rule."""
+    failures = rederive_module(
+        "color_optics", "Color::from_prakash of prakash's correct Rgb: each channel's exact value (Tanner Helland's "
+        "fit with his published coefficients; prakash's piecewise-linear wavelength approximation) rounded once to "
+        "f64, clamped and narrowed to f32 (ties to even); `_prakash` rows wait on prakash (ledger L26). By "
+        "scripts/oracle/validate.py's color_optics_reference", _co_derive, color_optics_extra_rows(), _co_name)
+    _, body = rows(os.path.join(GOLDEN, "color_optics.tsv"))
+    once, rec_once, pend = 0, 0, 0
+    for fn, _cls, ins, _outs, note in body:
+        base = _CO_PENDING.get(fn, fn)
+        pend += base != fn
+        if base not in ("Color::from_temperature", "Color::from_wavelength"):
+            continue
+        x = f64_tok_values(ins)[0]
+        e = temperature_exact(x) if base == "Color::from_temperature" else wavelength_exact(x)
+        if e is not None and any(r32(float(c)) != _rn32_q(c) for c in e):
+            once += 1
+            rec_once += not note.startswith(EMITTED)
+    print(f"color_optics: {len(body)} rows, {pend} pending on prakash; rounding the exact value once to f32 differs "
+          f"from the composition rule on {once} ({rec_once} recorded)")
+    return failures
 
 
 # ── json: serde's derive semantics for Color, as serde_json 1.0.154 reads ────────────────────────────────
